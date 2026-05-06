@@ -58,6 +58,7 @@ async def startup_event():
                 "description": "A Jenkins instance was found with anonymous read access enabled. This could lead to source code disclosure or RCE.",
                 "risk_level": "high",
                 "status": "new",
+                "acknowledged": False,
                 "target": "jenkins.prod.internal",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "exploitation_suggestions": "1. Attempt to access /script console.\n2. Check for stored credentials in build logs.\n3. Identify plugins with known vulnerabilities.",
@@ -68,6 +69,7 @@ async def startup_event():
                 "description": "The subdomain blog.target.com is pointing to a non-existent Ghost instance.",
                 "risk_level": "medium",
                 "status": "in_progress",
+                "acknowledged": True,
                 "target": "blog.target.com",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "exploitation_suggestions": "1. Register a Ghost(Pro) account.\n2. Attempt to claim the subdomain by adding it to your account.",
@@ -78,6 +80,7 @@ async def startup_event():
                 "description": "An Apache server is running version 2.4.6, which has several known CVEs.",
                 "risk_level": "low",
                 "status": "closed",
+                "acknowledged": True,
                 "target": "static.target.com",
                 "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "exploitation_suggestions": "1. Run Nikto/Nuclei to identify specific vulnerabilities.\n2. Check for directory listing.",
@@ -479,6 +482,20 @@ async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = D
     if not user:
         raise HTTPException(status_code=401)
     await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"notes": notes}})
+    return {"status": "success"}
+
+@app.get("/api/notifications/count")
+async def get_notifications_count(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    count = await leads_col.count_documents({"acknowledged": False})
+    return {"count": count}
+
+@app.post("/api/notifications/clear")
+async def clear_notifications(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    await leads_col.update_many({"acknowledged": False}, {"$set": {"acknowledged": True}})
     return {"status": "success"}
 
 if __name__ == "__main__":

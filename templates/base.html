@@ -50,9 +50,17 @@
                     <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                     <span class="text-sm font-bold text-slate-300 group-hover:text-white">Dashboard</span>
                 </a>
-                <a href="/alerts" class="flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
-                    <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-                    <span class="text-sm font-bold text-slate-300 group-hover:text-white">Alerts</span>
+                <a href="/alerts" class="flex items-center justify-between px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
+                    <div class="flex items-center space-x-3">
+                        <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                        <span class="text-sm font-bold text-slate-300 group-hover:text-white">Alerts</span>
+                    </div>
+                    <div id="alert-notification-container" class="hidden flex items-center space-x-2">
+                        <span id="alert-badge" class="flex h-5 w-5 items-center justify-center rounded-full bg-tech-danger text-[10px] font-bold text-white animate-pulse">0</span>
+                        <button onclick="event.preventDefault(); event.stopPropagation(); clearNotifications();" class="p-1 hover:bg-slate-700 rounded-lg text-slate-500 hover:text-white transition-colors" title="Clear Notifications">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
                 </a>
                 {% if user.is_admin %}
                     <a href="/admin" class="flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
@@ -91,6 +99,43 @@
     </main>
 
     <script>
+        async function fetchNotificationCount() {
+            try {
+                const resp = await fetch('/api/notifications/count');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const container = document.getElementById('alert-notification-container');
+                    const badge = document.getElementById('alert-badge');
+                    
+                    if (data.count > 0) {
+                        badge.textContent = data.count > 9 ? '9+' : data.count;
+                        container.classList.remove('hidden');
+                    } else {
+                        container.classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to fetch notification count', e);
+            }
+        }
+
+        async function clearNotifications() {
+            try {
+                const resp = await fetch('/api/notifications/clear', { method: 'POST' });
+                if (resp.ok) {
+                    fetchNotificationCount();
+                }
+            } catch (e) {
+                console.error('Failed to clear notifications', e);
+            }
+        }
+
+        // Initial fetch and set interval
+        if (document.getElementById('alert-notification-container')) {
+            fetchNotificationCount();
+            setInterval(fetchNotificationCount, 30000); // Every 30 seconds
+        }
+
         function toggleDarkMode() {
             const html = document.documentElement;
             html.classList.toggle('dark');
