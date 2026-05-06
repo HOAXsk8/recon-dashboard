@@ -41,6 +41,7 @@
                 <div class="flex items-center space-x-6">
                     {% if user %}
                         <a href="/dashboard" class="text-sm font-medium hover:text-tech-accent transition-colors">Dashboard</a>
+                        <a href="/alerts" class="text-sm font-medium hover:text-tech-accent transition-colors">Alerts</a>
                         {% if user.is_admin %}
                             <a href="/admin" class="text-sm font-medium hover:text-tech-accent transition-colors">Admin</a>
                         {% endif %}

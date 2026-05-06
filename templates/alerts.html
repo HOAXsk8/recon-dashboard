@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Alerts | Recon Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-10 animate-fade-in">
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-extrabold tracking-tight text-white">Hunting <span class="text-tech-accent">Leads</span></h1>
+            <p class="text-slate-400 font-mono text-xs uppercase tracking-widest mt-1">SIEM-style Triage Console</p>
+        </div>
+        <div class="flex space-x-2">
+            <span class="flex items-center space-x-1 px-3 py-1 bg-red-900/20 text-red-500 rounded-full text-[10px] font-bold border border-red-500/20">
+                <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                <span>HIGH RISK</span>
+            </span>
+            <span class="flex items-center space-x-1 px-3 py-1 bg-orange-900/20 text-orange-500 rounded-full text-[10px] font-bold border border-orange-500/20">
+                <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                <span>MEDIUM RISK</span>
+            </span>
+            <span class="flex items-center space-x-1 px-3 py-1 bg-green-900/20 text-green-500 rounded-full text-[10px] font-bold border border-green-500/20">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span>LOW RISK</span>
+            </span>
+        </div>
+    </div>
+
+    <div class="bg-tech-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left">
+                <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                    <tr>
+                        <th class="px-8 py-4">Status</th>
+                        <th class="px-6 py-4">Risk</th>
+                        <th class="px-6 py-4">Title / Lead</th>
+                        <th class="px-6 py-4">Target</th>
+                        <th class="px-6 py-4">Detected</th>
+                        <th class="px-8 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="leads-table-body" class="divide-y divide-slate-800/50">
+                    <!-- Dynamic Content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="lead-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-tech-bg/95 backdrop-blur-md">
+    <div class="min-h-screen p-4 md:p-10 flex items-center justify-center">
+        <div class="max-w-4xl w-full bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl overflow-hidden">
+            <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div id="modal-risk-indicator" class="w-4 h-4 rounded-full"></div>
+                    <h2 id="modal-lead-title" class="text-2xl font-bold text-white">Lead Details</h2>
+                </div>
+                <button onclick="closeLeadModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Target Asset</h4>
+                            <p id="modal-target" class="text-lg font-mono text-tech-accent"></p>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Detection Time</h4>
+                            <p id="modal-time" class="text-slate-300"></p>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Current Status</h4>
+                            <select id="modal-status-select" onchange="updateLeadStatus()" class="mt-1 block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
+                                <option value="new">New</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="closed">Closed / False Positive</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50">
+                        <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Technical Details</h4>
+                        <p id="modal-details" class="text-sm text-slate-400 leading-relaxed"></p>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <h4 class="text-lg font-bold text-white flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-tech-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Exploitation Suggestions
+                    </h4>
+                    <div id="modal-exploitation" class="bg-tech-bg p-6 rounded-2xl border border-slate-800 prose prose-invert max-w-none text-sm">
+                        <!-- Content -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentLeads = [];
+    let activeLeadId = null;
+
+    async function fetchLeads() {
+        const tbody = document.getElementById('leads-table-body');
+        tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
+        
+        try {
+            const resp = await fetch('/api/leads');
+            const leads = await resp.json();
+            currentLeads = leads;
+            
+            tbody.innerHTML = '';
+            if (leads.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center text-slate-500 italic">No hunting leads identified yet.</td></tr>';
+                return;
+            }
+
+            leads.forEach(lead => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-800/40 transition-colors cursor-pointer group';
+                row.onclick = () => openLeadModal(lead._id);
+                
+                const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
+                const riskText = lead.risk_level.toUpperCase();
+                
+                const statusBadge = lead.status === 'new' ? 'bg-blue-500/10 text-blue-500' : lead.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-slate-800 text-slate-500';
+                
+                row.innerHTML = " \
+                    <td class=\"px-8 py-5\"> \
+                        <span class=\"px-2 py-1 rounded text-[10px] font-bold uppercase " + statusBadge + "\">" + lead.status.replace('_', ' ') + "</span> \
+                    </td> \
+                    <td class=\"px-6 py-5\"> \
+                        <div class=\"flex items-center space-x-2\"> \
+                            <span class=\"w-3 h-3 rounded-full " + riskColor + " " + (lead.risk_level === 'high' ? 'animate-pulse' : '') + "\"></span> \
+                            <span class=\"text-xs font-bold text-slate-300\">" + riskText + "</span> \
+                        </div> \
+                    </td> \
+                    <td class=\"px-6 py-5\"> \
+                        <div class=\"flex flex-col\"> \
+                            <span class=\"font-bold text-slate-100 group-hover:text-tech-accent transition-colors\">" + lead.title + "</span> \
+                            <span class=\"text-xs text-slate-500 line-clamp-1\">" + lead.description + "</span> \
+                        </div> \
+                    </td> \
+                    <td class=\"px-6 py-5 font-mono text-xs text-slate-400\">" + lead.target + "</td> \
+                    <td class=\"px-6 py-5 text-xs text-slate-500\">" + new Date(lead.timestamp).toLocaleString() + "</td> \
+                    <td class=\"px-8 py-5 text-right\"> \
+                        <button class=\"p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all\"> \
+                            <svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M15 12a3 3 0 11-6 0 3 3 0 016 0z\"></path><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z\"></path></svg> \
+                        </button> \
+                    </td> \
+                ";
+                tbody.appendChild(row);
+            });
+        } catch (e) {
+            console.error(e);
+            tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center text-red-500">Failed to load leads.</td></tr>';
+        }
+    }
+
+    function openLeadModal(leadId) {
+        const lead = currentLeads.find(l => l._id === leadId);
+        if (!lead) return;
+        
+        activeLeadId = leadId;
+        document.getElementById('modal-lead-title').textContent = lead.title;
+        document.getElementById('modal-target').textContent = lead.target;
+        document.getElementById('modal-time').textContent = new Date(lead.timestamp).toLocaleString();
+        document.getElementById('modal-details').textContent = lead.details;
+        document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
+        document.getElementById('modal-status-select').value = lead.status;
+        
+        const indicator = document.getElementById('modal-risk-indicator');
+        indicator.className = 'w-4 h-4 rounded-full ' + (lead.risk_level === 'high' ? 'bg-red-500 animate-pulse' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500');
+        
+        document.getElementById('lead-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeLeadModal() {
+        document.getElementById('lead-modal').classList.add('hidden');
+        document.body.style.overflow = 'auto';
+        activeLeadId = null;
+    }
+
+    async function updateLeadStatus() {
+        if (!activeLeadId) return;
+        const newStatus = document.getElementById('modal-status-select').value;
+        
+        try {
+            const resp = await fetch("/api/leads/" + activeLeadId + "/status", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: "status=" + newStatus
+            });
+            
+            if (resp.ok) {
+                fetchLeads();
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', fetchLeads);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLeadModal(); });
+</script>
+
+<style>
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
+    }
+</style>
+{% endblock %}
