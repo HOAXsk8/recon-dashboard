@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+motor
+passlib[bcrypt]
+python-multipart
+python-jose[cryptography]
+pyotp
+slowapi
+jinja2
+pymongo
+email-validator

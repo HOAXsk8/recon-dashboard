@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Login | Recon Dashboard{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-[60vh]">
+    <div class="w-full max-w-md p-8 space-y-8 bg-white dark:bg-tech-panel rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800">
+        <div class="text-center">
+            <h2 class="text-3xl font-extrabold text-tech-accent">Secure Login</h2>
+            <p class="mt-2 text-sm text-slate-500">Access Restricted to Authorized Personnel</p>
+        </div>
+        
+        <form class="mt-8 space-y-6" action="/login" method="POST">
+            {% if error %}
+            <div class="p-4 text-sm text-tech-danger bg-tech-danger/10 border border-tech-danger/20 rounded-lg">
+                {{ error }}
+            </div>
+            {% endif %}
+            
+            <div class="space-y-4">
+                <div>
+                    <label for="username" class="block text-sm font-medium">Username</label>
+                    <input id="username" name="username" type="text" required class="mt-1 block w-full px-4 py-3 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-tech-accent focus:border-transparent transition-all outline-none" placeholder="">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium">Password</label>
+                    <input id="password" name="password" type="password" required class="mt-1 block w-full px-4 py-3 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-tech-accent focus:border-transparent transition-all outline-none" placeholder="••••••••">
+                </div>
+                <div>
+                    <label for="totp_code" class="block text-sm font-medium">TOTP Code</label>
+                    <input id="totp_code" name="totp_code" type="text" required class="mt-1 block w-full px-4 py-3 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-tech-accent focus:border-transparent transition-all outline-none" placeholder="123456" maxlength="6">
+                </div>
+            </div>
+
+            <button type="submit" class="w-full py-4 px-6 bg-tech-accent hover:bg-tech-accent/90 text-tech-bg font-bold rounded-xl shadow-lg shadow-tech-accent/20 transition-all transform active:scale-[0.98]">
+                Unlock Dashboard
+            </button>
+        </form>
+        
+        <div class="mt-6 text-center text-xs text-slate-500 flex items-center justify-center space-x-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span>AES-256 Encrypted Session</span>
+        </div>
+    </div>
+</div>
+{% endblock %}

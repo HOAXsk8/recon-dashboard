@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+
+{% block title %}Search Dashboard | Recon Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-10 animate-fade-in">
+    <!-- Header & Search -->
+    <div class="text-center space-y-4 py-6">
+        <h1 class="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+            Target <span class="text-tech-accent">Reconnaissance</span>
+        </h1>
+        <p class="text-slate-400 max-w-2xl mx-auto uppercase tracking-tighter font-mono text-xs">
+            Operational Threat Hunting & Pentesting Command Console
+        </p>
+        
+        <div class="max-w-3xl mx-auto mt-10 relative">
+            <div class="flex items-center bg-tech-panel border border-slate-800 rounded-2xl shadow-2xl focus-within:ring-2 focus-within:ring-tech-accent transition-all">
+                <div class="pl-6 text-slate-500">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <input type="text" id="main-search" oninput="debounceSearch()" placeholder="Search subdomains, IPs, or technologies..." class="w-full px-4 py-5 bg-transparent outline-none text-lg placeholder-slate-600">
+                <div class="pr-2">
+                    <button onclick="performSearch()" class="bg-tech-accent text-tech-bg px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity">
+                        Search
+                    </button>
+                </div>
+            </div>
+            <!-- Quick Stats -->
+            <div class="flex justify-center space-x-8 mt-6 text-xs font-mono text-slate-500 uppercase tracking-widest">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-tech-success"></span>
+                    <span id="stat-total-docs">0 Total Domains</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-tech-accent"></span>
+                    <span id="stat-scanned">0 Scanned</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inventory Table Section -->
+    <div class="bg-tech-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+        <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center">
+            <h3 class="text-xl font-bold uppercase tracking-widest text-sm">Target Inventory</h3>
+            <div class="flex items-center space-x-4">
+                <select id="limit-select" onchange="resetAndFetch()" class="bg-tech-bg border border-slate-700 rounded-lg px-3 py-1 text-sm outline-none focus:ring-1 focus:ring-tech-accent">
+                    <option value="10">10 per page</option>
+                    <option value="25" selected>25 per page</option>
+                    <option value="50">50 per page</option>
+                </select>
+                <button onclick="resetAndFetch()" class="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+            </div>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full text-left">
+                <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                    <tr>
+                        <th class="px-8 py-4">Domain / Asset</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Country</th>
+                        <th class="px-6 py-4">Subdomains</th>
+                        <th class="px-6 py-4">Technologies</th>
+                        <th class="px-8 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-table-body" class="divide-y divide-slate-800/50">
+                    <!-- Dynamic Content -->
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Load More Section -->
+        <div id="load-more-container" class="px-8 py-10 text-center border-t border-slate-800 bg-slate-900/20">
+            <button id="load-more-btn" onclick="fetchNextPage()" class="px-10 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                Load Next Bundle
+            </button>
+            <p id="pagination-info" class="mt-4 text-xs text-slate-500 font-mono"></p>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Detailed View -->
+<div id="detail-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-tech-bg/95 backdrop-blur-md">
+    <div class="min-h-screen p-4 md:p-10">
+        <div class="max-w-7xl mx-auto bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
+            <!-- Modal Header -->
+            <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-tech-panel/90 backdrop-blur z-20 rounded-t-3xl">
+                <div>
+                    <h2 id="modal-title" class="text-2xl font-bold text-tech-accent">Domain Details</h2>
+                    <p id="modal-subtitle" class="text-xs font-mono text-slate-500"></p>
+                </div>
+                <button onclick="closeModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="px-8 flex space-x-2 border-b border-slate-800 overflow-x-auto bg-tech-panel/50 sticky top-[88px] z-10">
+                <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-tech-accent text-tech-accent">Overview</button>
+                <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Analysis Summary</button>
+                <button onclick="switchTab('exploitation')" id="tab-exploitation" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Exploitation Suggestions</button>
+                <button onclick="switchTab('infrastructure')" id="tab-infrastructure" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Infrastructure</button>
+                <button onclick="switchTab('systems')" id="tab-systems" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Systems & Network</button>
+                <button onclick="switchTab('webapps')" id="tab-webapps" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Web Applications</button>
+                <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">OSINT</button>
+                <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Raw Data</button>
+            </div>
+
+            <!-- Modal Body Content -->
+            <div id="modal-content" class="p-8 flex-grow">
+                <!-- Content will be injected here -->
+                <div class="animate-pulse space-y-8">
+                    <div class="h-20 bg-slate-800 rounded-2xl"></div>
+                    <div class="grid grid-cols-2 gap-6">
+                        <div class="h-64 bg-slate-800 rounded-2xl"></div>
+                        <div class="h-64 bg-slate-800 rounded-2xl"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
+    }
+</style>
+
+<script>
+    let currentPage = 1;
+    let isLoading = false;
+    let hasMore = true;
+    let searchTimeout;
+    let currentDetailData = null;
+
+    async function fetchInventory(append = false) {
+        if (isLoading) return;
+        isLoading = true;
+        
+        const btn = document.getElementById('load-more-btn');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Fetching Intelligence...';
+
+        const q = document.getElementById('main-search').value;
+        const limit = document.getElementById('limit-select').value;
+        const tbody = document.getElementById('inventory-table-body');
+
+        try {
+            const resp = await fetch(`/api/subdomains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}`);
+            const data = await resp.json();
+            
+            if (!append) tbody.innerHTML = '';
+            
+            if (data.subdomains.length === 0 && !append) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-20 text-center text-slate-500 italic">No assets found matching your criteria.</td></tr>`;
+                hasMore = false;
+            } else {
+                data.subdomains.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-slate-800/40 transition-colors group cursor-pointer';
+                    row.onclick = () => openDetails(item.domain);
+                    
+                    const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-md text-[10px] text-slate-400">${t}</span>`).join(' ');
+                    
+                    row.innerHTML = `
+                        <td class="px-8 py-5">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-xl bg-tech-accent/10 flex items-center justify-center text-tech-accent font-bold">
+                                    ${item.domain[0].toUpperCase()}
+                                </div>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${item.domain}</span>
+                                    <span class="text-xs text-slate-500 font-mono">${item.ip}</span>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-5">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.scanned ? 'bg-tech-success/10 text-tech-success' : 'bg-slate-800 text-slate-500'}">
+                                <span class="w-1.5 h-1.5 mr-1.5 rounded-full ${item.scanned ? 'bg-tech-success' : 'bg-slate-500'}"></span>
+                                ${item.scanned ? 'Scanned' : 'Pending'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-5">
+                            <div class="flex items-center space-x-2">
+                                <img src="https://flagcdn.com/w20/${item.country_id.toLowerCase()}.png" class="w-5 h-auto rounded-sm opacity-80" alt="${item.country_id}">
+                                <span class="text-sm font-mono text-slate-400">${item.country_id}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-5">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-lg font-bold ${item.subdomain_count > 0 ? 'text-tech-accent' : 'text-slate-600'}">${item.subdomain_count}</span>
+                                <span class="text-[10px] text-slate-500 uppercase tracking-tighter">found</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-5">
+                            <div class="flex flex-wrap gap-1 max-w-[200px]">
+                                ${techBadges || '<span class="text-xs text-slate-600 italic">None</span>'}
+                            </div>
+                        </td>
+                        <td class="px-8 py-5 text-right">
+                            <button class="p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+                hasMore = (currentPage * limit) < data.total;
+                document.getElementById('pagination-info').textContent = `Showing ${Math.min(currentPage * limit, data.total)} of ${data.total} Assets`;
+                document.getElementById('stat-total-docs').textContent = `${data.total} Total Domains`;
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            isLoading = false;
+            btn.disabled = !hasMore;
+            btn.textContent = hasMore ? originalText : 'End of Intelligence';
+        }
+    }
+
+    function fetchNextPage() {
+        currentPage++;
+        fetchInventory(true);
+    }
+
+    function resetAndFetch() {
+        currentPage = 1;
+        hasMore = true;
+        fetchInventory(false);
+    }
+
+    function debounceSearch() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(resetAndFetch, 400);
+    }
+
+    function performSearch() {
+        resetAndFetch();
+    }
+
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('border-tech-accent', 'text-tech-accent');
+            btn.classList.add('border-transparent', 'text-slate-500');
+        });
+        const activeBtn = document.getElementById(`tab-${tabId}`);
+        if (activeBtn) {
+            activeBtn.classList.add('border-tech-accent', 'text-tech-accent');
+            activeBtn.classList.remove('border-transparent', 'text-slate-500');
+        }
+        renderTabContent(tabId);
+    }
+
+    function safeMarked(text) {
+        if (!text) return '<p class="text-slate-500 italic">No operational data available.</p>';
+        try {
+            let html = '';
+            // Check for marked.parse or marked()
+            if (typeof marked.parse === 'function') {
+                html = marked.parse(text);
+            } else if (typeof marked === 'function') {
+                html = marked(text);
+            } else {
+                console.error('Marked library not found');
+                return text;
+            }
+            return html;
+        } catch (e) {
+            console.error('Markdown transformation error:', e);
+            return text;
+        }
+    }
+
+    function renderTabContent(tabId) {
+        const content = document.getElementById('modal-content');
+        if (!currentDetailData) return;
+        const data = currentDetailData;
+
+        switch(tabId) {
+            case 'overview':
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Target Asset</h4>
+                            <p class="text-2xl font-bold text-white">${data.domain}</p>
+                        </div>
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Capture Timestamp</h4>
+                            <p class="text-lg font-mono text-slate-300">${new Date(data.recon_date).toLocaleString()}</p>
+                        </div>
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">WAF / CDN Detected</h4>
+                            <p class="text-lg font-bold text-tech-accent">${data.infrastructure?.waf_cdn?.provider || 'None Detected'}</p>
+                        </div>
+                    </div>
+                    <div class="bg-tech-bg p-8 rounded-2xl border border-slate-800">
+                        <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 uppercase tracking-widest text-xs">Mission Intel Overview</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                            <div>
+                                <p class="text-slate-500 mb-1 uppercase text-[10px]">Identified Subdomains</p>
+                                <p class="text-xl font-bold text-tech-accent">${data.infrastructure?.subdomains?.length || 0}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 mb-1 uppercase text-[10px]">Systems Enumerated</p>
+                                <p class="text-xl font-bold text-tech-accent">${data.systems?.length || 0}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 mb-1 uppercase text-[10px]">Applications Found</p>
+                                <p class="text-xl font-bold text-tech-accent">${data.web_applications?.length || 0}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 mb-1 uppercase text-[10px]">Operational Status</p>
+                                <p class="text-xl font-bold ${data.scanned ? 'text-tech-success' : 'text-slate-500'}">${data.scanned ? 'SCANNED' : 'PENDING'}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'summary':
+                content.innerHTML = `
+                    <div class="bg-tech-bg p-8 rounded-2xl border border-slate-800 prose prose-invert max-w-none">
+                        <h3 class="text-2xl font-bold mb-6 text-tech-accent flex items-center">
+                            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            Analysis Summary
+                        </h3>
+                        <div class="text-slate-300 leading-relaxed space-y-4 font-sans">
+                            ${safeMarked(data.summary)}
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'exploitation':
+                content.innerHTML = `
+                    <div class="bg-tech-bg p-8 rounded-2xl border border-slate-800 prose prose-invert max-w-none">
+                        <h3 class="text-2xl font-bold mb-6 text-tech-danger flex items-center">
+                            <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            Exploitation Suggestions
+                        </h3>
+                        <div class="text-slate-300 leading-relaxed space-y-4 font-sans">
+                            ${safeMarked(data.exploit_summary)}
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'infrastructure':
+                const subs = data.infrastructure?.subdomains || [];
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800 overflow-hidden">
+                            <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Subdomains (${subs.length})</h3>
+                            <div class="max-h-[600px] overflow-y-auto pr-2">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="text-slate-500 uppercase text-xs sticky top-0 bg-tech-bg">
+                                        <tr><th class="pb-3">Name</th><th class="pb-3">IP</th><th class="pb-3">Type</th></tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-800">
+                                        ${subs.map(s => `<tr><td class="py-2 font-mono text-tech-accent">${s.name}</td><td class="py-2 font-mono text-slate-400">${s.ip || 'N/A'}</td><td class="py-2"><span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] uppercase">${s.type}</span></td></tr>`).join('') || '<tr><td colspan="3" class="py-4 text-center text-slate-500">None found</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="space-y-6">
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Cloud Footprint</h3>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="text-slate-500">S3 Buckets:</span> ${data.infrastructure?.cloud_footprint?.s3_buckets?.length || 0}</p>
+                                    <p><span class="text-slate-500">Azure Blobs:</span> ${data.infrastructure?.cloud_footprint?.azure_blobs?.length || 0}</p>
+                                    <p><span class="text-slate-500">GCP Buckets:</span> ${data.infrastructure?.cloud_footprint?.gcp_buckets?.length || 0}</p>
+                                </div>
+                            </div>
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Email Security</h3>
+                                <div class="space-y-2 text-sm font-mono">
+                                    <p><span class="text-slate-500 uppercase text-[10px] block mb-1">SPF Record</span> ${data.infrastructure?.email_security?.spf || 'Not found'}</p>
+                                    <p><span class="text-slate-500 uppercase text-[10px] block mb-1">DMARC Record</span> ${data.infrastructure?.email_security?.dmarc || 'Not found'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'systems':
+                const systems = data.systems || [];
+                content.innerHTML = `
+                    <div class="space-y-8">
+                        ${systems.map(sys => `
+                            <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800">
+                                <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-800 pb-6">
+                                    <div>
+                                        <h3 class="text-2xl font-bold text-white mb-1">${sys.hostname}</h3>
+                                        <p class="font-mono text-tech-accent text-sm">${sys.ip} • OS: ${sys.os || 'Unknown'}</p>
+                                    </div>
+                                    <div class="flex space-x-2">
+                                        <span class="px-4 py-2 bg-slate-800 rounded-xl text-xs font-bold uppercase">${sys.services?.length || 0} Open Ports</span>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 gap-4">
+                                    ${sys.services?.map(svc => `
+                                        <div class="flex items-center justify-between p-4 bg-slate-900/50 rounded-2xl border border-slate-800/50 hover:border-slate-700 transition-colors">
+                                            <div class="flex items-center space-x-4">
+                                                <div class="w-12 h-12 bg-tech-accent/10 rounded-xl flex items-center justify-center text-tech-accent font-bold font-mono">
+                                                    ${svc.port}
+                                                </div>
+                                                <div>
+                                                    <p class="font-bold text-white uppercase text-sm tracking-widest">${svc.service}</p>
+                                                    <p class="text-xs text-slate-500 font-mono">${svc.software} ${svc.version}</p>
+                                                </div>
+                                            </div>
+                                            <span class="px-3 py-1 bg-tech-success/10 text-tech-success rounded-lg text-[10px] font-bold uppercase tracking-widest border border-tech-success/20">Open</span>
+                                        </div>
+                                    `).join('') || '<p class="text-slate-500 text-center py-4">No open services identified.</p>'}
+                                </div>
+                            </div>
+                        `).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No system-level scans found for this target.</div>'}
+                    </div>
+                `;
+                break;
+            case 'webapps':
+                const apps = data.web_applications || [];
+                content.innerHTML = `
+                    <div class="space-y-8">
+                        ${apps.map(app => `
+                            <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800">
+                                <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-800 pb-6">
+                                    <div>
+                                        <h3 class="text-2xl font-bold text-tech-accent mb-1">${app.url}</h3>
+                                        <div class="flex flex-wrap gap-2 mt-2">
+                                            ${app.tech_stack?.map(t => `<span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 font-bold uppercase">${t}</span>`).join('') || 'No tech stack identified'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    <div>
+                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">Security Headers</h4>
+                                        <div class="space-y-3">
+                                            <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
+                                                <span class="text-xs text-slate-400">HSTS</span>
+                                                <span class="text-xs font-bold ${app.security_headers?.hsts ? 'text-tech-success' : 'text-tech-danger'}">${app.security_headers?.hsts ? 'ENABLED' : 'MISSING'}</span>
+                                            </div>
+                                            <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
+                                                <span class="text-xs text-slate-400">CSP</span>
+                                                <span class="text-xs font-bold ${app.security_headers?.csp ? 'text-tech-success' : 'text-tech-danger'}">${app.security_headers?.csp ? 'ENABLED' : 'MISSING'}</span>
+                                            </div>
+                                            <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
+                                                <span class="text-xs text-slate-400">X-Frame-Options</span>
+                                                <span class="text-xs font-bold ${app.security_headers?.x_frame_options ? 'text-tech-success' : 'text-tech-danger'}">${app.security_headers?.x_frame_options || 'MISSING'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">Discovered Files / Dirs</h4>
+                                        <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                                            ${app.sensitive_files?.map(f => `
+                                                <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
+                                                    <span class="text-xs font-mono text-slate-300">${f.path}</span>
+                                                    <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
+                                                </div>
+                                            `).join('') || '<p class="text-xs text-slate-500 italic">No files identified.</p>'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No web applications identified for this target.</div>'}
+                    </div>
+                `;
+                break;
+            case 'osint':
+                content.innerHTML = `
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 text-tech-danger">Leaked Credentials</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="text-slate-500 uppercase text-xs">
+                                        <tr><th class="pb-3">Email</th><th class="pb-3">Source</th><th class="pb-3">Hash</th></tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-800">
+                                        ${data.osint?.leaked_credentials?.map(l => `<tr><td class="py-3 text-slate-300">${l.email}</td><td class="py-3 text-slate-500">${l.source}</td><td class="py-3 font-mono text-[10px] text-slate-600">${l.hash?.substring(0, 16)}...</td></tr>`).join('') || '<tr><td colspan="3" class="py-10 text-center text-slate-600">No credential leaks found.</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Social Footprint</h3>
+                            <div class="space-y-4">
+                                ${Object.entries(data.osint?.social_links || {}).map(([platform, link]) => `
+                                    <div class="flex items-center justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
+                                        <span class="text-xs font-bold uppercase text-slate-500">${platform}</span>
+                                        <a href="${link}" target="_blank" class="text-xs text-tech-accent hover:underline">${link}</a>
+                                    </div>
+                                `).join('') || '<p class="text-center py-10 text-slate-600">No social profiles identified.</p>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'raw':
+                content.innerHTML = `
+                    <div class="bg-tech-bg rounded-2xl border border-slate-800 overflow-hidden h-full">
+                        <div class="px-6 py-4 bg-slate-900/50 border-b border-slate-800 flex justify-between items-center">
+                            <h3 class="font-bold text-sm uppercase tracking-widest text-slate-500">Raw Intelligence JSON</h3>
+                            <button onclick="copyRaw()" class="text-[10px] bg-slate-800 px-3 py-1 rounded-lg border border-slate-700 hover:text-tech-accent transition-colors">COPY TO CLIPBOARD</button>
+                        </div>
+                        <pre id="raw-json-display" class="p-8 overflow-auto text-[11px] font-mono text-slate-500 h-[600px] leading-relaxed select-all">${JSON.stringify(data, null, 4)}</pre>
+                    </div>
+                `;
+                break;
+        }
+    }
+
+    function copyRaw() {
+        const text = document.getElementById('raw-json-display').innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Copied to clipboard!');
+        });
+    }
+
+    async function openDetails(domain) {
+        const modal = document.getElementById('detail-modal');
+        const content = document.getElementById('modal-content');
+        const title = document.getElementById('modal-title');
+        const subtitle = document.getElementById('modal-subtitle');
+        
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        title.textContent = `Recon Profile: ${domain}`;
+        subtitle.textContent = "Loading tactical data from field agents...";
+        
+        // Show loading state
+        content.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-32 space-y-6">
+                <div class="w-16 h-16 border-4 border-tech-accent border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-slate-500 font-mono text-xs uppercase tracking-[0.2em] animate-pulse">Retrieving Operational Recon Packets...</p>
+            </div>
+        `;
+        
+        try {
+            const resp = await fetch(`/search?q=${encodeURIComponent(domain)}`);
+            const data = await resp.json();
+            
+            if (data.error) {
+                content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold uppercase tracking-widest">DATA ACCESS DENIED: ${data.error}</div>`;
+                return;
+            }
+
+            currentDetailData = data;
+            subtitle.textContent = `Asset ID: ${data._id} • Recorded: ${new Date(data.recon_date).toISOString()}`;
+            switchTab('overview');
+        } catch (e) {
+            content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold">SYSTEM ERROR: Failed to retrieve intelligence feed.</div>`;
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('detail-modal').classList.add('hidden');
+        document.body.style.overflow = 'auto';
+        currentDetailData = null;
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchInventory();
+    });
+</script>
+{% endblock %}
