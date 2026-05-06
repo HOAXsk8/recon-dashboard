@@ -309,6 +309,7 @@ async def get_subdomains(
         query = {"domain": {"$regex": re.escape(q), "$options": "i"}}
     
     total = await domains_col.count_documents(query)
+    scanned_count = await domains_col.count_documents({"scanned": True})
     cursor = domains_col.find(query).sort("domain", 1).skip((page - 1) * limit).limit(limit)
     docs = await cursor.to_list(length=limit)
     
@@ -341,7 +342,7 @@ async def get_subdomains(
             "country_id": get_country_code(ip)
         })
         
-    return {"subdomains": results, "total": total, "page": page, "limit": limit}
+    return {"subdomains": results, "total": total, "scanned_total": scanned_count, "page": page, "limit": limit}
 
 @app.get("/api/ip-lookup")
 async def ip_lookup(ip: str, user: dict = Depends(get_current_user)):

@@ -221,8 +221,8 @@
                 hasMore = (currentPage * limit) < data.total;
                 document.getElementById('pagination-info').textContent = `Showing ${Math.min(currentPage * limit, data.total)} of ${data.total} Assets`;
                 document.getElementById('stat-total-docs').textContent = `${data.total} Total Domains`;
-            }
-        } catch (e) {
+                document.getElementById('stat-scanned').textContent = `${data.scanned_total} Scanned`;
+                }        } catch (e) {
             console.error(e);
         } finally {
             isLoading = false;
