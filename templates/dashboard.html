@@ -227,7 +227,8 @@
         } finally {
             isLoading = false;
             btn.disabled = !hasMore;
-            btn.textContent = hasMore ? originalText : 'End of Intelligence';
+            btn.textContent = originalText;
+            document.getElementById('load-more-container').classList.toggle('hidden', !hasMore);
         }
     }
 
