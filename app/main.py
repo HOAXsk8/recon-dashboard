@@ -1,3 +1,4 @@
+from bson import ObjectId
 from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -12,7 +13,7 @@ import os
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -45,6 +46,46 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+@app.on_event("startup")
+async def startup_event():
+    # Seed leads if collection is empty
+    if await leads_col.count_documents({}) == 0:
+        from datetime import datetime
+        sample_leads = [
+            {
+                "title": "Exposed Jenkins Instance",
+                "description": "A Jenkins instance was found with anonymous read access enabled. This could lead to source code disclosure or RCE.",
+                "risk_level": "high",
+                "status": "new",
+                "target": "jenkins.prod.internal",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "exploitation_suggestions": "1. Attempt to access /script console.\n2. Check for stored credentials in build logs.\n3. Identify plugins with known vulnerabilities.",
+                "details": "The instance is running version 2.235.1. No authentication is required to view jobs."
+            },
+            {
+                "title": "Subdomain Takeover - Ghost",
+                "description": "The subdomain blog.target.com is pointing to a non-existent Ghost instance.",
+                "risk_level": "medium",
+                "status": "in_progress",
+                "target": "blog.target.com",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "exploitation_suggestions": "1. Register a Ghost(Pro) account.\n2. Attempt to claim the subdomain by adding it to your account.",
+                "details": "CNAME record points to target.ghost.io which returns a 404."
+            },
+            {
+                "title": "Outdated Apache Version",
+                "description": "An Apache server is running version 2.4.6, which has several known CVEs.",
+                "risk_level": "low",
+                "status": "closed",
+                "target": "static.target.com",
+                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "exploitation_suggestions": "1. Run Nikto/Nuclei to identify specific vulnerabilities.\n2. Check for directory listing.",
+                "details": "Server banner: Apache/2.4.6 (CentOS) PHP/5.4.16"
+            }
+        ]
+        await leads_col.insert_many(sample_leads)
+
 
 # Auth Helper
 async def get_current_user(request: Request):
@@ -407,6 +448,37 @@ async def delete_user(request: Request, target_username: str = Form(...), user: 
     await log_audit(user["username"], "delete_user", f"Deleted user: {target_username}", request)
     
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/alerts", response_class=HTMLResponse)
+async def alerts_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "alerts.html", {"user": user})
+
+@app.get("/api/leads")
+async def get_leads(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    cursor = leads_col.find({}).sort("timestamp", -1)
+    leads = await cursor.to_list(length=100)
+    for lead in leads:
+        lead["_id"] = str(lead["_id"])
+    return leads
+
+@app.post("/api/leads/{lead_id}/status")
+async def update_lead_status(lead_id: str, status: str = Form(...), user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": status}})
+    return {"status": "success"}
+
+@app.post("/api/leads/{lead_id}/notes")
+async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"notes": notes}})
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn
