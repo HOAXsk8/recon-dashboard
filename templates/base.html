@@ -30,41 +30,63 @@
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col">
-    <nav class="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-tech-bg/80 backdrop-blur-md sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16 items-center">
-                <div class="flex items-center space-x-2">
-                    <div class="w-8 h-8 bg-tech-accent rounded-lg flex items-center justify-center text-tech-bg font-bold">N</div>
-                    <span class="text-xl font-bold tracking-tight text-tech-accent">NETBYTES.CLOUD</span>
-                </div>
-                <div class="flex items-center space-x-6">
-                    {% if user %}
-                        <a href="/dashboard" class="text-sm font-medium hover:text-tech-accent transition-colors">Dashboard</a>
-                        <a href="/alerts" class="text-sm font-medium hover:text-tech-accent transition-colors">Alerts</a>
-                        {% if user.is_admin %}
-                            <a href="/admin" class="text-sm font-medium hover:text-tech-accent transition-colors">Admin</a>
-                        {% endif %}
-                        <a href="/logout" class="text-sm font-medium text-tech-danger hover:opacity-80 transition-opacity">Logout</a>
-                    {% endif %}
-                    <button onclick="toggleDarkMode()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                        <svg id="sun-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.071 16.071l.707.707M7.757 7.757l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path></svg>
-                        <svg id="moon-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-                    </button>
+<body class="min-h-screen flex bg-tech-bg">
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 border-r border-slate-800 bg-tech-panel flex flex-col sticky top-0 h-screen">
+        <div class="p-6 border-b border-slate-800">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-tech-accent rounded-xl flex items-center justify-center text-tech-bg font-black text-xl">N</div>
+                <div class="flex flex-col">
+                    <span class="text-sm font-black tracking-tighter text-tech-accent leading-none">NETBYTES</span>
+                    <span class="text-[10px] font-bold text-slate-500 tracking-[0.2em]">CLOUD</span>
                 </div>
             </div>
         </div>
-    </nav>
+        
+        <nav class="flex-grow p-4 space-y-2">
+            {% if user %}
+                <a href="/dashboard" class="flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
+                    <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                    <span class="text-sm font-bold text-slate-300 group-hover:text-white">Dashboard</span>
+                </a>
+                <a href="/alerts" class="flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
+                    <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
+                    <span class="text-sm font-bold text-slate-300 group-hover:text-white">Alerts</span>
+                </a>
+                {% if user.is_admin %}
+                    <a href="/admin" class="flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group">
+                        <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        <span class="text-sm font-bold text-slate-300 group-hover:text-white">Admin</span>
+                    </a>
+                {% endif %}
+            {% endif %}
+        </nav>
 
-    <main class="flex-grow w-full">
+        <div class="p-4 border-t border-slate-800 space-y-4">
+            <button onclick="toggleDarkMode()" class="flex items-center space-x-3 w-full px-4 py-2 rounded-xl hover:bg-slate-800 transition-colors text-slate-400 hover:text-white group">
+                <svg id="sun-icon" class="w-5 h-5 hidden group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.071 16.071l.707.707M7.757 7.757l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path></svg>
+                <svg id="moon-icon" class="w-5 h-5 hidden group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                <span class="text-sm font-medium">Appearance</span>
+            </button>
+            {% if user %}
+            <a href="/logout" class="flex items-center space-x-3 px-4 py-2 rounded-xl text-tech-danger hover:bg-tech-danger/10 transition-colors group">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                <span class="text-sm font-bold">Logout</span>
+            </a>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow overflow-y-auto">
         <div class="{% block container_class %}max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8{% endblock %}">
             {% block content %}{% endblock %}
         </div>
+        
+        <footer class="border-t border-slate-800 py-6 text-center text-[10px] font-mono uppercase tracking-[0.3em] text-slate-600">
+            &copy; 2026 NETBYTES.CLOUD OPERATIONAL COMMAND | SECURE ACCESS ONLY
+        </footer>
     </main>
-
-    <footer class="border-t border-slate-200 dark:border-slate-800 py-6 text-center text-sm text-slate-500">
-        &copy; 2026 Recon Dashboard | Secure Access Only
-    </footer>
 
     <script>
         function toggleDarkMode() {
