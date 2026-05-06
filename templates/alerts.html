@@ -63,7 +63,8 @@
                             <select id="modal-status-select" onchange="updateLeadStatus()" class="mt-1 block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
                                 <option value="new">New</option>
                                 <option value="in_progress">In Progress</option>
-                                <option value="closed">Closed / False Positive</option>
+                                <option value="true_positive">True Positive</option>
+                                <option value="false_positive">False Positive</option>
                             </select>
                         </div>
                     </div>
@@ -114,7 +115,11 @@
                 const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
                 const riskText = lead.risk_level.toUpperCase();
                 
-                const statusBadge = lead.status === 'new' ? 'bg-blue-500/10 text-blue-500' : lead.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-slate-800 text-slate-500';
+                let statusBadge = 'bg-slate-800 text-slate-500';
+                if (lead.status === 'new') statusBadge = 'bg-blue-500/10 text-blue-500';
+                else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
+                else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
+                else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
                 
                 row.innerHTML = " \
                     <td class=\"px-8 py-5\"> \
