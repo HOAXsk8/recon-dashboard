@@ -47,48 +47,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-@app.on_event("startup")
-async def startup_event():
-    # Seed leads if collection is empty
-    if await leads_col.count_documents({}) == 0:
-        from datetime import datetime
-        sample_leads = [
-            {
-                "title": "Exposed Jenkins Instance",
-                "description": "A Jenkins instance was found with anonymous read access enabled. This could lead to source code disclosure or RCE.",
-                "risk_level": "high",
-                "status": "new",
-                "acknowledged": False,
-                "target": "jenkins.prod.internal",
-                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "exploitation_suggestions": "1. Attempt to access /script console.\n2. Check for stored credentials in build logs.\n3. Identify plugins with known vulnerabilities.",
-                "details": "The instance is running version 2.235.1. No authentication is required to view jobs."
-            },
-            {
-                "title": "Subdomain Takeover - Ghost",
-                "description": "The subdomain blog.target.com is pointing to a non-existent Ghost instance.",
-                "risk_level": "medium",
-                "status": "in_progress",
-                "acknowledged": True,
-                "target": "blog.target.com",
-                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "exploitation_suggestions": "1. Register a Ghost(Pro) account.\n2. Attempt to claim the subdomain by adding it to your account.",
-                "details": "CNAME record points to target.ghost.io which returns a 404."
-            },
-            {
-                "title": "Outdated Apache Version",
-                "description": "An Apache server is running version 2.4.6, which has several known CVEs.",
-                "risk_level": "low",
-                "status": "closed",
-                "acknowledged": True,
-                "target": "static.target.com",
-                "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "exploitation_suggestions": "1. Run Nikto/Nuclei to identify specific vulnerabilities.\n2. Check for directory listing.",
-                "details": "Server banner: Apache/2.4.6 (CentOS) PHP/5.4.16"
-            }
-        ]
-        await leads_col.insert_many(sample_leads)
-
 
 # Auth Helper
 async def get_current_user(request: Request):
@@ -488,14 +446,16 @@ async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = D
 async def get_notifications_count(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    count = await leads_col.count_documents({"acknowledged": False})
+    # Count leads where acknowledged is either False or missing
+    count = await leads_col.count_documents({"acknowledged": {"$ne": True}})
     return {"count": count}
 
 @app.post("/api/notifications/clear")
 async def clear_notifications(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    await leads_col.update_many({"acknowledged": False}, {"$set": {"acknowledged": True}})
+    # Mark all leads as acknowledged
+    await leads_col.update_many({"acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
     return {"status": "success"}
 
 if __name__ == "__main__":

@@ -16,7 +16,9 @@ db = client[DB_NAME]
 domains_col = db["domains"]
 users_col = db["users"]
 audit_logs_col = db["audit_logs"]
+leads_col = db["leads"]
 
 # Sync client for setup scripts
 sync_client = MongoClient(MONGO_URI)
 sync_db = sync_client[DB_NAME]
+sync_leads_col = sync_db["leads"]
