@@ -32,6 +32,7 @@
 </head>
 <body class="min-h-screen flex bg-tech-bg">
     <!-- Sidebar Navigation -->
+    {% block sidebar %}
     <aside class="w-64 border-r border-slate-800 bg-tech-panel flex flex-col sticky top-0 h-screen">
         <div class="p-6 border-b border-slate-800">
             <div class="flex items-center space-x-3">
@@ -76,6 +77,7 @@
             {% endif %}
         </div>
     </aside>
+    {% endblock %}
 
     <!-- Main Content Area -->
     <main class="flex-grow overflow-y-auto">
