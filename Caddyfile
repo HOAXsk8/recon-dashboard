@@ -1,10 +1,8 @@
 {
     email admin@zgfzagjvyxjk.netbytes.cloud
-    auto_https disable_redirects
-    http_port 8081
 }
 
-zgfzagjvyxjk.netbytes.cloud:443 {
+zgfzagjvyxjk.netbytes.cloud {
     reverse_proxy localhost:8000
     
     tls internal

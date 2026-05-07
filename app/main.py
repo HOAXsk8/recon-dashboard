@@ -20,7 +20,9 @@ from app.security import (
     verify_totp, 
     get_password_hash, 
     get_totp_uri, 
-    generate_totp_secret
+    generate_totp_secret,
+    SECRET_KEY,
+    ALGORITHM
 )
 from jose import jwt, JWTError
 
@@ -31,9 +33,6 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 templates = Jinja2Templates(directory="templates")
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
 
 # Security Middleware for Headers
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -67,7 +66,7 @@ async def get_current_user(request: Request):
 
 async def log_audit(username: str, action: str, details: str, request: Request):
     audit_entry = {
-        "timestamp": os.popen("date -u +%Y-%m-%dT%H:%M:%SZ").read().strip(),
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "username": username,
         "action": action,
         "details": details,
@@ -178,7 +177,8 @@ async def login(request: Request, username: str = Form(...), password: str = For
     
     access_token = create_access_token(data={"sub": username})
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="strict")
+    is_secure = request.url.scheme == "https"
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=is_secure, samesite="strict")
     await log_audit(username, "login_success", "User logged in", request)
     return response
 
@@ -304,7 +304,10 @@ def get_country_code(ip: str) -> str:
 async def get_subdomains(
     page: int = 1, 
     limit: int = 20, 
-    q: Optional[str] = None, 
+    q: Optional[str] = None,
+    status_val: Optional[str] = None,
+    has_subdomains: Optional[str] = None,
+    tech: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -312,7 +315,24 @@ async def get_subdomains(
     
     query = {}
     if q:
-        query = {"domain": {"$regex": re.escape(q), "$options": "i"}}
+        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
+    
+    if status_val:
+        if status_val == "scanned":
+            query["scanned"] = True
+        elif status_val == "pending":
+            query["scanned"] = False
+            
+    if has_subdomains == "true":
+        query["infrastructure.subdomains.0"] = {"$exists": True}
+    elif has_subdomains == "false":
+        query["$or"] = [
+            {"infrastructure.subdomains": {"$size": 0}},
+            {"infrastructure.subdomains": {"$exists": False}}
+        ]
+        
+    if tech:
+        query["web_applications.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
     
     total = await domains_col.count_documents(query)
     scanned_count = await domains_col.count_documents({"scanned": True})
