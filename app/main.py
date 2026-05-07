@@ -386,6 +386,94 @@ async def get_subdomains(
         
     return {"subdomains": results, "total": total, "scanned_total": scanned_count, "page": page, "limit": limit}
 
+@app.get("/api/subdomains/export")
+async def export_subdomains(
+    q: Optional[str] = None,
+    status_val: Optional[str] = None,
+    has_subdomains: Optional[str] = None,
+    tech: Optional[str] = None,
+    sort_by: str = "domain",
+    sort_dir: str = "asc",
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {}
+    if q:
+        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
+    
+    if status_val:
+        if status_val == "scanned":
+            query["scanned"] = True
+        elif status_val == "pending":
+            query["scanned"] = False
+            
+    if has_subdomains == "true":
+        query["infrastructure.subdomains.0"] = {"$exists": True}
+    elif has_subdomains == "false":
+        query["$or"] = [
+            {"infrastructure.subdomains": {"$size": 0}},
+            {"infrastructure.subdomains": {"$exists": False}}
+        ]
+        
+    if tech:
+        query["web_applications.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
+    
+    # Sorting logic
+    sort_field = "domain"
+    if sort_by == "status":
+        sort_field = "scanned"
+    elif sort_by == "subdomains":
+        sort_field = "infrastructure.subdomains"
+        
+    direction = 1 if sort_dir == "asc" else -1
+    
+    cursor = domains_col.find(query).sort(sort_field, direction)
+    docs = await cursor.to_list(length=2000)
+    
+    data = []
+    for d in docs:
+        ip = "N/A"
+        if d.get("systems") and len(d["systems"]) > 0:
+            ip = d["systems"][0].get("ip", "N/A")
+        
+        sub_count = 0
+        if d.get("infrastructure") and d["infrastructure"].get("subdomains"):
+            sub_count = len(d["infrastructure"]["subdomains"])
+        
+        techs = []
+        if d.get("web_applications"):
+            for app_info in d["web_applications"]:
+                techs.extend(app_info.get("tech_stack", []))
+        tech_str = ", ".join(list(set(techs)))
+        
+        data.append({
+            "Domain": d.get("domain"),
+            "Status": "Scanned" if d.get("scanned") else "Pending",
+            "IP Address": ip,
+            "Country": get_country_code(ip),
+            "Subdomains Count": sub_count,
+            "Technologies": tech_str,
+            "Recon Date": d.get("recon_date", "N/A")
+        })
+    
+    if not data:
+        df = pd.DataFrame(columns=["Domain", "Status", "IP Address", "Country", "Subdomains Count", "Technologies", "Recon Date"])
+    else:
+        df = pd.DataFrame(data)
+        
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Target Inventory')
+    
+    output.seek(0)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="target_inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    }
+    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 @app.get("/api/ip-lookup")
 async def ip_lookup(ip: str, user: dict = Depends(get_current_user)):
     if not user:
