@@ -1,5 +1,5 @@
 from bson import ObjectId
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Optional
+from typing import Optional, List
 import os
 import io
 import pandas as pd
@@ -738,6 +738,11 @@ async def add_domain(request: Request, domain: str = Form(...), user: dict = Dep
     if not user:
         raise HTTPException(status_code=401)
     
+    # Basic domain validation
+    domain = domain.strip().lower()
+    if not re.match(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$", domain):
+        return {"status": "error", "message": "Invalid domain format"}
+
     existing = await domains_col.find_one({"domain": domain})
     if existing:
         return {"status": "error", "message": "Domain already exists"}
@@ -752,6 +757,90 @@ async def add_domain(request: Request, domain: str = Form(...), user: dict = Dep
     
     await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain}", request)
     return {"status": "success"}
+
+@app.post("/api/domains/bulk-add")
+async def bulk_add_domains(
+    request: Request,
+    bulk_domains: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+
+    domains_to_add = set()
+    
+    # 1. Process Bulk Paste
+    if bulk_domains:
+        for line in bulk_domains.splitlines():
+            d = line.strip().lower()
+            if d:
+                domains_to_add.add(d)
+                
+    # 2. Process File Upload (Strict Security)
+    if file:
+        # Strict Extension Check
+        filename = file.filename.lower()
+        if not (filename.endswith('.txt') or filename.endswith('.csv')):
+            raise HTTPException(status_code=400, detail="Security Violation: Only .txt and .csv files allowed.")
+        
+        # Read content (Limit to 2MB)
+        content = await file.read(2097152) # 2MB limit
+        if await file.read(1): # Check if there's more
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 2MB.")
+            
+        try:
+            text_content = content.decode('utf-8')
+            for line in text_content.splitlines():
+                d = line.strip().lower()
+                # If CSV, take the first column
+                if ',' in d and filename.endswith('.csv'):
+                    d = d.split(',')[0].strip()
+                if d:
+                    domains_to_add.add(d)
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid file encoding. Please use UTF-8.")
+
+    if not domains_to_add:
+        return {"status": "error", "message": "No valid domains found."}
+
+    # Strict Domain Regex
+    domain_regex = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
+    
+    valid_domains = []
+    for d in domains_to_add:
+        if domain_regex.match(d):
+            valid_domains.append(d)
+
+    if not valid_domains:
+        return {"status": "error", "message": "None of the provided domains were in a valid format."}
+
+    # Batch Check & Insert
+    added_count = 0
+    skipped_count = 0
+    
+    for domain in valid_domains:
+        existing = await domains_col.find_one({"domain": domain})
+        if not existing:
+            await domains_col.insert_one({
+                "domain": domain,
+                "scanned": False,
+                "blacklisted": False,
+                "notes": "",
+                "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            })
+            added_count += 1
+        else:
+            skipped_count += 1
+
+    await log_audit(user["username"], "BULK_ADD_DOMAINS", f"Added {added_count} domains, skipped {skipped_count} (Total attempted: {len(domains_to_add)})", request)
+    
+    return {
+        "status": "success", 
+        "added": added_count, 
+        "skipped": skipped_count, 
+        "total_valid": len(valid_domains)
+    }
 
 @app.post("/api/domains/{domain_id}/blacklist")
 async def toggle_blacklist(domain_id: str, request: Request, user: dict = Depends(get_current_user)):

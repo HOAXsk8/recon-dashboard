@@ -52,21 +52,42 @@
 
 <!-- Add Domain Modal -->
 <div id="add-domain-modal" class="fixed inset-0 bg-tech-bg/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-tech-panel w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div class="bg-white dark:bg-tech-panel w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-            <h3 class="text-xl font-bold">Add New Domain</h3>
+            <h3 class="text-xl font-bold">Add Domains</h3>
             <button onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
-        <form id="add-domain-form" class="p-6 space-y-4">
-            <div>
-                <label class="block text-sm font-medium mb-1">Domain Name</label>
-                <input type="text" id="new-domain" name="domain" required placeholder="example.com" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent">
+        <form id="add-domain-form" class="p-6 space-y-6">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Bulk Paste (one per line)</label>
+                    <textarea id="bulk-domains" name="domains" placeholder="example.com&#10;test.com" class="w-full h-40 px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent resize-none font-mono text-sm"></textarea>
+                </div>
+                
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center" aria-hidden="true">
+                        <div class="w-full border-t border-slate-700"></div>
+                    </div>
+                    <div class="relative flex justify-center text-xs uppercase">
+                        <span class="bg-tech-panel px-2 text-slate-500">Or Upload File</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-1">Upload .txt or .csv</label>
+                    <input type="file" id="domain-file" accept=".txt,.csv" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-tech-accent/10 file:text-tech-accent hover:file:bg-tech-accent/20 transition-all cursor-pointer">
+                    <p class="mt-1 text-[10px] text-slate-500">Format: One domain per line. Only .txt and .csv allowed.</p>
+                </div>
             </div>
-            <div class="flex justify-end pt-4">
-                <button type="submit" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity">
-                    Add Domain
+
+            <div class="flex justify-end pt-4 space-x-3">
+                <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="px-6 py-2 border border-slate-700 text-slate-400 font-bold rounded-lg hover:bg-slate-800 transition-all">
+                    Cancel
+                </button>
+                <button type="submit" id="submit-add-domains" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2">
+                    <span>Add Domains</span>
                 </button>
             </div>
         </form>
@@ -174,25 +195,60 @@ function changeDomainPage(delta) {
 
 document.getElementById('add-domain-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const domain = document.getElementById('new-domain').value;
-    const formData = new FormData();
-    formData.append('domain', domain);
+    const bulkDomains = document.getElementById('bulk-domains').value;
+    const domainFile = document.getElementById('domain-file').files[0];
     
+    if (!bulkDomains.trim() && !domainFile) {
+        alert('Please enter domains or select a file.');
+        return;
+    }
+
+    const formData = new FormData();
+    if (bulkDomains.trim()) {
+        formData.append('bulk_domains', bulkDomains);
+    }
+    
+    if (domainFile) {
+        // Strict frontend validation
+        const allowedExtensions = ['txt', 'csv'];
+        const extension = domainFile.name.split('.').pop().toLowerCase();
+        if (!allowedExtensions.includes(extension)) {
+            alert('Security Error: Invalid file type. Only .txt and .csv are allowed.');
+            return;
+        }
+        if (domainFile.size > 2 * 1024 * 1024) { // 2MB limit
+            alert('File too large. Maximum size is 2MB.');
+            return;
+        }
+        formData.append('file', domainFile);
+    }
+    
+    const submitBtn = document.getElementById('submit-add-domains');
+    const originalBtnContent = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Processing...</span>';
+
     try {
-        const response = await fetch('/api/domains/add', {
+        const response = await fetch('/api/domains/bulk-add', {
             method: 'POST',
             body: formData
         });
         const result = await response.json();
         if (result.status === 'success') {
             document.getElementById('add-domain-modal').classList.add('hidden');
-            document.getElementById('new-domain').value = '';
+            document.getElementById('bulk-domains').value = '';
+            document.getElementById('domain-file').value = '';
+            alert(`Success: ${result.added} domains added, ${result.skipped} skipped.`);
             loadDomains();
         } else {
-            alert(result.message || 'Error adding domain');
+            alert(result.message || 'Error adding domains');
         }
     } catch (error) {
-        console.error('Error adding domain:', error);
+        console.error('Error adding domains:', error);
+        alert('Server connection error.');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnContent;
     }
 });
 
