@@ -245,33 +245,6 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     
     return domain_data
 
-@app.delete("/api/domains/{domain_id}")
-async def delete_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    result = await domains_col.delete_one({"_id": ObjectId(domain_id)})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Domain not found")
-        
-    await log_audit(user["username"], "delete_domain", f"Deleted domain ID: {domain_id}", request)
-    return {"status": "success"}
-
-@app.post("/api/domains/{domain_id}/blacklist")
-async def blacklist_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    result = await domains_col.update_one(
-        {"_id": ObjectId(domain_id)}, 
-        {"$set": {"blacklisted": True, "scanned": False}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Domain not found")
-        
-    await log_audit(user["username"], "blacklist_domain", f"Blacklisted domain ID: {domain_id}", request)
-    return {"status": "success"}
-
 @app.get("/api/suggestions")
 async def get_suggestions(q: str, user: dict = Depends(get_current_user)):
     if not user:
