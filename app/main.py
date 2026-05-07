@@ -721,6 +721,102 @@ async def clear_notifications(user: dict = Depends(get_current_user)):
     await leads_col.update_many({"acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
     return {"status": "success"}
 
+# --- Domain Management Routes ---
+
+@app.get("/domains", response_class=HTMLResponse)
+async def domains_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "domains.html", {"user": user})
+
+@app.get("/api/domains")
+async def get_domains(
+    page: int = 1, 
+    limit: int = 10, 
+    q: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {}
+    if q:
+        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
+    
+    total = await domains_col.count_documents(query)
+    cursor = domains_col.find(query).sort("domain", 1).skip((page - 1) * limit).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    
+    results = []
+    for d in docs:
+        results.append({
+            "id": str(d["_id"]),
+            "domain": d.get("domain"),
+            "scanned": d.get("scanned", False),
+            "blacklisted": d.get("blacklisted", False),
+            "notes": d.get("notes", ""),
+            "added_at": d.get("added_at", "N/A")
+        })
+    
+    return {"domains": results, "total": total, "page": page, "limit": limit}
+
+@app.post("/api/domains/add")
+async def add_domain(request: Request, domain: str = Form(...), user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    existing = await domains_col.find_one({"domain": domain})
+    if existing:
+        return {"status": "error", "message": "Domain already exists"}
+    
+    await domains_col.insert_one({
+        "domain": domain,
+        "scanned": False,
+        "blacklisted": False,
+        "notes": "",
+        "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    })
+    
+    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain}", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/{domain_id}/blacklist")
+async def toggle_blacklist(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    
+    new_status = not domain_doc.get("blacklisted", False)
+    await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"blacklisted": new_status}})
+    
+    await log_audit(user["username"], "BLACKLIST_DOMAIN", f"{'Blacklisted' if new_status else 'Unblacklisted'} domain: {domain_doc['domain']}", request)
+    return {"status": "success", "blacklisted": new_status}
+
+@app.post("/api/domains/{domain_id}/delete")
+async def delete_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    
+    await domains_col.delete_one({"_id": ObjectId(domain_id)})
+    
+    await log_audit(user["username"], "DELETE_DOMAIN", f"Deleted domain: {domain_doc['domain']}", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/{domain_id}/notes")
+async def update_domain_notes(domain_id: str, request: Request, notes: str = Form(...), user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"notes": notes}})
+    return {"status": "success"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

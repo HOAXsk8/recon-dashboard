@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Domains | Recon Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-8 animate-fade-in">
+    <div class="flex justify-between items-center">
+        <h2 class="text-3xl font-bold text-tech-accent tracking-tight">Domain Management</h2>
+        <button onclick="document.getElementById('add-domain-modal').classList.remove('hidden')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            <span>Add Domain</span>
+        </button>
+    </div>
+
+    <!-- Domains Table Section -->
+    <div class="bg-white dark:bg-tech-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xl">
+        <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h3 class="text-lg font-bold">Target Domains</h3>
+            <div class="relative max-w-sm w-full">
+                <input type="text" id="domain-search" oninput="debounce(loadDomains, 500)()" placeholder="Search domains..." class="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-tech-accent outline-none">
+                <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase text-xs font-bold">
+                    <tr>
+                        <th class="px-6 py-4">Domain</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Blacklisted</th>
+                        <th class="px-6 py-4">Added At</th>
+                        <th class="px-6 py-4">Notes</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="domain-table-body" class="divide-y divide-slate-200 dark:divide-slate-800">
+                    <!-- Loaded via AJAX -->
+                </tbody>
+            </table>
+        </div>
+        <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <span id="domain-count" class="text-xs text-slate-500">Showing 0 domains</span>
+            <div class="flex space-x-2">
+                <button id="domain-prev" onclick="changeDomainPage(-1)" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs hover:bg-tech-accent hover:text-tech-bg disabled:opacity-50 disabled:hover:bg-slate-100 disabled:hover:text-slate-500 transition-all">Previous</button>
+                <button id="domain-next" onclick="changeDomainPage(1)" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs hover:bg-tech-accent hover:text-tech-bg disabled:opacity-50 disabled:hover:bg-slate-100 disabled:hover:text-slate-500 transition-all">Next</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Domain Modal -->
+<div id="add-domain-modal" class="fixed inset-0 bg-tech-bg/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-tech-panel w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+            <h3 class="text-xl font-bold">Add New Domain</h3>
+            <button onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <form id="add-domain-form" class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">Domain Name</label>
+                <input type="text" id="new-domain" name="domain" required placeholder="example.com" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent">
+            </div>
+            <div class="flex justify-end pt-4">
+                <button type="submit" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity">
+                    Add Domain
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Notes Modal -->
+<div id="notes-modal" class="fixed inset-0 bg-tech-bg/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-tech-panel w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+            <h3 class="text-xl font-bold">Domain Notes</h3>
+            <button onclick="document.getElementById('notes-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="p-6 space-y-4">
+            <input type="hidden" id="notes-domain-id">
+            <div>
+                <label class="block text-sm font-medium mb-1">Notes for <span id="notes-domain-name" class="text-tech-accent"></span></label>
+                <textarea id="domain-notes-textarea" class="w-full h-40 px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent resize-none"></textarea>
+            </div>
+            <div class="flex justify-end pt-4">
+                <button onclick="saveNotes()" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity">
+                    Save Notes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPage = 1;
+const limit = 10;
+
+async function loadDomains() {
+    const q = document.getElementById('domain-search').value;
+    try {
+        const response = await fetch(`/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}`);
+        const data = await response.json();
+        
+        const tbody = document.getElementById('domain-table-body');
+        tbody.innerHTML = '';
+        
+        data.domains.forEach(domain => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors';
+            tr.innerHTML = `
+                <td class="px-6 py-4 font-mono font-bold">${domain.domain}</td>
+                <td class="px-6 py-4">
+                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${domain.scanned ? 'bg-tech-success/10 text-tech-success' : 'bg-tech-accent/10 text-tech-accent'}">
+                        ${domain.scanned ? 'Scanned' : 'Pending'}
+                    </span>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${domain.blacklisted ? 'bg-tech-danger/10 text-tech-danger' : 'bg-slate-500/10 text-slate-500'}">
+                        ${domain.blacklisted ? 'Yes' : 'No'}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-xs text-slate-500 font-mono">${domain.added_at}</td>
+                <td class="px-6 py-4">
+                    <p class="text-xs text-slate-400 max-w-[200px] truncate">${domain.notes || 'No notes...'}</p>
+                </td>
+                <td class="px-6 py-4 text-right space-x-2">
+                    <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${domain.notes.replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                    </button>
+                    <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="${domain.blacklisted ? 'Unblacklist' : 'Blacklist'}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                    </button>
+                    <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        document.getElementById('domain-count').innerText = `Showing ${data.domains.length} of ${data.total} domains`;
+        document.getElementById('domain-prev').disabled = currentPage === 1;
+        document.getElementById('domain-next').disabled = currentPage * limit >= data.total;
+        
+    } catch (error) {
+        console.error('Error loading domains:', error);
+    }
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function changeDomainPage(delta) {
+    currentPage += delta;
+    loadDomains();
+}
+
+document.getElementById('add-domain-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const domain = document.getElementById('new-domain').value;
+    const formData = new FormData();
+    formData.append('domain', domain);
+    
+    try {
+        const response = await fetch('/api/domains/add', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            document.getElementById('add-domain-modal').classList.add('hidden');
+            document.getElementById('new-domain').value = '';
+            loadDomains();
+        } else {
+            alert(result.message || 'Error adding domain');
+        }
+    } catch (error) {
+        console.error('Error adding domain:', error);
+    }
+});
+
+async function toggleBlacklist(id) {
+    try {
+        const response = await fetch(`/api/domains/${id}/blacklist`, { method: 'POST' });
+        const result = await response.json();
+        if (result.status === 'success') {
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Error toggling blacklist:', error);
+    }
+}
+
+async function deleteDomain(id, domain) {
+    if (!confirm(`Are you sure you want to delete ${domain}?`)) return;
+    
+    try {
+        const response = await fetch(`/api/domains/${id}/delete`, { method: 'POST' });
+        const result = await response.json();
+        if (result.status === 'success') {
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Error deleting domain:', error);
+    }
+}
+
+function openNotesModal(id, name, notes) {
+    document.getElementById('notes-domain-id').value = id;
+    document.getElementById('notes-domain-name').innerText = name;
+    document.getElementById('domain-notes-textarea').value = notes === 'undefined' ? '' : notes;
+    document.getElementById('notes-modal').classList.remove('hidden');
+}
+
+async function saveNotes() {
+    const id = document.getElementById('notes-domain-id').value;
+    const notes = document.getElementById('domain-notes-textarea').value;
+    const formData = new FormData();
+    formData.append('notes', notes);
+    
+    try {
+        const response = await fetch(`/api/domains/${id}/notes`, {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            document.getElementById('notes-modal').classList.add('hidden');
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Error saving notes:', error);
+    }
+}
+
+// Initial load
+loadDomains();
+</script>
+{% endblock %}
