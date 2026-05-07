@@ -208,7 +208,6 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     # 2. Try exact subdomain match if no direct domain match
     if not domain_data:
         domain_data = await domains_col.find_one({"infrastructure.subdomains.name": q})
-        # If found via subdomain, we should still return the parent doc but we know the target was a sub
     
     # 3. Fallback to partial match on domain
     if not domain_data:
@@ -218,12 +217,58 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         return {"error": "Domain not found"}
     
     await log_audit(user["username"], "query", f"Searched for domain: {q}", request)
-    domain_data["_id"] = str(domain_data["_id"])
     
-    # Add a 'target_query' field so frontend knows what was actually searched
+    # Get stats for this domain
+    domain_name = domain_data["domain"]
+    
+    # Collect all possible targets for this domain (subdomains and IPs)
+    targets = [domain_name]
+    if domain_data.get("infrastructure") and domain_data["infrastructure"].get("subdomains"):
+        for sub in domain_data["infrastructure"]["subdomains"]:
+            if sub.get("name"): targets.append(sub["name"])
+            if sub.get("ip"): targets.append(sub["ip"])
+    
+    # Limit targets list size to avoid MongoDB query limits if necessary, 
+    # but for now we'll try $in.
+    # Statuses: ['false_positive', 'in_progress', 'new', 'true_positive']
+    stats = {
+        "open_alerts": await leads_col.count_documents({"target": {"$in": targets}, "status": {"$in": ["new", "in_progress"]}}),
+        "true_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "true_positive"}),
+        "false_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "false_positive"})
+    }
+    
+    domain_data["_id"] = str(domain_data["_id"])
     domain_data["target_query"] = q
+    domain_data["stats"] = stats
     
     return domain_data
+
+@app.delete("/api/domains/{domain_id}")
+async def delete_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await domains_col.delete_one({"_id": ObjectId(domain_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Domain not found")
+        
+    await log_audit(user["username"], "delete_domain", f"Deleted domain ID: {domain_id}", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/{domain_id}/blacklist")
+async def blacklist_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await domains_col.update_one(
+        {"_id": ObjectId(domain_id)}, 
+        {"$set": {"blacklisted": True, "scanned": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Domain not found")
+        
+    await log_audit(user["username"], "blacklist_domain", f"Blacklisted domain ID: {domain_id}", request)
+    return {"status": "success"}
 
 @app.get("/api/suggestions")
 async def get_suggestions(q: str, user: dict = Depends(get_current_user)):
