@@ -9,3 +9,5 @@ slowapi
 jinja2
 pymongo
 email-validator
+pandas
+openpyxl

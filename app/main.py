@@ -1,6 +1,6 @@
 from bson import ObjectId
 from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -9,6 +9,8 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional
 import os
+import io
+import pandas as pd
 
 from datetime import datetime, timedelta
 import re
@@ -536,6 +538,70 @@ async def get_leads(
     for lead in leads:
         lead["_id"] = str(lead["_id"])
     return leads
+
+@app.get("/api/leads/export")
+async def export_leads(
+    status: Optional[str] = None,
+    risk: Optional[str] = None,
+    title: Optional[str] = None,
+    target: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {}
+    if status:
+        query["status"] = status
+    if risk:
+        query["risk_level"] = risk
+    if title:
+        query["title"] = {"$regex": re.escape(title), "$options": "i"}
+    if target:
+        query["target"] = {"$regex": re.escape(target), "$options": "i"}
+    
+    if start_date or end_date:
+        query["timestamp"] = {}
+        if start_date:
+            query["timestamp"]["$gte"] = start_date
+        if end_date:
+            if len(end_date) == 10:
+                query["timestamp"]["$lte"] = f"{end_date}T23:59:59Z"
+            else:
+                query["timestamp"]["$lte"] = end_date
+            
+    cursor = leads_col.find(query).sort("timestamp", -1)
+    leads = await cursor.to_list(length=1000) # Increased limit for export
+    
+    data = []
+    for l in leads:
+        data.append({
+            "Detected Date": l.get("timestamp"),
+            "Status": l.get("status", "new").replace("_", " ").title(),
+            "Risk": l.get("risk_level", "low").upper(),
+            "Title": l.get("title"),
+            "Target": l.get("target"),
+            "Notes": l.get("notes", "")
+        })
+    
+    if not data:
+        # Create empty df with columns if no data
+        df = pd.DataFrame(columns=["Detected Date", "Status", "Risk", "Title", "Target", "Notes"])
+    else:
+        df = pd.DataFrame(data)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Hunting Leads')
+    
+    output.seek(0)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="hunting_leads_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    }
+    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.post("/api/leads/{lead_id}/status")
 async def update_lead_status(lead_id: str, status: str = Form(...), user: dict = Depends(get_current_user)):
