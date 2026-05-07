@@ -80,6 +80,15 @@
                     <input type="file" id="domain-file" accept=".txt,.csv" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-tech-accent/10 file:text-tech-accent hover:file:bg-tech-accent/20 transition-all cursor-pointer">
                     <p class="mt-1 text-[10px] text-slate-500">Format: One domain per line. Only .txt and .csv allowed.</p>
                 </div>
+
+                <div>
+                    <label class="block text-sm font-medium mb-1">Initial Scanning Status</label>
+                    <select id="initial-status" name="status" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent text-sm">
+                        <option value="pending">Pending (Queue for scanning)</option>
+                        <option value="scanned">Scanned (Mark as completed)</option>
+                        <option value="on_hold">On Hold (Do not scan)</option>
+                    </select>
+                </div>
             </div>
 
             <div class="flex justify-end pt-4 space-x-3">
@@ -197,6 +206,7 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
     e.preventDefault();
     const bulkDomains = document.getElementById('bulk-domains').value;
     const domainFile = document.getElementById('domain-file').files[0];
+    const initialStatus = document.getElementById('initial-status').value;
     
     if (!bulkDomains.trim() && !domainFile) {
         alert('Please enter domains or select a file.');
@@ -204,6 +214,7 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
     }
 
     const formData = new FormData();
+    formData.append('status', initialStatus);
     if (bulkDomains.trim()) {
         formData.append('bulk_domains', bulkDomains);
     }

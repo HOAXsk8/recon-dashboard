@@ -762,11 +762,19 @@ async def add_domain(request: Request, domain: str = Form(...), user: dict = Dep
 async def bulk_add_domains(
     request: Request,
     bulk_domains: Optional[str] = Form(None),
+    status: str = Form("pending"),
     file: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user)
 ):
     if not user:
         raise HTTPException(status_code=401)
+
+    # Validate status
+    if status not in ["pending", "scanned", "on_hold"]:
+        status = "pending"
+
+    scanned_val = True if status == "scanned" else False
+    on_hold_val = True if status == "on_hold" else False
 
     domains_to_add = set()
     
@@ -824,7 +832,8 @@ async def bulk_add_domains(
         if not existing:
             await domains_col.insert_one({
                 "domain": domain,
-                "scanned": False,
+                "scanned": scanned_val,
+                "on_hold": on_hold_val,
                 "blacklisted": False,
                 "notes": "",
                 "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
