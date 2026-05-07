@@ -104,13 +104,15 @@ const limit = 10;
 async function loadDomains() {
     const q = document.getElementById('domain-search').value;
     try {
-        const response = await fetch(`/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}`);
+        const response = await fetch(`/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&_t=${Date.now()}`);
         const data = await response.json();
+        console.log('Loaded domains:', data.domains);
         
         const tbody = document.getElementById('domain-table-body');
         tbody.innerHTML = '';
         
         data.domains.forEach(domain => {
+            const isBlacklisted = domain.blacklisted === true;
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors';
             tr.innerHTML = `
@@ -121,8 +123,8 @@ async function loadDomains() {
                     </span>
                 </td>
                 <td class="px-6 py-4">
-                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${domain.blacklisted ? 'bg-tech-danger/10 text-tech-danger' : 'bg-slate-500/10 text-slate-500'}">
-                        ${domain.blacklisted ? 'Yes' : 'No'}
+                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${isBlacklisted ? 'bg-tech-danger/10 text-tech-danger' : 'bg-slate-500/10 text-slate-500'}">
+                        ${isBlacklisted ? 'Yes' : 'No'}
                     </span>
                 </td>
                 <td class="px-6 py-4 text-xs text-slate-500 font-mono">${domain.added_at}</td>
@@ -130,10 +132,10 @@ async function loadDomains() {
                     <p class="text-xs text-slate-400 max-w-[200px] truncate">${domain.notes || 'No notes...'}</p>
                 </td>
                 <td class="px-6 py-4 text-right space-x-2">
-                    <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${domain.notes.replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
+                    <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${(domain.notes || "").replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                     </button>
-                    <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${domain.blacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors" title="${domain.blacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
+                    <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${isBlacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors" title="${isBlacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
                     </button>
                     <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="Delete">
@@ -195,9 +197,11 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
 });
 
 async function toggleBlacklist(id) {
+    console.log('Toggling blacklist for ID:', id);
     try {
         const response = await fetch(`/api/domains/${id}/blacklist`, { method: 'POST' });
         const result = await response.json();
+        console.log('Blacklist toggle result:', result);
         if (result.status === 'success') {
             loadDomains();
         }
