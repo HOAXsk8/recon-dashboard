@@ -707,6 +707,8 @@ async def get_domains(
     page: int = 1, 
     limit: int = 10, 
     q: Optional[str] = None,
+    status_val: Optional[str] = None,
+    blacklisted: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -715,6 +717,21 @@ async def get_domains(
     query = {}
     if q:
         query["domain"] = {"$regex": re.escape(q), "$options": "i"}
+    
+    if status_val:
+        if status_val == "scanned":
+            query["scanned"] = True
+            query["on_hold"] = {"$ne": True}
+        elif status_val == "pending":
+            query["scanned"] = False
+            query["on_hold"] = {"$ne": True}
+        elif status_val == "on_hold":
+            query["on_hold"] = True
+            
+    if blacklisted == "true":
+        query["blacklisted"] = True
+    elif blacklisted == "false":
+        query["blacklisted"] = {"$ne": True}
     
     total = await domains_col.count_documents(query)
     cursor = domains_col.find(query).sort("domain", 1).skip((page - 1) * limit).limit(limit)
