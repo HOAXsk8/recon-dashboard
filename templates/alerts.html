@@ -13,6 +13,29 @@
         </div>
     </div>
 
+    <!-- Advanced Filters -->
+    <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+        <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+            <option value="">All Statuses</option>
+            <option value="new">New</option>
+            <option value="in_progress">In Progress</option>
+            <option value="true_positive">True Positive</option>
+            <option value="false_positive">False Positive</option>
+        </select>
+        <select id="filter-risk" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+            <option value="">All Risks</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+        </select>
+        <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+        <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+        <div class="flex space-x-2">
+            <input type="date" id="filter-start-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="Start Date">
+            <input type="date" id="filter-end-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="End Date">
+        </div>
+    </div>
+
     <div class="bg-tech-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left">
@@ -108,13 +131,34 @@
 <script>
     let currentLeads = [];
     let activeLeadId = null;
+    let leadsSearchTimeout;
+
+    function debounceLeadsSearch() {
+        clearTimeout(leadsSearchTimeout);
+        leadsSearchTimeout = setTimeout(fetchLeads, 400);
+    }
 
     async function fetchLeads() {
         const tbody = document.getElementById('leads-table-body');
         tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
+        const status = document.getElementById('filter-status').value;
+        const risk = document.getElementById('filter-risk').value;
+        const title = document.getElementById('filter-title').value;
+        const target = document.getElementById('filter-target').value;
+        const startDate = document.getElementById('filter-start-date').value;
+        const endDate = document.getElementById('filter-end-date').value;
+
         try {
-            const resp = await fetch('/api/leads');
+            const params = new URLSearchParams({
+                status: status,
+                risk: risk,
+                title: title,
+                target: target,
+                start_date: startDate,
+                end_date: endDate
+            });
+            const resp = await fetch(`/api/leads?${params.toString()}`);
             const leads = await resp.json();
             currentLeads = leads;
             
