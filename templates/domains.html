@@ -27,6 +27,9 @@
             <table class="w-full text-left text-sm">
                 <thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase text-xs font-bold">
                     <tr>
+                        <th class="px-6 py-4 w-10">
+                            <input type="checkbox" id="select-all-domains" onclick="toggleSelectAll(this)" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                        </th>
                         <th class="px-6 py-4">Domain</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Blacklisted</th>
@@ -48,6 +51,41 @@
             </div>
         </div>
     </div>
+</div>
+
+<!-- Bulk Actions Bar -->
+<div id="bulk-actions-bar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-tech-panel border border-tech-accent/50 rounded-2xl shadow-2xl px-6 py-4 flex items-center space-x-6 z-50 transition-all transform translate-y-24 opacity-0">
+    <div class="flex items-center space-x-2 border-r border-slate-700 pr-6">
+        <span id="selected-count" class="text-tech-accent font-black text-lg">0</span>
+        <span class="text-xs uppercase font-bold text-slate-400">Selected</span>
+    </div>
+    
+    <div class="flex items-center space-x-4">
+        <div class="flex flex-col">
+            <span class="text-[10px] uppercase font-bold text-slate-500 mb-1">Set Status</span>
+            <div class="flex space-x-2">
+                <button onclick="bulkUpdateStatus('pending')" class="px-3 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-[10px] font-bold rounded transition-all">PENDING</button>
+                <button onclick="bulkUpdateStatus('scanned')" class="px-3 py-1 bg-slate-800 hover:bg-tech-success hover:text-tech-bg text-[10px] font-bold rounded transition-all">SCANNED</button>
+                <button onclick="bulkUpdateStatus('on_hold')" class="px-3 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-[10px] font-bold rounded transition-all">ON HOLD</button>
+            </div>
+        </div>
+
+        <div class="h-10 w-px bg-slate-700 mx-2"></div>
+
+        <button onclick="bulkBlacklist()" class="flex flex-col items-center group">
+            <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-danger transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+            <span class="text-[8px] font-black uppercase mt-1 text-slate-500 group-hover:text-white">Blacklist</span>
+        </button>
+
+        <button onclick="bulkDelete()" class="flex flex-col items-center group">
+            <svg class="w-5 h-5 text-slate-400 group-hover:text-tech-danger transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            <span class="text-[8px] font-black uppercase mt-1 text-slate-500 group-hover:text-white">Delete</span>
+        </button>
+    </div>
+
+    <button onclick="clearSelection()" class="ml-4 p-2 hover:bg-slate-800 rounded-full text-slate-500 hover:text-white transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+    </button>
 </div>
 
 <!-- Add Domain Modal -->
@@ -143,15 +181,25 @@ async function loadDomains() {
         
         data.domains.forEach(domain => {
             const isBlacklisted = domain.blacklisted === true;
+            const isOnHold = domain.on_hold === true;
+            
+            let statusBadge = '';
+            if (isOnHold) {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-700 text-slate-400">On Hold</span>';
+            } else if (domain.scanned) {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-tech-success/10 text-tech-success">Scanned</span>';
+            } else {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-tech-accent/10 text-tech-accent">Pending</span>';
+            }
+
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors';
             tr.innerHTML = `
-                <td class="px-6 py-4 font-mono font-bold">${domain.domain}</td>
                 <td class="px-6 py-4">
-                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${domain.scanned ? 'bg-tech-success/10 text-tech-success' : 'bg-tech-accent/10 text-tech-accent'}">
-                        ${domain.scanned ? 'Scanned' : 'Pending'}
-                    </span>
+                    <input type="checkbox" name="domain-checkbox" value="${domain.id}" onclick="updateSelection()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
                 </td>
+                <td class="px-6 py-4 font-mono font-bold">${domain.domain}</td>
+                <td class="px-6 py-4">${statusBadge}</td>
                 <td class="px-6 py-4">
                     <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${isBlacklisted ? 'bg-tech-danger/10 text-tech-danger' : 'bg-slate-500/10 text-slate-500'}">
                         ${isBlacklisted ? 'Yes' : 'No'}
@@ -316,6 +364,98 @@ async function saveNotes() {
         }
     } catch (error) {
         console.error('Error saving notes:', error);
+    }
+}
+
+// Bulk Edit Functions
+function toggleSelectAll(master) {
+    const checkboxes = document.getElementsByName('domain-checkbox');
+    checkboxes.forEach(cb => cb.checked = master.checked);
+    updateSelection();
+}
+
+function updateSelection() {
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    const bar = document.getElementById('bulk-actions-bar');
+    const count = document.getElementById('selected-count');
+    
+    count.innerText = selected.length;
+    
+    if (selected.length > 0) {
+        bar.classList.remove('translate-y-24', 'opacity-0');
+        bar.classList.add('translate-y-0', 'opacity-100');
+    } else {
+        bar.classList.add('translate-y-24', 'opacity-0');
+        bar.classList.remove('translate-y-0', 'opacity-100');
+        document.getElementById('select-all-domains').checked = false;
+    }
+}
+
+function clearSelection() {
+    document.getElementsByName('domain-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('select-all-domains').checked = false;
+    updateSelection();
+}
+
+async function bulkUpdateStatus(status) {
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    if (!selected.length) return;
+    
+    try {
+        const response = await fetch('/api/domains/bulk-update-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selected, status: status })
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            clearSelection();
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Bulk update error:', error);
+    }
+}
+
+async function bulkDelete() {
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    if (!selected.length) return;
+    
+    if (!confirm(`Are you sure you want to delete ${selected.length} domains?`)) return;
+    
+    try {
+        const response = await fetch('/api/domains/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selected })
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            clearSelection();
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Bulk delete error:', error);
+    }
+}
+
+async function bulkBlacklist() {
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    if (!selected.length) return;
+    
+    try {
+        const response = await fetch('/api/domains/bulk-blacklist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selected })
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            clearSelection();
+            loadDomains();
+        }
+    } catch (error) {
+        console.error('Bulk blacklist error:', error);
     }
 }
 

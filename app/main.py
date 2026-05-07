@@ -726,6 +726,7 @@ async def get_domains(
             "id": str(d["_id"]),
             "domain": d.get("domain"),
             "scanned": d.get("scanned", False),
+            "on_hold": d.get("on_hold", False),
             "blacklisted": d.get("blacklisted", False),
             "notes": d.get("notes", ""),
             "added_at": d.get("added_at", "N/A")
@@ -886,6 +887,60 @@ async def update_domain_notes(domain_id: str, request: Request, notes: str = For
         raise HTTPException(status_code=401)
     
     await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"notes": notes}})
+    return {"status": "success"}
+
+# --- Bulk Actions Endpoints ---
+
+@app.post("/api/domains/bulk-update-status")
+async def bulk_update_status(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    data = await request.json()
+    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    status_val = data.get("status")
+    
+    if status_val not in ["pending", "scanned", "on_hold"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+        
+    scanned_flag = True if status_val == "scanned" else False
+    on_hold_flag = True if status_val == "on_hold" else False
+    
+    await domains_col.update_many(
+        {"_id": {"$in": ids}},
+        {"$set": {"scanned": scanned_flag, "on_hold": on_hold_flag}}
+    )
+    
+    await log_audit(user["username"], "BULK_UPDATE_STATUS", f"Updated status of {len(ids)} domains to {status_val}", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/bulk-delete")
+async def bulk_delete_domains(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    data = await request.json()
+    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    
+    await domains_col.delete_many({"_id": {"$in": ids}})
+    
+    await log_audit(user["username"], "BULK_DELETE_DOMAINS", f"Deleted {len(ids)} domains", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/bulk-blacklist")
+async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    data = await request.json()
+    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    
+    await domains_col.update_many(
+        {"_id": {"$in": ids}},
+        {"$set": {"blacklisted": True, "scanned": False, "on_hold": False}}
+    )
+    
+    await log_audit(user["username"], "BULK_BLACKLIST_DOMAINS", f"Blacklisted {len(ids)} domains", request)
     return {"status": "success"}
 
 if __name__ == "__main__":
