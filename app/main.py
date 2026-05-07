@@ -308,6 +308,8 @@ async def get_subdomains(
     status_val: Optional[str] = None,
     has_subdomains: Optional[str] = None,
     tech: Optional[str] = None,
+    sort_by: str = "domain",
+    sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -336,7 +338,19 @@ async def get_subdomains(
     
     total = await domains_col.count_documents(query)
     scanned_count = await domains_col.count_documents({"scanned": True})
-    cursor = domains_col.find(query).sort("domain", 1).skip((page - 1) * limit).limit(limit)
+    
+    # Sorting logic
+    sort_field = "domain"
+    if sort_by == "status":
+        sort_field = "scanned"
+    elif sort_by == "subdomains":
+        # Note: Sorting by array length in MongoDB is complex without an aggregation pipeline or a stored count.
+        # For now, we'll use infrastructure.subdomains as a fallback or domain.
+        sort_field = "infrastructure.subdomains"
+        
+    direction = 1 if sort_dir == "asc" else -1
+    
+    cursor = domains_col.find(query).sort(sort_field, direction).skip((page - 1) * limit).limit(limit)
     docs = await cursor.to_list(length=limit)
     
     results = []

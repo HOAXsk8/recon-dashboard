@@ -77,10 +77,16 @@
             <table class="w-full text-left">
                 <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                     <tr>
-                        <th class="px-8 py-4">Domain / Asset</th>
-                        <th class="px-6 py-4">Status</th>
+                        <th class="px-8 py-4 cursor-pointer hover:text-tech-accent transition-colors" onclick="toggleSort('domain')">
+                            Domain / Asset <span id="sort-icon-domain"></span>
+                        </th>
+                        <th class="px-6 py-4 cursor-pointer hover:text-tech-accent transition-colors" onclick="toggleSort('status')">
+                            Status <span id="sort-icon-status"></span>
+                        </th>
                         <th class="px-6 py-4">Country</th>
-                        <th class="px-6 py-4">Subdomains</th>
+                        <th class="px-6 py-4 cursor-pointer hover:text-tech-accent transition-colors" onclick="toggleSort('subdomains')">
+                            Subdomains <span id="sort-icon-subdomains"></span>
+                        </th>
                         <th class="px-6 py-4">Technologies</th>
                         <th class="px-8 py-4 text-right">Actions</th>
                     </tr>
@@ -159,6 +165,8 @@
     let hasMore = true;
     let searchTimeout;
     let currentDetailData = null;
+    let currentSortBy = 'domain';
+    let currentSortDir = 'asc';
 
     async function fetchInventory(append = false) {
         if (isLoading) return;
@@ -183,12 +191,16 @@
                 q: q,
                 status_val: statusVal,
                 has_subdomains: hasSubdomains,
-                tech: tech
+                tech: tech,
+                sort_by: currentSortBy,
+                sort_dir: currentSortDir
             });
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
             
             if (!append) tbody.innerHTML = '';
+            
+            updateSortIcons();
             
             if (data.subdomains.length === 0 && !append) {
                 tbody.innerHTML = `<tr><td colspan="6" class="py-20 text-center text-slate-500 italic">No assets found matching your criteria.</td></tr>`;
@@ -268,6 +280,32 @@
         currentPage = 1;
         hasMore = true;
         fetchInventory(false);
+    }
+
+    function toggleSort(field) {
+        if (currentSortBy === field) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortBy = field;
+            currentSortDir = 'asc';
+        }
+        resetAndFetch();
+    }
+
+    function updateSortIcons() {
+        const fields = ['domain', 'status', 'subdomains'];
+        fields.forEach(f => {
+            const el = document.getElementById(`sort-icon-${f}`);
+            if (el) {
+                if (currentSortBy === f) {
+                    el.innerHTML = currentSortDir === 'asc' ? '↑' : '↓';
+                    el.className = 'ml-1 text-tech-accent font-bold';
+                } else {
+                    el.innerHTML = '';
+                    el.className = '';
+                }
+            }
+        });
     }
 
     function debounceSearch() {
