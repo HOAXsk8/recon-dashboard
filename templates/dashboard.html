@@ -114,9 +114,14 @@
         <div class="max-w-7xl mx-auto bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
             <!-- Modal Header -->
             <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-tech-panel/90 backdrop-blur z-20 rounded-t-3xl">
-                <div>
-                    <h2 id="modal-title" class="text-2xl font-bold text-tech-accent">Domain Details</h2>
-                    <p id="modal-subtitle" class="text-xs font-mono text-slate-500"></p>
+                <div class="flex items-center space-x-6">
+                    <div>
+                        <h2 id="modal-title" class="text-2xl font-bold text-tech-accent">Target Domain</h2>
+                        <p id="modal-subtitle" class="text-xs font-mono text-slate-500"></p>
+                    </div>
+                    <div id="modal-header-actions" class="hidden flex items-center space-x-2 border-l border-slate-800 pl-6">
+                        <!-- Buttons will be injected here -->
+                    </div>
                 </div>
                 <button onclick="closeModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
                     <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -378,19 +383,7 @@
             case 'overview':
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
                 content.innerHTML = `
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-10">
-                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800 relative group">
-                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Target Asset</h4>
-                            <p class="text-2xl font-bold text-white">${data.domain}</p>
-                            <div class="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onclick="blacklistDomain('${data._id}')" class="p-2 bg-slate-800 hover:bg-orange-500/20 text-slate-400 hover:text-orange-500 rounded-lg transition-all" title="Blacklist Domain">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                                </button>
-                                <button onclick="deleteDomain('${data._id}')" class="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-lg transition-all" title="Delete Domain">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                </button>
-                            </div>
-                        </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
                         <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Capture Timestamp</h4>
                             <p class="text-lg font-mono text-slate-300">${new Date(data.recon_date).toLocaleString()}</p>
@@ -658,12 +651,14 @@
         const content = document.getElementById('modal-content');
         const title = document.getElementById('modal-title');
         const subtitle = document.getElementById('modal-subtitle');
-        
+        const actions = document.getElementById('modal-header-actions');
+
         modal.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
-        title.textContent = `Recon Profile: ${domain}`;
+        title.innerHTML = `Target Domain: <span class="text-white">${domain}</span>`;
         subtitle.textContent = "Loading tactical data from field agents...";
-        
+        actions.classList.add('hidden');
+
         // Show loading state
         content.innerHTML = `
             <div class="flex flex-col items-center justify-center py-32 space-y-6">
@@ -671,11 +666,11 @@
                 <p class="text-slate-500 font-mono text-xs uppercase tracking-[0.2em] animate-pulse">Retrieving Operational Recon Packets...</p>
             </div>
         `;
-        
+
         try {
             const resp = await fetch(`/search?q=${encodeURIComponent(domain)}`);
             const data = await resp.json();
-            
+
             if (data.error) {
                 content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold uppercase tracking-widest">DATA ACCESS DENIED: ${data.error}</div>`;
                 return;
@@ -683,6 +678,19 @@
 
             currentDetailData = data;
             subtitle.textContent = `Asset ID: ${data._id} • Recorded: ${new Date(data.recon_date).toISOString()}`;
+
+            // Inject Actions
+            actions.innerHTML = `
+                <button onclick="blacklistDomain('${data._id}')" class="p-2 bg-slate-800 hover:bg-orange-500/20 text-slate-400 hover:text-orange-500 rounded-lg transition-all" title="Blacklist Domain">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                </button>
+                <button onclick="deleteDomain('${data._id}')" class="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-lg transition-all" title="Delete Domain">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            `;
+            actions.classList.remove('hidden');
+            actions.classList.add('flex');
+
             switchTab('overview');
         } catch (e) {
             content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold">SYSTEM ERROR: Failed to retrieve intelligence feed.</div>`;
@@ -691,10 +699,11 @@
 
     function closeModal() {
         document.getElementById('detail-modal').classList.add('hidden');
+        document.getElementById('modal-header-actions').classList.add('hidden');
+        document.getElementById('modal-header-actions').classList.remove('flex');
         document.body.style.overflow = 'auto';
         currentDetailData = null;
     }
-
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeModal();
     });
