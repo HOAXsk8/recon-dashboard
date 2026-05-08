@@ -106,8 +106,9 @@
             <div>
                 <label class="block text-sm font-medium mb-1">Role</label>
                 <select name="role" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent">
-                    <option value="user">Standard User</option>
-                    <option value="admin">Administrator</option>
+                    <option value="admin">Administrator (Full Access)</option>
+                    <option value="analyst">Analyst (Data Management)</option>
+                    <option value="viewer">Viewer (Read Only)</option>
                 </select>
             </div>
             <div class="pt-4">
@@ -139,8 +140,9 @@
             <div>
                 <label class="block text-sm font-medium mb-1">Role</label>
                 <select name="role" id="edit-role" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent">
-                    <option value="user">Standard User</option>
                     <option value="admin">Administrator</option>
+                    <option value="analyst">Analyst</option>
+                    <option value="viewer">Viewer</option>
                 </select>
             </div>
             <div>
@@ -217,26 +219,32 @@
         const data = await resp.json();
         
         const body = document.getElementById('user-table-body');
-        body.innerHTML = data.users.map(u => `
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                <td class="px-6 py-4 font-bold text-tech-accent">${u.username}</td>
-                <td class="px-6 py-4">
-                    <span class="px-2 py-1 rounded text-[10px] uppercase font-bold ${u.is_admin ? 'bg-tech-accent/10 text-tech-accent border border-tech-accent/20' : 'bg-slate-800 text-slate-400'}">${u.is_admin ? 'Admin' : 'User'}</span>
-                </td>
-                <td class="px-6 py-4">
-                    ${u.lockout_until && new Date(u.lockout_until) > new Date() ? 
-                        '<span class="text-tech-danger flex items-center space-x-1"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path></svg><span>Locked</span></span>' :
-                        (u.disabled ? '<span class="text-slate-500">Disabled</span>' : '<span class="text-tech-success">Active</span>')
-                    }
-                </td>
-                <td class="px-6 py-4 font-mono text-xs text-slate-500">${new Date(u.created_at).toLocaleString()}</td>
-                <td class="px-6 py-4">
-                    <button onclick='openEditModal(${JSON.stringify(u)})' class="text-slate-400 hover:text-tech-accent transition-colors p-1">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        body.innerHTML = data.users.map(u => {
+            let roleBadgeClass = 'bg-slate-800 text-slate-400';
+            if (u.role === 'admin') roleBadgeClass = 'bg-tech-accent/10 text-tech-accent border border-tech-accent/20';
+            else if (u.role === 'analyst') roleBadgeClass = 'bg-tech-success/10 text-tech-success border border-tech-success/20';
+            
+            return `
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                    <td class="px-6 py-4 font-bold text-tech-accent">${u.username}</td>
+                    <td class="px-6 py-4">
+                        <span class="px-2 py-1 rounded text-[10px] uppercase font-bold ${roleBadgeClass}">${u.role || 'viewer'}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        ${u.lockout_until && new Date(u.lockout_until) > new Date() ? 
+                            '<span class="text-tech-danger flex items-center space-x-1"><svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path></svg><span>Locked</span></span>' :
+                            (u.disabled ? '<span class="text-slate-500">Disabled</span>' : '<span class="text-tech-success">Active</span>')
+                        }
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500">${new Date(u.created_at).toLocaleString()}</td>
+                    <td class="px-6 py-4">
+                        <button onclick='openEditModal(${JSON.stringify(u)})' class="text-slate-400 hover:text-tech-accent transition-colors p-1">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
 
         document.getElementById('user-count').textContent = `Showing ${(userPage-1)*limit + 1} to ${Math.min(userPage*limit, data.total)} of ${data.total} users`;
         document.getElementById('user-prev').disabled = userPage === 1;
@@ -278,7 +286,7 @@
         document.getElementById('edit-username-hidden').value = u.username;
         document.getElementById('delete-username-hidden').value = u.username;
         document.getElementById('edit-username-display').textContent = u.username;
-        document.getElementById('edit-role').value = u.is_admin ? 'admin' : 'user';
+        document.getElementById('edit-role').value = u.role || 'viewer';
         document.getElementById('edit-status').value = u.disabled ? 'disabled' : 'active';
         document.getElementById('edit-user-modal').classList.remove('hidden');
     }

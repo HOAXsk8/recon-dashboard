@@ -8,7 +8,12 @@ from passlib.context import CryptContext
 from fastapi import Request
 
 # Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    # In a production environment, this should probably raise a RuntimeError
+    # For now, we will ensure it is not a known hardcoded default.
+    SECRET_KEY = os.urandom(32).hex() 
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -39,3 +44,14 @@ def generate_totp_secret():
 
 def get_totp_uri(secret: str, username: str):
     return pyotp.totp.TOTP(secret).provisioning_uri(name=username, issuer_name="Netbytes.cloud")
+
+def validate_password(password: str):
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number"
+    return True, ""
