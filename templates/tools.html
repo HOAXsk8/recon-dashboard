@@ -101,7 +101,7 @@
                             <span class="text-slate-300 font-mono">${new Date(t.last_heartbeat).toLocaleString()}</span>
                         </div>
                         <!-- Action Controls -->
-                        <div class="pt-6 border-t border-slate-800/50 space-y-6">
+                        <div id="controls-${t.key}" class="pt-6 border-t border-slate-800/50 space-y-6 ${'{{ user.role }}' === 'viewer' ? 'hidden' : ''}">
                             <!-- Worker Scaling -->
                             <div class="flex flex-col space-y-2">
                                 <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Parallel Workers</label>
@@ -110,7 +110,7 @@
                                         <input type="number" value="${t.max_workers || 4}" min="1" max="5" id="workers-${t.key}" 
                                                class="w-full bg-slate-900/50 border border-slate-700 rounded-xl text-sm text-white px-4 py-2 focus:border-tech-accent focus:ring-1 focus:ring-tech-accent/50 outline-none transition-all font-mono">
                                     </div>
-                                    <button onclick="updateConfig('${t.key}', 'workers')" 
+                                    <button onclick="updateConfig(this, '${t.key}', 'workers')" 
                                             class="px-4 py-2 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-tech-accent rounded-xl transition-all font-black text-xs uppercase tracking-tight border border-tech-accent/20">
                                         SET
                                     </button>
@@ -120,7 +120,7 @@
                             <!-- Execution Toggle -->
                             <div class="flex flex-col space-y-2">
                                 <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Process Control</label>
-                                <button onclick="updateConfig('${t.key}', '${statusText === 'Stopped' ? 'Start' : 'Stop'}')" 
+                                <button onclick="updateConfig(this, '${t.key}', '${statusText === 'Stopped' ? 'Start' : 'Stop'}')" 
                                         class="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all border shadow-lg active:scale-95 ${statusText === 'Stopped' ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}">
                                     ${statusText === 'Stopped' ? 'DEPLOY AGENT' : 'TERMINATE PROCESS'}
                                 </button>
@@ -141,8 +141,7 @@
         }).join('');
     }
 
-    async function updateConfig(key, type) {
-        const btn = event.currentTarget;
+    async function updateConfig(btn, key, type) {
         const originalText = btn.innerText;
         btn.innerText = '...';
         btn.disabled = true;
