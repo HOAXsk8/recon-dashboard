@@ -7,7 +7,10 @@ from datetime import datetime
 import logging
 
 # --- Configuration ---
-PASSWORD = urllib.parse.quote_plus("5I2ZKu83YQL7+fGu")
+MONGO_ROOT_PASSWORD = os.getenv("MONGO_ROOT_PASSWORD")
+if not MONGO_ROOT_PASSWORD:
+    raise RuntimeError("MONGO_ROOT_PASSWORD environment variable is not set")
+PASSWORD = urllib.parse.quote_plus(MONGO_ROOT_PASSWORD)
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_URI = f"mongodb://admin:{PASSWORD}@{MONGO_HOST}:27017/?authSource=admin"
 DB_NAME = "recon_db"

@@ -26,8 +26,12 @@ int stop_signal = 0;
 void init_mongo_uri() {
     const char* host = getenv("MONGO_HOST");
     if (!host) host = "localhost";
-    // Double % for printf format string in snprintf
-    snprintf(mongo_uri, sizeof(mongo_uri), "mongodb://admin:5I2ZKu83YQL7%%2BfGu@%s:27017/?authSource=admin", host);
+    const char* pass = getenv("MONGO_ROOT_PASSWORD");
+    if (!pass) {
+        fprintf(stderr, "Error: MONGO_ROOT_PASSWORD environment variable not set\n");
+        exit(1);
+    }
+    snprintf(mongo_uri, sizeof(mongo_uri), "mongodb://admin:%s@%s:27017/?authSource=admin", pass, host);
 }
 
 typedef struct {
