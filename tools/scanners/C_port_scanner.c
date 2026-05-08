@@ -15,13 +15,20 @@
 #include <bson/bson.h>
 #include <json-c/json.h>
 
-#define MONGO_URI "mongodb://admin:5I2ZKu83YQL7%2BfGu@localhost:27017/?authSource=admin"
 #define DB_NAME "recon_db"
 #define COLLECTION_NAME "domains"
 #define RESOURCE_LIMIT 50.0
 
+char mongo_uri[512];
 int max_workers = 4;
 int stop_signal = 0;
+
+void init_mongo_uri() {
+    const char* host = getenv("MONGO_HOST");
+    if (!host) host = "localhost";
+    // Double % for printf format string in snprintf
+    snprintf(mongo_uri, sizeof(mongo_uri), "mongodb://admin:5I2ZKu83YQL7%%2BfGu@%s:27017/?authSource=admin", host);
+}
 
 typedef struct {
     char domain[256];
@@ -290,11 +297,12 @@ cleanup:
 }
 
 int main() {
+    init_mongo_uri();
     mongoc_init();
-    mongoc_uri_t* uri = mongoc_uri_new(MONGO_URI);
+    mongoc_uri_t* uri = mongoc_uri_new(mongo_uri);
     pool = mongoc_client_pool_new(uri);
     
-    printf("[*] C Recon Agent Starting...\n");
+    printf("[*] C Recon Agent Starting on %s...\n", mongo_uri);
     update_scanner_status("Idle");
     
     while (1) {
