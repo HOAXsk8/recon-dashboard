@@ -23,6 +23,7 @@ from app.security import (
     get_password_hash, 
     get_totp_uri, 
     generate_totp_secret,
+    validate_password,
     SECRET_KEY,
     ALGORITHM
 )
@@ -43,11 +44,46 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; img-src 'self' data: https://flagcdn.com; font-src 'self' data:; frame-ancestors 'none';"
+        response.headers["Content-Security-Policy"] = "default-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https://flagcdn.com; font-src 'self' data:; frame-ancestors 'none';"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+# --- Helpers ---
+
+def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str]):
+    query = {}
+    if q:
+        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
+    
+    if status_val:
+        if status_val == "scanned":
+            query["scanned"] = True
+            query["on_hold"] = {"$ne": True}
+        elif status_val == "pending":
+            query["scanned"] = False
+            query["on_hold"] = {"$ne": True}
+        elif status_val == "on_hold":
+            query["on_hold"] = True
+            
+    if has_subdomains == "true":
+        query["infrastructure.subdomains.0"] = {"$exists": True}
+    elif has_subdomains == "false":
+        query["$or"] = [
+            {"infrastructure.subdomains": {"$size": 0}},
+            {"infrastructure.subdomains": {"$exists": False}}
+        ]
+        
+    if tech:
+        query["web_applications.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
+        
+    if blacklisted == "true":
+        query["blacklisted"] = True
+    elif blacklisted == "false":
+        query["blacklisted"] = {"$ne": True}
+        
+    return query
 
 # Auth Helper
 async def get_current_user(request: Request):
@@ -62,9 +98,68 @@ async def get_current_user(request: Request):
         user = await users_col.find_one({"username": username})
         if not user or user.get("disabled", False):
             return None
+        # Ensure role exists (migration fallback)
+        if "role" not in user:
+            user["role"] = "admin" if user.get("is_admin") else "analyst"
         return user
     except JWTError:
         return None
+
+def check_admin(user: dict):
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrative privileges required")
+
+def check_analyst(user: dict):
+    if not user or user.get("role") not in ["admin", "analyst"]:
+        raise HTTPException(status_code=403, detail="Analyst privileges required")
+
+def check_viewer(user: dict):
+    if not user:
+        raise HTTPException(status_code=401)
+
+@app.get("/api/admin/users")
+async def get_users(request: Request, page: int = 1, limit: int = 10, q: Optional[str] = None, user: dict = Depends(get_current_user)):
+    check_admin(user)
+    
+    query = {}
+    if q:
+        query = {"username": {"$regex": re.escape(q), "$options": "i"}}
+    
+    total = await users_col.count_documents(query)
+    cursor = users_col.find(query).skip((page - 1) * limit).limit(limit)
+    users = await cursor.to_list(length=limit)
+    
+    for u in users:
+        u["_id"] = str(u["_id"])
+        u.pop("hashed_password", None)
+        u.pop("totp_secret", None)
+        # Migration fallback
+        if "role" not in u:
+            u["role"] = "admin" if u.get("is_admin") else "viewer"
+        
+    return {"users": users, "total": total, "page": page, "limit": limit}
+
+@app.get("/api/admin/logs")
+async def get_logs(request: Request, page: int = 1, limit: int = 20, q: Optional[str] = None, user: dict = Depends(get_current_user)):
+    check_admin(user)
+    
+    query = {}
+    if q:
+        safe_q = re.escape(q)
+        query = {"$or": [
+            {"username": {"$regex": safe_q, "$options": "i"}},
+            {"action": {"$regex": safe_q, "$options": "i"}},
+            {"details": {"$regex": safe_q, "$options": "i"}}
+        ]}
+    
+    total = await audit_logs_col.count_documents(query)
+    cursor = audit_logs_col.find(query).sort("timestamp", -1).skip((page - 1) * limit).limit(limit)
+    logs = await cursor.to_list(length=limit)
+    
+    for l in logs:
+        l["_id"] = str(l["_id"])
+        
+    return {"logs": logs, "total": total, "page": page, "limit": limit}
 
 async def log_audit(username: str, action: str, details: str, request: Request):
     audit_entry = {
@@ -83,59 +178,6 @@ async def root(request: Request, user: Optional[dict] = Depends(get_current_user
     if user:
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse(request, "login.html")
-
-def validate_password(password: str):
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
-    if not re.search("[a-z]", password):
-        return False, "Password must contain at least one lowercase letter"
-    if not re.search("[A-Z]", password):
-        return False, "Password must contain at least one uppercase letter"
-    if not re.search("[0-9]", password):
-        return False, "Password must contain at least one number"
-    return True, ""
-
-@app.get("/api/admin/users")
-async def get_users(request: Request, page: int = 1, limit: int = 10, q: Optional[str] = None, user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403)
-    
-    query = {}
-    if q:
-        query = {"username": {"$regex": q, "$options": "i"}}
-    
-    total = await users_col.count_documents(query)
-    cursor = users_col.find(query).skip((page - 1) * limit).limit(limit)
-    users = await cursor.to_list(length=limit)
-    
-    for u in users:
-        u["_id"] = str(u["_id"])
-        u.pop("hashed_password", None)
-        u.pop("totp_secret", None)
-        
-    return {"users": users, "total": total, "page": page, "limit": limit}
-
-@app.get("/api/admin/logs")
-async def get_logs(request: Request, page: int = 1, limit: int = 20, q: Optional[str] = None, user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403)
-    
-    query = {}
-    if q:
-        query = {"$or": [
-            {"username": {"$regex": q, "$options": "i"}},
-            {"action": {"$regex": q, "$options": "i"}},
-            {"details": {"$regex": q, "$options": "i"}}
-        ]}
-    
-    total = await audit_logs_col.count_documents(query)
-    cursor = audit_logs_col.find(query).sort("timestamp", -1).skip((page - 1) * limit).limit(limit)
-    logs = await cursor.to_list(length=limit)
-    
-    for l in logs:
-        l["_id"] = str(l["_id"])
-        
-    return {"logs": logs, "total": total, "page": page, "limit": limit}
 
 @app.post("/login")
 @limiter.limit("5/minute")
@@ -290,26 +332,7 @@ async def get_subdomains(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
-    if q:
-        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
-    
-    if status_val:
-        if status_val == "scanned":
-            query["scanned"] = True
-        elif status_val == "pending":
-            query["scanned"] = False
-            
-    if has_subdomains == "true":
-        query["infrastructure.subdomains.0"] = {"$exists": True}
-    elif has_subdomains == "false":
-        query["$or"] = [
-            {"infrastructure.subdomains": {"$size": 0}},
-            {"infrastructure.subdomains": {"$exists": False}}
-        ]
-        
-    if tech:
-        query["web_applications.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
+    query = get_query_filters(q, status_val, has_subdomains, tech, None)
     
     total = await domains_col.count_documents(query)
     scanned_count = await domains_col.count_documents({"scanned": True})
@@ -372,26 +395,7 @@ async def export_subdomains(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
-    if q:
-        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
-    
-    if status_val:
-        if status_val == "scanned":
-            query["scanned"] = True
-        elif status_val == "pending":
-            query["scanned"] = False
-            
-    if has_subdomains == "true":
-        query["infrastructure.subdomains.0"] = {"$exists": True}
-    elif has_subdomains == "false":
-        query["$or"] = [
-            {"infrastructure.subdomains": {"$size": 0}},
-            {"infrastructure.subdomains": {"$exists": False}}
-        ]
-        
-    if tech:
-        query["web_applications.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
+    query = get_query_filters(q, status_val, has_subdomains, tech, None)
     
     # Sorting logic
     sort_field = "domain"
@@ -468,16 +472,16 @@ async def ip_lookup(ip: str, user: dict = Depends(get_current_user)):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
+    if not user or user.get("role") != "admin":
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
     
     # Just render the template; the tables will be populated via AJAX
     return templates.TemplateResponse(request, "admin.html", {"user": user})
 
 @app.post("/admin/create-user")
+@limiter.limit("10/minute")
 async def create_user(request: Request, new_username: str = Form(...), new_password: str = Form(...), role: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403)
+    check_admin(user)
     
     if await users_col.find_one({"username": new_username}):
         return templates.TemplateResponse(request, "admin.html", {"user": user, "error": "Username already exists"})
@@ -486,6 +490,10 @@ async def create_user(request: Request, new_username: str = Form(...), new_passw
     if not is_valid:
         return templates.TemplateResponse(request, "admin.html", {"user": user, "error": error_msg})
     
+    # Validate role
+    if role not in ["admin", "analyst", "viewer"]:
+        role = "viewer"
+
     totp_secret = generate_totp_secret()
     totp_uri = get_totp_uri(totp_secret, new_username)
     hashed_password = get_password_hash(new_password)
@@ -494,7 +502,8 @@ async def create_user(request: Request, new_username: str = Form(...), new_passw
         "username": new_username,
         "hashed_password": hashed_password,
         "totp_secret": totp_secret,
-        "is_admin": True if role == "admin" else False,
+        "role": role,
+        "is_admin": True if role == "admin" else False, # Legacy support
         "disabled": False,
         "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "failed_attempts": 0,
@@ -518,11 +527,14 @@ async def update_user(
     status_val: str = Form(...),
     user: dict = Depends(get_current_user)
 ):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403)
+    check_admin(user)
     
+    if role not in ["admin", "analyst", "viewer"]:
+        role = "viewer"
+
     update_data = {
-        "is_admin": True if role == "admin" else False,
+        "role": role,
+        "is_admin": True if role == "admin" else False, # Legacy support
         "disabled": True if status_val == "disabled" else False
     }
     
@@ -536,14 +548,13 @@ async def update_user(
         update_data["lockout_until"] = None
     
     await users_col.update_one({"username": target_username}, {"$set": update_data})
-    await log_audit(user["username"], "update_user", f"Updated user: {target_username}", request)
+    await log_audit(user["username"], "update_user", f"Updated user: {target_username} to role {role}", request)
     
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 @app.post("/admin/delete-user")
 async def delete_user(request: Request, target_username: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403)
+    check_admin(user)
     
     if target_username == user["username"]:
         return RedirectResponse(url="/admin?error=Cannot+delete+yourself", status_code=status.HTTP_303_SEE_OTHER)
@@ -666,15 +677,13 @@ async def export_leads(
 
 @app.post("/api/leads/{lead_id}/status")
 async def update_lead_status(lead_id: str, status: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": status}})
     return {"status": "success"}
 
 @app.post("/api/leads/{lead_id}/notes")
 async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"notes": notes}})
     return {"status": "success"}
 
@@ -688,8 +697,7 @@ async def get_notifications_count(user: dict = Depends(get_current_user)):
 
 @app.post("/api/notifications/clear")
 async def clear_notifications(user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     # Mark all leads as acknowledged
     await leads_col.update_many({"acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
     return {"status": "success"}
@@ -714,24 +722,7 @@ async def get_domains(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
-    if q:
-        query["domain"] = {"$regex": re.escape(q), "$options": "i"}
-    
-    if status_val:
-        if status_val == "scanned":
-            query["scanned"] = True
-            query["on_hold"] = {"$ne": True}
-        elif status_val == "pending":
-            query["scanned"] = False
-            query["on_hold"] = {"$ne": True}
-        elif status_val == "on_hold":
-            query["on_hold"] = True
-            
-    if blacklisted == "true":
-        query["blacklisted"] = True
-    elif blacklisted == "false":
-        query["blacklisted"] = {"$ne": True}
+    query = get_query_filters(q, status_val, None, None, blacklisted)
     
     total = await domains_col.count_documents(query)
     cursor = domains_col.find(query).sort("domain", 1).skip((page - 1) * limit).limit(limit)
@@ -753,8 +744,7 @@ async def get_domains(
 
 @app.post("/api/domains/add")
 async def add_domain(request: Request, domain: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     
     # Basic domain validation
     domain = domain.strip().lower()
@@ -784,8 +774,7 @@ async def bulk_add_domains(
     file: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user)
 ):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
 
     # Validate status
     if status not in ["pending", "scanned", "on_hold"]:
@@ -871,8 +860,7 @@ async def bulk_add_domains(
 
 @app.post("/api/domains/{domain_id}/blacklist")
 async def toggle_blacklist(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     
     domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
     if not domain_doc:
@@ -886,8 +874,7 @@ async def toggle_blacklist(domain_id: str, request: Request, user: dict = Depend
 
 @app.post("/api/domains/{domain_id}/delete")
 async def delete_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     
     domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
     if not domain_doc:
@@ -900,8 +887,7 @@ async def delete_domain(domain_id: str, request: Request, user: dict = Depends(g
 
 @app.post("/api/domains/{domain_id}/notes")
 async def update_domain_notes(domain_id: str, request: Request, notes: str = Form(...), user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     
     await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"notes": notes}})
     return {"status": "success"}
@@ -909,9 +895,9 @@ async def update_domain_notes(domain_id: str, request: Request, notes: str = For
 # --- Bulk Actions Endpoints ---
 
 @app.post("/api/domains/bulk-update-status")
+@limiter.limit("5/minute")
 async def bulk_update_status(request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
     
     data = await request.json()
     ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
@@ -932,9 +918,9 @@ async def bulk_update_status(request: Request, user: dict = Depends(get_current_
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-delete")
+@limiter.limit("5/minute")
 async def bulk_delete_domains(request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
         
     data = await request.json()
     ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
@@ -946,8 +932,7 @@ async def bulk_delete_domains(request: Request, user: dict = Depends(get_current
 
 @app.post("/api/domains/bulk-blacklist")
 async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
+    check_analyst(user)
         
     data = await request.json()
     ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
@@ -959,6 +944,169 @@ async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_curr
     
     await log_audit(user["username"], "BULK_BLACKLIST_DOMAINS", f"Blacklisted {len(ids)} domains", request)
     return {"status": "success"}
+
+# --- Statistics Routes ---
+
+@app.get("/statistics", response_class=HTMLResponse)
+async def statistics_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "statistics.html", {"user": user})
+
+@app.get("/api/stats/dashboard")
+async def get_stats_dashboard(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    # 1. Domain Status Distribution
+    total_domains = await domains_col.count_documents({})
+    scanned_count = await domains_col.count_documents({"scanned": True, "on_hold": {"$ne": True}})
+    on_hold_count = await domains_col.count_documents({"on_hold": True})
+    pending_count = await domains_col.count_documents({"scanned": False, "on_hold": {"$ne": True}})
+    blacklisted_count = await domains_col.count_documents({"blacklisted": True})
+    
+    # 2. Risk Distribution (Leads)
+    risk_agg = await leads_col.aggregate([
+        {"$group": {"_id": "$risk_level", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]).to_list(length=20)
+    risk_data = {r["_id"]: r["count"] for r in risk_agg}
+    
+    # 3. Top Technologies & Headers (Separated)
+    all_tech_agg = await domains_col.aggregate([
+        {"$unwind": "$web_applications"},
+        {"$unwind": "$web_applications.tech_stack"},
+        {"$group": {"_id": "$web_applications.tech_stack", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]).to_list(length=100)
+    
+    # Heuristic for headers: starts with x-, starts with X-, or in known list
+    header_keywords = [
+        "httpserver", "via-proxy", "redirectlocation", "uncommonheaders", "cookies",
+        "via", "server", "alt-svc", "content-security-policy", "strict-transport-security",
+        "x-frame-options", "x-xss-protection", "x-content-type-options", "access-control-allow-origin",
+        "country", "script", "html5"
+    ]
+    
+    tech_list = []
+    header_list = []
+    
+    for item in all_tech_agg:
+        name = item["_id"].strip().rstrip("]")
+        name_lower = name.lower()
+        
+        is_header = (
+            name_lower.startswith("x-") or 
+            any(k in name_lower for k in header_keywords) or
+            "-" in name # Most headers have hyphens, few technologies do
+        )
+        
+        # Exceptions (technologies that have hyphens or match keywords)
+        if name_lower in ["html5", "node-js", "next-js", "react-router"]:
+            is_header = False
+
+        if is_header:
+            header_list.append({"name": name, "count": item["count"]})
+        else:
+            tech_list.append({"name": name, "count": item["count"]})
+            
+    # 4. Recent Activity (Last 14 days)
+    now = datetime.utcnow()
+    activity = []
+    for i in range(14):
+        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        count = await leads_col.count_documents({"timestamp": {"$regex": f"^{day}"}})
+        activity.append({"date": day, "count": count})
+    activity.reverse()
+    
+    # 5. Geographic (MOCK/SAMPLE derived from IPs)
+    geo_agg = await domains_col.aggregate([
+        {"$match": {"systems.0": {"$exists": True}}},
+        {"$project": {"ip": {"$arrayElemAt": ["$systems.ip", 0]}}},
+        {"$limit": 2000}
+    ]).to_list(length=2000)
+    
+    geo_counts = {}
+    for g in geo_agg:
+        ip = g.get("ip")
+        if ip:
+            code = get_country_code(ip)
+            geo_counts[code] = geo_counts.get(code, 0) + 1
+    
+    top_countries = sorted(geo_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # 6. WAF/CDN Providers
+    waf_agg = await domains_col.aggregate([
+        {"$match": {"waf_cdn.provider": {"$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$waf_cdn.provider", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]).to_list(length=10)
+
+    # 7. Top Ports
+    ports_agg = await domains_col.aggregate([
+        {"$unwind": "$systems"},
+        {"$unwind": "$systems.services"},
+        {"$group": {"_id": "$systems.services.port", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]).to_list(length=10)
+
+    # 8. Software Distribution
+    software_agg = await domains_col.aggregate([
+        {"$unwind": "$systems"},
+        {"$unwind": "$systems.services"},
+        {"$match": {"systems.services.software": {"$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$systems.services.software", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]).to_list(length=10)
+
+    # 9. Top TLDs
+    tld_agg = await domains_col.aggregate([
+        {"$project": {
+            "tld": {"$arrayElemAt": [{"$split": ["$domain", "."]}, -1]}
+        }},
+        {"$group": {"_id": "$tld", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]).to_list(length=10)
+
+    # 10. Top Domains by Subdomain Count
+    subdomain_counts = await domains_col.aggregate([
+        {"$project": {
+            "domain": 1,
+            "subdomain_count": {
+                "$cond": {
+                    "if": {"$isArray": "$infrastructure.subdomains"},
+                    "then": {"$size": "$infrastructure.subdomains"},
+                    "else": 0
+                }
+            }
+        }},
+        {"$sort": {"subdomain_count": -1}},
+        {"$limit": 10}
+    ]).to_list(length=10)
+
+    return {
+        "inventory": {
+            "total": total_domains,
+            "scanned": scanned_count,
+            "pending": pending_count,
+            "on_hold": on_hold_count,
+            "blacklisted": blacklisted_count
+        },
+        "risk": risk_data,
+        "tech": tech_list[:15],
+        "headers": header_list[:15],
+        "activity": activity,
+        "geo": [{"code": c[0], "count": c[1]} for c in top_countries],
+        "waf": [{"name": w["_id"], "count": w["count"]} for w in waf_agg],
+        "ports": [{"port": str(p["_id"]), "count": p["count"]} for p in ports_agg],
+        "software": [{"name": s["_id"], "count": s["count"]} for s in software_agg],
+        "tlds": [{"name": t["_id"], "count": t["count"]} for t in tld_agg],
+        "subdomain_counts": [{"name": s["domain"], "count": s["subdomain_count"]} for s in subdomain_counts]
+    }
 
 if __name__ == "__main__":
     import uvicorn
