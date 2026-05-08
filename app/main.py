@@ -976,13 +976,37 @@ async def get_tools(user: dict = Depends(get_current_user)):
                 last_hb_dt = datetime.utcfromtimestamp(last_hb / 1000.0)
             
             if (now - last_hb_dt).total_seconds() > 120:
-                status = "Stopped"
+                # Only mark as stopped if it wasn't already explicitly stopped
+                if status != "Stopped":
+                    status = "Stopped"
         else:
             status = "Stopped"
             
         t["status"] = status
         results.append(t)
     return results
+
+@app.post("/api/tools/{tool_key}/config")
+async def update_tool_config(tool_key: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    data = await request.json()
+    
+    update_fields = {}
+    if "status" in data:
+        update_fields["status"] = data["status"]
+    if "max_workers" in data:
+        try:
+            val = int(data["max_workers"])
+            if 1 <= val <= 20:
+                update_fields["max_workers"] = val
+        except ValueError:
+            pass
+            
+    if update_fields:
+        await scanners_col.update_one({"key": tool_key}, {"$set": update_fields}, upsert=True)
+        await log_audit(user["username"], "UPDATE_TOOL_CONFIG", f"Updated {tool_key} config: {update_fields}", request)
+        
+    return {"status": "success"}
 
 @app.get("/api/stats/dashboard")
 async def get_stats_dashboard(user: dict = Depends(get_current_user)):
