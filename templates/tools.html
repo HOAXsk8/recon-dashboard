@@ -3,6 +3,11 @@
 {% block title %}Tools Monitoring - Netbytes.cloud{% endblock %}
 
 {% block content %}
+<script>
+    // Global user role from server
+    const USER_ROLE = "{{ user.role }}";
+</script>
+
 <div class="space-y-8">
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
@@ -76,6 +81,9 @@
                 statusColor = 'bg-tech-danger';
             }
 
+            // Determine if controls should be shown
+            const showControls = (USER_ROLE === 'admin' || USER_ROLE === 'analyst');
+
             return `
                 <div class="bg-tech-panel p-8 rounded-3xl border border-slate-800 hover:border-slate-700 transition-all group relative overflow-hidden">
                     <div class="absolute top-0 left-0 w-1 h-full ${statusColor}"></div>
@@ -100,8 +108,9 @@
                             <span class="text-slate-500 uppercase font-bold tracking-tighter">Last Heartbeat</span>
                             <span class="text-slate-300 font-mono">${new Date(t.last_heartbeat).toLocaleString()}</span>
                         </div>
+                        
                         <!-- Action Controls -->
-                        <div id="controls-${t.key}" class="pt-6 border-t border-slate-800/50 space-y-6 ${'{{ user.role }}' === 'viewer' ? 'hidden' : ''}">
+                        <div class="pt-6 border-t border-slate-800/50 space-y-6 ${showControls ? '' : 'hidden'}">
                             <!-- Worker Scaling -->
                             <div class="flex flex-col space-y-2">
                                 <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Parallel Workers</label>
