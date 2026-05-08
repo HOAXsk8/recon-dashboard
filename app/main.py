@@ -52,7 +52,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Helpers ---
 
-def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str]):
+def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str], port: Optional[int] = None):
     query = {}
     if q:
         query["domain"] = {"$regex": re.escape(q), "$options": "i"}
@@ -82,6 +82,9 @@ def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomain
         query["blacklisted"] = True
     elif blacklisted == "false":
         query["blacklisted"] = {"$ne": True}
+
+    if port:
+        query["systems.services.port"] = port
         
     return query
 
@@ -319,21 +322,21 @@ def get_country_code(ip: str) -> str:
 
 @app.get("/api/subdomains")
 async def get_subdomains(
-    page: int = 1, 
-    limit: int = 20, 
+    page: int = 1,
+    limit: int = 20,
     q: Optional[str] = None,
     status_val: Optional[str] = None,
     has_subdomains: Optional[str] = None,
     tech: Optional[str] = None,
+    port: Optional[int] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
 ):
     if not user:
         raise HTTPException(status_code=401)
-    
-    query = get_query_filters(q, status_val, has_subdomains, tech, None)
-    
+
+    query = get_query_filters(q, status_val, has_subdomains, tech, None, port)    
     total = await domains_col.count_documents(query)
     scanned_count = await domains_col.count_documents({"scanned": True})
     
