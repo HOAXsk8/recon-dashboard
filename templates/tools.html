@@ -100,25 +100,40 @@
                             <span class="text-slate-500 uppercase font-bold tracking-tighter">Last Heartbeat</span>
                             <span class="text-slate-300 font-mono">${new Date(t.last_heartbeat).toLocaleString()}</span>
                         </div>
-                        <div class="pt-4 border-t border-slate-800 space-y-4">
-                            <div class="flex items-center justify-between">
-                                <span class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Workers</span>
+                        <!-- Action Controls -->
+                        <div class="pt-6 border-t border-slate-800/50 space-y-6">
+                            <!-- Worker Scaling -->
+                            <div class="flex flex-col space-y-2">
+                                <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Parallel Workers</label>
                                 <div class="flex items-center space-x-2">
-                                    <input type="number" value="${t.max_workers || 4}" min="1" max="20" id="workers-${t.key}" 
-                                           class="w-12 bg-slate-900 border border-slate-800 rounded text-[10px] text-white px-1 py-0.5 focus:border-tech-accent focus:outline-none transition-all">
-                                    <button onclick="updateConfig('${t.key}', 'workers')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded transition-all font-bold">SET</button>
+                                    <div class="relative flex-grow">
+                                        <input type="number" value="${t.max_workers || 4}" min="1" max="20" id="workers-${t.key}" 
+                                               class="w-full bg-slate-900/50 border border-slate-700 rounded-xl text-sm text-white px-4 py-2 focus:border-tech-accent focus:ring-1 focus:ring-tech-accent/50 outline-none transition-all font-mono">
+                                    </div>
+                                    <button onclick="updateConfig('${t.key}', 'workers')" 
+                                            class="px-4 py-2 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-tech-accent rounded-xl transition-all font-black text-xs uppercase tracking-tight border border-tech-accent/20">
+                                        SET
+                                    </button>
                                 </div>
                             </div>
-                            <div class="flex items-center justify-between">
-                                <span class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Operation</span>
+
+                            <!-- Execution Toggle -->
+                            <div class="flex flex-col space-y-2">
+                                <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Process Control</label>
                                 <button onclick="updateConfig('${t.key}', '${statusText === 'Stopped' ? 'Start' : 'Stop'}')" 
-                                        class="text-[10px] font-bold px-4 py-1.5 rounded-lg transition-all ${statusText === 'Stopped' ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success/20 border border-tech-success/20' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger/20 border border-tech-danger/20'}">
-                                    ${statusText === 'Stopped' ? 'START AGENT' : 'STOP AGENT'}
+                                        class="w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all border shadow-lg active:scale-95 ${statusText === 'Stopped' ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}">
+                                    ${statusText === 'Stopped' ? 'DEPLOY AGENT' : 'TERMINATE PROCESS'}
                                 </button>
                             </div>
                         </div>
-                        <div class="pt-2 flex justify-end">
-                            <span class="text-[10px] text-slate-600 font-mono uppercase tracking-widest">Agent Key: ${t.key}</span>
+
+                        <!-- Footer Info -->
+                        <div class="pt-4 flex items-center justify-between border-t border-slate-800/30">
+                            <span class="text-[9px] text-slate-600 font-mono uppercase tracking-widest">ID: ${t.key}</span>
+                            <div class="flex items-center space-x-1">
+                                <span class="w-1.5 h-1.5 rounded-full ${statusColor}"></span>
+                                <span class="text-[9px] text-slate-500 font-bold uppercase">${statusText}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -127,6 +142,11 @@
     }
 
     async function updateConfig(key, type) {
+        const btn = event.currentTarget;
+        const originalText = btn.innerText;
+        btn.innerText = '...';
+        btn.disabled = true;
+
         let payload = {};
         if (type === 'workers') {
             const val = document.getElementById(`workers-${key}`).value;
@@ -144,13 +164,18 @@
                 body: JSON.stringify(payload)
             });
             if (resp.ok) {
-                fetchTools();
+                await fetchTools();
             } else {
-                alert('Failed to update agent configuration');
+                alert('Update Rejected by Command Center');
             }
         } catch (e) {
             console.error(e);
-            alert('Communication error with command center');
+            alert('Signal Lost: Communication Error');
+        } finally {
+            if (btn) {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
         }
     }
 
