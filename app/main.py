@@ -52,6 +52,40 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Helpers ---
 
+def format_domain_item(d: dict):
+    # Extract IP from systems if possible
+    ip = "N/A"
+    if d.get("systems") and len(d["systems"]) > 0:
+        ip = d["systems"][0].get("ip", "N/A")
+    
+    # Count subdomains
+    sub_count = 0
+    if d.get("infrastructure") and d.get("infrastructure", {}).get("subdomains"):
+        subs = d["infrastructure"]["subdomains"]
+        if isinstance(subs, list):
+            sub_count = len(subs)
+        elif isinstance(subs, dict):
+            sub_count = len(subs.keys())
+    
+    # Collect technologies
+    techs = []
+    if d.get("web_applications"):
+        for app_info in d["web_applications"]:
+            techs.extend(app_info.get("tech_stack", []))
+    techs = list(set(techs))
+    
+    return {
+        "id": str(d["_id"]),
+        "domain": d.get("domain"),
+        "ip": ip,
+        "scanned": d.get("scanned", False),
+        "subdomain_count": sub_count,
+        "technologies": techs[:5],
+        "tech_str": ", ".join(techs),
+        "country_id": get_country_code(ip),
+        "recon_date": d.get("recon_date", "N/A")
+    }
+
 def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str], port: Optional[int] = None):
     query = {}
     if q:
@@ -303,7 +337,6 @@ async def get_suggestions(q: str, user: dict = Depends(get_current_user)):
     results = await cursor.to_list(length=5)
     return [r["domain"] for r in results]
 
-import socket
 from functools import lru_cache
 
 @lru_cache(maxsize=1024)
@@ -354,34 +387,7 @@ async def get_subdomains(
     cursor = domains_col.find(query).sort(sort_field, direction).skip((page - 1) * limit).limit(limit)
     docs = await cursor.to_list(length=limit)
     
-    results = []
-    for d in docs:
-        # Extract IP from systems if possible
-        ip = "N/A"
-        if d.get("systems") and len(d["systems"]) > 0:
-            ip = d["systems"][0].get("ip", "N/A")
-        
-        # Count subdomains
-        sub_count = 0
-        if d.get("infrastructure") and d["infrastructure"].get("subdomains"):
-            sub_count = len(d["infrastructure"]["subdomains"])
-        
-        # Collect technologies
-        techs = []
-        if d.get("web_applications"):
-            for app_info in d["web_applications"]:
-                techs.extend(app_info.get("tech_stack", []))
-        techs = list(set(techs))[:5] # Limit to top 5
-        
-        results.append({
-            "id": str(d["_id"]),
-            "domain": d.get("domain"),
-            "ip": ip,
-            "scanned": d.get("scanned", False),
-            "subdomain_count": sub_count,
-            "technologies": techs,
-            "country_id": get_country_code(ip)
-        })
+    results = [format_domain_item(d) for d in docs]
         
     return {"subdomains": results, "total": total, "scanned_total": scanned_count, "page": page, "limit": limit}
 
@@ -414,28 +420,15 @@ async def export_subdomains(
     
     data = []
     for d in docs:
-        ip = "N/A"
-        if d.get("systems") and len(d["systems"]) > 0:
-            ip = d["systems"][0].get("ip", "N/A")
-        
-        sub_count = 0
-        if d.get("infrastructure") and d["infrastructure"].get("subdomains"):
-            sub_count = len(d["infrastructure"]["subdomains"])
-        
-        techs = []
-        if d.get("web_applications"):
-            for app_info in d["web_applications"]:
-                techs.extend(app_info.get("tech_stack", []))
-        tech_str = ", ".join(list(set(techs)))
-        
+        item = format_domain_item(d)
         data.append({
-            "Domain": d.get("domain"),
-            "Status": "Scanned" if d.get("scanned") else "Pending",
-            "IP Address": ip,
-            "Country": get_country_code(ip),
-            "Subdomains Count": sub_count,
-            "Technologies": tech_str,
-            "Recon Date": d.get("recon_date", "N/A")
+            "Domain": item["domain"],
+            "Status": "Scanned" if item["scanned"] else "Pending",
+            "IP Address": item["ip"],
+            "Country": item["country_id"],
+            "Subdomains Count": item["subdomain_count"],
+            "Technologies": item["tech_str"],
+            "Recon Date": item["recon_date"]
         })
     
     if not data:

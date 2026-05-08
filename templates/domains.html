@@ -8,10 +8,12 @@
 <div class="space-y-8 animate-fade-in">
     <div class="flex justify-between items-center">
         <h2 class="text-3xl font-bold tracking-tight text-white">Domain <span class="text-tech-accent">Management</span></h2>
+        {% if user.role in ['admin', 'analyst'] %}
         <button onclick="document.getElementById('add-domain-modal').classList.remove('hidden')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             <span>Add Domain</span>
         </button>
+        {% endif %}
     </div>
 
     <!-- Domains Table Section -->
@@ -42,15 +44,19 @@
             <table class="w-full text-left text-sm">
                 <thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 uppercase text-xs font-bold">
                     <tr>
+                        {% if user.role in ['admin', 'analyst'] %}
                         <th class="px-6 py-4 w-10">
                             <input type="checkbox" id="select-all-domains" onclick="toggleSelectAll(this)" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
                         </th>
+                        {% endif %}
                         <th class="px-6 py-4">Domain</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Blacklisted</th>
                         <th class="px-6 py-4">Added At</th>
                         <th class="px-6 py-4">Notes</th>
+                        {% if user.role in ['admin', 'analyst'] %}
                         <th class="px-6 py-4 text-right">Actions</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="domain-table-body" class="divide-y divide-slate-200 dark:divide-slate-800">
@@ -69,6 +75,7 @@
 </div>
 
 <!-- Bulk Actions Bar -->
+{% if user.role in ['admin', 'analyst'] %}
 <div id="bulk-actions-bar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-tech-panel border border-tech-accent/50 rounded-2xl shadow-2xl px-6 py-4 flex items-center space-x-6 z-50 transition-all transform translate-y-24 opacity-0">
     <div class="flex items-center space-x-2 border-r border-slate-700 pr-6">
         <span id="selected-count" class="text-tech-accent font-black text-lg">0</span>
@@ -102,8 +109,10 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
     </button>
 </div>
+{% endif %}
 
 <!-- Add Domain Modal -->
+{% if user.role in ['admin', 'analyst'] %}
 <div id="add-domain-modal" class="fixed inset-0 bg-tech-bg/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
     <div class="bg-white dark:bg-tech-panel w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
@@ -155,6 +164,7 @@
         </form>
     </div>
 </div>
+{% endif %}
 
 <!-- Notes Modal -->
 <div id="notes-modal" class="fixed inset-0 bg-tech-bg/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
@@ -172,15 +182,18 @@
                 <textarea id="domain-notes-textarea" class="w-full h-40 px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent resize-none"></textarea>
             </div>
             <div class="flex justify-end pt-4">
+                {% if user.role in ['admin', 'analyst'] %}
                 <button onclick="saveNotes()" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity">
                     Save Notes
                 </button>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
 
 <script>
+const USER_ROLE = '{{ user.role }}';
 let currentPage = 1;
 const limit = 10;
 
@@ -192,7 +205,6 @@ async function loadDomains() {
     try {
         const response = await fetch(`/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&status_val=${statusVal}&blacklisted=${blacklistedVal}&_t=${Date.now()}`);
         const data = await response.json();
-        console.log('Loaded domains:', data.domains);
         
         const tbody = document.getElementById('domain-table-body');
         tbody.innerHTML = '';
@@ -212,10 +224,17 @@ async function loadDomains() {
 
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors';
-            tr.innerHTML = `
-                <td class="px-6 py-4">
-                    <input type="checkbox" name="domain-checkbox" value="${domain.id}" onclick="updateSelection()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
-                </td>
+            
+            let rowHtml = '';
+            if (['admin', 'analyst'].includes(USER_ROLE)) {
+                rowHtml += `
+                    <td class="px-6 py-4">
+                        <input type="checkbox" name="domain-checkbox" value="${domain.id}" onclick="updateSelection()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                    </td>
+                `;
+            }
+
+            rowHtml += `
                 <td class="px-6 py-4 font-mono font-bold">${domain.domain}</td>
                 <td class="px-6 py-4">${statusBadge}</td>
                 <td class="px-6 py-4">
@@ -227,18 +246,25 @@ async function loadDomains() {
                 <td class="px-6 py-4">
                     <p class="text-xs text-slate-400 max-w-[200px] truncate">${domain.notes || 'No notes...'}</p>
                 </td>
-                <td class="px-6 py-4 text-right space-x-2">
-                    <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${(domain.notes || "").replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                    </button>
-                    <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${isBlacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors" title="${isBlacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                    </button>
-                    <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="Delete">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                    </button>
-                </td>
             `;
+
+            if (['admin', 'analyst'].includes(USER_ROLE)) {
+                rowHtml += `
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${(domain.notes || "").replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                        <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${isBlacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors" title="${isBlacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                        </button>
+                        <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>
+                `;
+            }
+
+            tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
         });
         
@@ -335,11 +361,9 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
 });
 
 async function toggleBlacklist(id) {
-    console.log('Toggling blacklist for ID:', id);
     try {
         const response = await fetch(`/api/domains/${id}/blacklist`, { method: 'POST' });
         const result = await response.json();
-        console.log('Blacklist toggle result:', result);
         if (result.status === 'success') {
             loadDomains();
         }
