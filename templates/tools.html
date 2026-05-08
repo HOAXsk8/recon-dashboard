@@ -100,13 +100,58 @@
                             <span class="text-slate-500 uppercase font-bold tracking-tighter">Last Heartbeat</span>
                             <span class="text-slate-300 font-mono">${new Date(t.last_heartbeat).toLocaleString()}</span>
                         </div>
-                        <div class="pt-4 border-t border-slate-800 flex justify-end">
+                        <div class="pt-4 border-t border-slate-800 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Workers</span>
+                                <div class="flex items-center space-x-2">
+                                    <input type="number" value="${t.max_workers || 4}" min="1" max="20" id="workers-${t.key}" 
+                                           class="w-12 bg-slate-900 border border-slate-800 rounded text-[10px] text-white px-1 py-0.5 focus:border-tech-accent focus:outline-none transition-all">
+                                    <button onclick="updateConfig('${t.key}', 'workers')" class="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded transition-all font-bold">SET</button>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Operation</span>
+                                <button onclick="updateConfig('${t.key}', '${statusText === 'Stopped' ? 'Start' : 'Stop'}')" 
+                                        class="text-[10px] font-bold px-4 py-1.5 rounded-lg transition-all ${statusText === 'Stopped' ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success/20 border border-tech-success/20' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger/20 border border-tech-danger/20'}">
+                                    ${statusText === 'Stopped' ? 'START AGENT' : 'STOP AGENT'}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="pt-2 flex justify-end">
                             <span class="text-[10px] text-slate-600 font-mono uppercase tracking-widest">Agent Key: ${t.key}</span>
                         </div>
                     </div>
                 </div>
             `;
         }).join('');
+    }
+
+    async function updateConfig(key, type) {
+        let payload = {};
+        if (type === 'workers') {
+            const val = document.getElementById(`workers-${key}`).value;
+            payload = { max_workers: parseInt(val) };
+        } else if (type === 'Start') {
+            payload = { status: 'Idle' };
+        } else if (type === 'Stop') {
+            payload = { status: 'Stopped' };
+        }
+
+        try {
+            const resp = await fetch(`/api/tools/${key}/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (resp.ok) {
+                fetchTools();
+            } else {
+                alert('Failed to update agent configuration');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Communication error with command center');
+        }
     }
 
     document.addEventListener('DOMContentLoaded', fetchTools);
