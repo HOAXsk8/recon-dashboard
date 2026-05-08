@@ -92,7 +92,7 @@ char* run_command(const char* cmd) {
 
 // --- Step 1: Aliveness Check ---
 int is_alive(const char* domain) {
-    struct addrinfo hints, *res;
+    struct addrinfo hints, *res, *p;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -102,30 +102,35 @@ int is_alive(const char* domain) {
     int ports[] = {80, 443, 22, 53, 8080};
     int alive = 0;
     
-    for (int i = 0; i < 5; i++) {
-        int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-        if (sock < 0) continue;
-        
-        struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
-        addr->sin_port = htons(ports[i]);
-        
-        struct pollfd pfd;
-        pfd.fd = sock;
-        pfd.events = POLLOUT;
-        
-        int flags = fcntl(sock, F_GETFL, 0);
-        fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-        
-        connect(sock, (struct sockaddr*)addr, sizeof(*addr));
-        if (poll(&pfd, 1, 1500) > 0) {
-            int err;
-            socklen_t lon = sizeof(int);
-            getsockopt(sock, SOL_SOCKET, SO_ERROR, (void*)(&err), &lon);
-            if (err == 0) alive = 1;
+    for (p = res; p != NULL && !alive; p = p->ai_next) {
+        for (int i = 0; i < 5; i++) {
+            int sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+            if (sock < 0) continue;
+            
+            if (p->ai_family == AF_INET) {
+                ((struct sockaddr_in*)p->ai_addr)->sin_port = htons(ports[i]);
+            } else if (p->ai_family == AF_INET6) {
+                ((struct sockaddr_in6*)p->ai_addr)->sin6_port = htons(ports[i]);
+            }
+
+            struct pollfd pfd;
+            pfd.fd = sock;
+            pfd.events = POLLOUT;
+            
+            int flags = fcntl(sock, F_GETFL, 0);
+            fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+            
+            connect(sock, p->ai_addr, p->ai_addrlen);
+            if (poll(&pfd, 1, 1500) > 0) {
+                int err;
+                socklen_t lon = sizeof(int);
+                getsockopt(sock, SOL_SOCKET, SO_ERROR, (void*)(&err), &lon);
+                if (err == 0) alive = 1;
+            }
+            
+            close(sock);
+            if (alive) break;
         }
-        
-        close(sock);
-        if (alive) break;
     }
     
     freeaddrinfo(res);
@@ -146,7 +151,7 @@ void read_config() {
         if (bson_iter_init_find(&iter, doc, "max_workers")) {
             max_workers = bson_iter_int32(&iter);
             if (max_workers < 1) max_workers = 1;
-            if (max_workers > 20) max_workers = 20;
+            if (max_workers > 5) max_workers = 5;
         }
         if (bson_iter_init_find(&iter, doc, "status")) {
             const char* status = bson_iter_utf8(&iter, NULL);
@@ -198,11 +203,7 @@ void* recon_thread(void* arg) {
     bson_error_t error;
     
     if (!is_alive(domain)) {
-        printf("[-] %s is dead. Removing.\n", domain);
-        bson_t* query = BCON_NEW("domain", BCON_UTF8(domain));
-        mongoc_collection_remove(collection, MONGOC_REMOVE_SINGLE_REMOVE, query, NULL, &error);
-        bson_destroy(query);
-        goto cleanup;
+        printf("[!] %s unresponsive to initial TCP check. Proceeding with Nmap -Pn anyway.\n", domain);
     }
     
     char cmd[512];
@@ -231,7 +232,8 @@ void* recon_thread(void* arg) {
         free(sub_out);
     }
     
-    snprintf(cmd, sizeof(cmd), "nmap -sS -sU --top-ports 1000 --max-retries 1 --max-rtt-timeout 2s %s", domain);
+    // Added -Pn to skip host discovery (ignores ICMP block)
+    snprintf(cmd, sizeof(cmd), "nmap -Pn -sS -sU --top-ports 1000 --max-retries 1 --max-rtt-timeout 2s %s", domain);
     char* nmap_out = run_command(cmd);
     int web_found = 0;
     if (nmap_out) {
@@ -321,10 +323,10 @@ int main() {
         mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
         
         const bson_t* doc;
-        pthread_t threads[20]; // Cap at 20 workers
+        pthread_t threads[5]; // Cap at 5 workers
         int t_count = 0;
         
-        while (mongoc_cursor_next(cursor, &doc) && t_count < max_workers && t_count < 20) {
+        while (mongoc_cursor_next(cursor, &doc) && t_count < max_workers && t_count < 5) {
             if (t_count == 0) update_scanner_status("Running");
             bson_iter_t iter;
             if (bson_iter_init_find(&iter, doc, "domain")) {

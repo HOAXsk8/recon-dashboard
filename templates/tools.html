@@ -107,7 +107,7 @@
                                 <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Parallel Workers</label>
                                 <div class="flex items-center space-x-2">
                                     <div class="relative flex-grow">
-                                        <input type="number" value="${t.max_workers || 4}" min="1" max="20" id="workers-${t.key}" 
+                                        <input type="number" value="${t.max_workers || 4}" min="1" max="5" id="workers-${t.key}" 
                                                class="w-full bg-slate-900/50 border border-slate-700 rounded-xl text-sm text-white px-4 py-2 focus:border-tech-accent focus:ring-1 focus:ring-tech-accent/50 outline-none transition-all font-mono">
                                     </div>
                                     <button onclick="updateConfig('${t.key}', 'workers')" 

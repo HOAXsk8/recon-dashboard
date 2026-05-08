@@ -997,7 +997,7 @@ async def update_tool_config(tool_key: str, request: Request, user: dict = Depen
     if "max_workers" in data:
         try:
             val = int(data["max_workers"])
-            if 1 <= val <= 20:
+            if 1 <= val <= 5:
                 update_fields["max_workers"] = val
         except ValueError:
             pass
