@@ -4,8 +4,8 @@
 
 {% block content %}
 <script>
-    // Global user role from server
-    const USER_ROLE = "{{ user.role }}";
+    // Global user role from server, attached to window to ensure visibility
+    window.USER_ROLE = "{{ user.role }}";
 </script>
 
 <div class="space-y-8">
@@ -40,52 +40,56 @@
 </div>
 
 <!-- Modal Popover -->
-<div id="tool-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-    <div class="bg-tech-panel w-full max-w-md rounded-3xl border border-slate-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div class="p-6 border-b border-slate-800 flex justify-between items-center">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-tech-accent border border-slate-800">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+<div id="tool-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+    <div class="bg-tech-panel w-full max-w-md rounded-[2.5rem] border border-slate-800 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
+        <div class="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-tech-accent border border-slate-800">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
                 </div>
                 <div>
-                    <h2 id="modal-tool-name" class="text-lg font-black text-white">AGENT CONTROL</h2>
-                    <p id="modal-tool-key" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest"></p>
+                    <h2 id="modal-tool-name" class="text-xl font-black text-white uppercase tracking-tight">AGENT CONTROL</h2>
+                    <p id="modal-tool-key" class="text-[10px] font-mono text-slate-500 uppercase tracking-[0.2em]"></p>
                 </div>
             </div>
-            <button onclick="closeModal()" class="p-2 hover:bg-slate-800 rounded-xl text-slate-500 hover:text-white transition-all">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <button onclick="closeModal()" class="p-3 hover:bg-slate-800 rounded-2xl text-slate-500 hover:text-white transition-all border border-transparent hover:border-slate-700">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
         
-        <div class="p-6 space-y-8">
+        <div class="p-8 space-y-10">
             <!-- Stats -->
-            <div class="grid grid-cols-2 gap-4">
-                <div class="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                    <p class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-1">Status</p>
+            <div class="grid grid-cols-2 gap-6">
+                <div class="bg-slate-900/50 p-5 rounded-[1.5rem] border border-slate-800/50">
+                    <p class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-2">Current Status</p>
                     <p id="modal-tool-status" class="text-sm font-black uppercase tracking-tight"></p>
                 </div>
-                <div class="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                    <p class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-1">Process ID</p>
+                <div class="bg-slate-900/50 p-5 rounded-[1.5rem] border border-slate-800/50">
+                    <p class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mb-2">System PID</p>
                     <p id="modal-tool-pid" class="text-sm font-black font-mono text-white"></p>
                 </div>
             </div>
 
-            <!-- Controls (Visible for authorized users) -->
-            <div id="modal-controls" class="space-y-6">
-                <div class="flex flex-col space-y-2">
-                    <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Parallel Workers (Max 5)</label>
-                    <div class="flex items-center space-x-2">
+            <!-- Controls -->
+            <div id="modal-controls" class="space-y-8">
+                <div class="flex flex-col space-y-3">
+                    <label class="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] ml-1">Scaling: Parallel Workers</label>
+                    <div class="flex items-center space-x-3">
                         <input type="number" id="modal-workers-input" min="1" max="5" 
-                               class="flex-grow bg-slate-900 border border-slate-700 rounded-xl text-sm text-white px-4 py-3 focus:border-tech-accent focus:ring-1 focus:ring-tech-accent/50 outline-none transition-all font-mono">
-                        <button id="modal-set-workers" class="px-6 py-3 bg-tech-accent text-tech-bg rounded-xl font-black text-xs uppercase tracking-tight hover:scale-105 transition-all active:scale-95">SET</button>
+                               class="flex-grow bg-slate-900 border border-slate-700 rounded-2xl text-base text-white px-5 py-4 focus:border-tech-accent focus:ring-1 focus:ring-tech-accent/50 outline-none transition-all font-mono">
+                        <button id="modal-set-workers" class="px-8 py-4 bg-tech-accent text-tech-bg rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all active:scale-95 shadow-lg shadow-tech-accent/20">SET</button>
                     </div>
                 </div>
 
-                <div class="flex flex-col space-y-2">
-                    <label class="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Process Command</label>
-                    <button id="modal-toggle-status" class="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all border shadow-lg active:scale-95"></button>
+                <div class="flex flex-col space-y-3">
+                    <label class="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] ml-1">Process Execution</label>
+                    <button id="modal-toggle-status" class="w-full py-5 rounded-2xl font-black text-xs uppercase tracking-[0.3em] transition-all border shadow-2xl active:scale-[0.98]"></button>
                 </div>
             </div>
+        </div>
+        
+        <div class="p-6 bg-slate-900/20 text-center border-t border-slate-800/30">
+            <p class="text-[9px] text-slate-600 font-mono uppercase tracking-widest">Authorized Command Link Established</p>
         </div>
     </div>
 </div>
@@ -100,10 +104,10 @@
             currentTools = await resp.json();
             renderTools(currentTools);
         } catch (e) {
-            console.error(e);
+            console.error('Fetch Error:', e);
             document.getElementById('tools-container').innerHTML = `
                 <div class="col-span-full p-20 text-center bg-tech-panel rounded-3xl border border-tech-danger/20 text-tech-danger font-bold uppercase tracking-widest">
-                    Failed to establish link with command center
+                    Link Failure: Control Center Unreachable
                 </div>
             `;
         }
@@ -135,34 +139,35 @@
             }
 
             return `
-                <div onclick="openModal('${t.key}')" class="bg-tech-panel p-8 rounded-3xl border border-slate-800 hover:border-tech-accent/50 hover:shadow-[0_0_30px_rgba(56,189,248,0.05)] transition-all group cursor-pointer relative overflow-hidden active:scale-[0.98]">
-                    <div class="absolute top-0 left-0 w-1.5 h-full ${statusColor}"></div>
-                    <div class="flex items-center justify-between mb-6">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-tech-accent border border-slate-800 group-hover:border-tech-accent/50 group-hover:shadow-[0_0_15px_rgba(56,189,248,0.2)] transition-all">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                <div onclick="window.openModal('${t.key}')" class="bg-tech-panel p-8 rounded-[2rem] border border-slate-800 hover:border-tech-accent/40 hover:shadow-[0_0_40px_rgba(56,189,248,0.08)] transition-all group cursor-pointer relative overflow-hidden active:scale-[0.97]">
+                    <div class="absolute top-0 left-0 w-2 h-full ${statusColor}"></div>
+                    <div class="flex items-center justify-between mb-8">
+                        <div class="flex items-center space-x-5">
+                            <div class="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-tech-accent border border-slate-800 group-hover:border-tech-accent/40 transition-all shadow-inner">
+                                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
                             </div>
                             <div>
-                                <h3 class="text-lg font-bold text-white group-hover:text-tech-accent transition-colors">${t.name}</h3>
-                                <p class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">${t.key}</p>
+                                <h3 class="text-xl font-black text-white group-hover:text-tech-accent transition-colors tracking-tight">${t.name}</h3>
+                                <p class="text-[10px] font-mono text-slate-500 uppercase tracking-[0.2em] mt-1">${t.key}</p>
                             </div>
                         </div>
-                        <div class="flex items-center space-x-2 bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
-                            <div class="w-2 h-2 rounded-full ${statusColor} ${pulseClass}"></div>
-                            <span class="text-[10px] font-black uppercase tracking-tighter ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
+                        <div class="flex items-center space-x-2 bg-slate-900/80 px-4 py-2 rounded-full border border-slate-800 shadow-xl">
+                            <div class="w-2.5 h-2.5 rounded-full ${statusColor} ${pulseClass}"></div>
+                            <span class="text-[11px] font-black uppercase tracking-tighter ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
                         </div>
                     </div>
                     
-                    <div class="space-y-4">
-                        <div class="flex justify-between items-center text-xs">
-                            <span class="text-slate-500 uppercase font-bold tracking-tighter">Last Heartbeat</span>
-                            <span class="text-slate-300 font-mono text-[10px]">${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleString() : 'Never'}</span>
+                    <div class="space-y-5">
+                        <div class="flex justify-between items-center text-xs bg-slate-900/30 p-3 rounded-xl border border-slate-800/30">
+                            <span class="text-slate-500 uppercase font-black tracking-widest text-[9px]">Last Heartbeat</span>
+                            <span class="text-slate-300 font-mono text-[10px]">${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleString() : 'SIGNAL LOST'}</span>
                         </div>
-                        <div class="pt-4 border-t border-slate-800 flex items-center justify-between">
-                            <span class="text-[9px] text-slate-500 font-mono uppercase tracking-[0.2em]">Agent Controller v2.0</span>
-                            <button class="px-4 py-1.5 bg-tech-accent/10 hover:bg-tech-accent text-tech-accent hover:text-tech-bg text-[10px] font-black uppercase rounded-lg transition-all border border-tech-accent/20">
-                                MANAGE
-                            </button>
+                        <div class="pt-2 flex items-center justify-between px-1">
+                            <span class="text-[9px] text-slate-600 font-mono uppercase tracking-[0.3em]">Agent v2.1</span>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-[10px] text-tech-accent font-black uppercase tracking-widest group-hover:translate-x-[-4px] transition-transform">Configure</span>
+                                <svg class="w-3 h-3 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -170,19 +175,21 @@
         }).join('');
     }
 
-    function openModal(key) {
-        console.log('Opening modal for agent:', key);
+    // Attach to window for global scope
+    window.openModal = function(key) {
+        console.log('UI: Opening Controller for', key);
         const tool = currentTools.find(t => t.key === key);
-        if (!tool) {
-            console.error('Agent not found:', key);
-            return;
-        }
+        if (!tool) return;
+
+        document.getElementById('modal-tool-name').innerText = tool.name;
+        document.getElementById('modal-tool-key').innerText = tool.key;
+        document.getElementById('modal-tool-pid').innerText = tool.pid || 'N/A';
         
         const statusEl = document.getElementById('modal-tool-status');
         statusEl.innerText = tool.status || 'Stopped';
         statusEl.className = `text-sm font-black uppercase tracking-tight ${tool.status === 'Running' ? 'text-tech-success' : (tool.status === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}`;
 
-        if (USER_ROLE === 'viewer') {
+        if (window.USER_ROLE === 'viewer') {
             document.getElementById('modal-controls').classList.add('hidden');
         } else {
             document.getElementById('modal-controls').classList.remove('hidden');
@@ -191,25 +198,31 @@
             workersInput.value = tool.max_workers || 4;
             
             const setBtn = document.getElementById('modal-set-workers');
-            setBtn.onclick = () => updateConfig(setBtn, tool.key, 'workers');
+            setBtn.onclick = (e) => {
+                e.stopPropagation();
+                updateConfig(setBtn, tool.key, 'workers');
+            };
 
             const toggleBtn = document.getElementById('modal-toggle-status');
             const isStopped = tool.status === 'Stopped';
-            toggleBtn.innerText = isStopped ? 'DEPLOY AGENT' : 'TERMINATE PROCESS';
-            toggleBtn.className = `w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all border shadow-lg active:scale-95 ${isStopped ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}`;
-            toggleBtn.onclick = () => updateConfig(toggleBtn, tool.key, isStopped ? 'Start' : 'Stop');
+            toggleBtn.innerText = isStopped ? 'INITIATE DEPLOYMENT' : 'TERMINATE AGENT';
+            toggleBtn.className = `w-full py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all border shadow-2xl active:scale-95 ${isStopped ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}`;
+            toggleBtn.onclick = (e) => {
+                e.stopPropagation();
+                updateConfig(toggleBtn, tool.key, isStopped ? 'Start' : 'Stop');
+            };
         }
 
         document.getElementById('tool-modal').classList.remove('hidden');
     }
 
-    function closeModal() {
+    window.closeModal = function() {
         document.getElementById('tool-modal').classList.add('hidden');
     }
 
     async function updateConfig(btn, key, type) {
         const originalText = btn.innerText;
-        btn.innerText = '...';
+        btn.innerText = 'WAIT...';
         btn.disabled = true;
 
         let payload = {};
@@ -230,26 +243,27 @@
             });
             if (resp.ok) {
                 await fetchTools();
-                // Find updated tool and update modal view
+                // Refresh modal state
                 const updatedTool = currentTools.find(t => t.key === key);
                 if (updatedTool) {
-                    document.getElementById('modal-tool-status').innerText = updatedTool.status;
-                    // Keep modal open but update status text
+                    const statusEl = document.getElementById('modal-tool-status');
+                    statusEl.innerText = updatedTool.status;
+                    statusEl.className = `text-sm font-black uppercase tracking-tight ${updatedTool.status === 'Running' ? 'text-tech-success' : (updatedTool.status === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}`;
+                    
                     const isStopped = updatedTool.status === 'Stopped';
                     const toggleBtn = document.getElementById('modal-toggle-status');
-                    toggleBtn.innerText = isStopped ? 'DEPLOY AGENT' : 'TERMINATE PROCESS';
-                    toggleBtn.className = `w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all border shadow-lg active:scale-95 ${isStopped ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}`;
-                    toggleBtn.onclick = () => updateConfig(toggleBtn, updatedTool.key, isStopped ? 'Start' : 'Stop');
+                    toggleBtn.innerText = isStopped ? 'INITIATE DEPLOYMENT' : 'TERMINATE AGENT';
+                    toggleBtn.className = `w-full py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all border shadow-2xl active:scale-95 ${isStopped ? 'bg-tech-success/10 text-tech-success hover:bg-tech-success hover:text-white border-tech-success/30' : 'bg-tech-danger/10 text-tech-danger hover:bg-tech-danger hover:text-white border-tech-danger/30'}`;
                 }
             } else {
-                alert('Update Rejected by Command Center');
+                alert('COMMAND REJECTED');
             }
         } catch (e) {
-            console.error(e);
-            alert('Signal Lost: Communication Error');
+            console.error('Update Error:', e);
+            alert('SIGNAL LOST');
         } finally {
             if (btn) {
-                btn.innerText = (type === 'workers') ? 'SET' : (payload.status === 'Stopped' ? 'TERMINATE PROCESS' : 'DEPLOY AGENT');
+                btn.innerText = (type === 'workers') ? 'SET' : (payload.status === 'Stopped' ? 'TERMINATE AGENT' : 'INITIATE DEPLOYMENT');
                 btn.disabled = false;
             }
         }
@@ -264,6 +278,6 @@
     }
 
     document.addEventListener('DOMContentLoaded', fetchTools);
-    setInterval(fetchTools, 10000); // Update every 10s
+    setInterval(fetchTools, 10000); 
 </script>
 {% endblock %}
