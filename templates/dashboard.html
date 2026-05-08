@@ -108,6 +108,18 @@
     </div>
 </div>
 
+<!-- Domain Pop-up Menu -->
+<div id="domain-menu" class="fixed hidden z-[200] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 w-48 animate-in fade-in zoom-in duration-200">
+    <button id="menu-open-btn" class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+        <span>Open in new tab</span>
+    </button>
+    <button id="menu-copy-btn" class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+        <span>Copy Domain</span>
+    </button>
+</div>
+
 <!-- Modal for Detailed View -->
 <div id="detail-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-tech-bg/95 backdrop-blur-md">
     <div class="min-h-screen p-4 md:p-10">
@@ -655,7 +667,7 @@
 
         modal.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
-        title.innerHTML = `Target Domain: <span class="text-white">${domain}</span>`;
+        title.innerHTML = `Target Domain: <span class="text-white cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${domain}')">${domain}</span>`;
         subtitle.textContent = "Loading tactical data from field agents...";
         actions.classList.add('hidden');
 
@@ -695,6 +707,37 @@
         } catch (e) {
             content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold">SYSTEM ERROR: Failed to retrieve intelligence feed.</div>`;
         }
+    }
+
+    function showDomainMenu(event, domain) {
+        event.stopPropagation();
+        const menu = document.getElementById('domain-menu');
+        const openBtn = document.getElementById('menu-open-btn');
+        const copyBtn = document.getElementById('menu-copy-btn');
+
+        menu.style.left = `${event.clientX}px`;
+        menu.style.top = `${event.clientY + 10}px`;
+        menu.classList.remove('hidden');
+
+        openBtn.onclick = () => {
+            window.open(`https://${domain}`, '_blank');
+            menu.classList.add('hidden');
+        };
+
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(domain).then(() => {
+                alert('Domain copied to clipboard');
+            });
+            menu.classList.add('hidden');
+        };
+
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target)) {
+                menu.classList.add('hidden');
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
     }
 
     function closeModal() {
