@@ -6,9 +6,18 @@ services:
     container_name: recon-dashboard
     environment:
       - SECRET_KEY=38b7e2a94faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
-      - MONGO_HOST=localhost # This needs to point to the host IP or the mongo container name if in same network
+      - MONGO_HOST=localhost
     restart: always
-    network_mode: "host" # Using host mode to connect to existing MongoDB on localhost:27017
+    network_mode: "host"
+
+  c-scanner:
+    build: .
+    container_name: recon-c-scanner
+    command: ["./tools/scanners/C_port_scanner"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - dashboard
 
   proxy:
     image: caddy:latest
