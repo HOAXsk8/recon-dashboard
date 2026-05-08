@@ -185,6 +185,7 @@
     let currentDetailData = null;
     let currentSortBy = 'domain';
     let currentSortDir = 'asc';
+    let currentPortFilter = null;
 
     async function fetchInventory(append = false) {
         if (isLoading) return;
@@ -213,6 +214,8 @@
                 sort_by: currentSortBy,
                 sort_dir: currentSortDir
             });
+            if (currentPortFilter) params.append('port', currentPortFilter);
+            
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
             
@@ -765,6 +768,24 @@
     });
 
     document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const port = urlParams.get('port');
+        if (port) {
+            currentPortFilter = port;
+            // Add a visual indicator or just search
+            const searchInput = document.getElementById('main-search');
+            searchInput.placeholder = `Filtering assets with open port: ${port}...`;
+            searchInput.classList.add('ring-2', 'ring-tech-success');
+            
+            // Clear on interaction
+            const clearPortFilter = () => {
+                currentPortFilter = null;
+                searchInput.placeholder = "Search domains...";
+                searchInput.classList.remove('ring-2', 'ring-tech-success');
+                searchInput.removeEventListener('input', clearPortFilter);
+            };
+            searchInput.addEventListener('input', clearPortFilter);
+        }
         fetchInventory();
     });
     async function deleteDomain(domainId) {
