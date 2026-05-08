@@ -1,14 +1,27 @@
 version: '3.8'
 
 services:
+  db:
+    image: mongo:latest
+    container_name: recon-db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+    network_mode: "host"
+
   dashboard:
     build: .
     container_name: recon-dashboard
     environment:
-      - SECRET_KEY=38b7e2a94faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+      - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
     restart: always
     network_mode: "host"
+    depends_on:
+      - db
 
   c-scanner:
     build: .
@@ -19,6 +32,7 @@ services:
     restart: always
     network_mode: "host"
     depends_on:
+      - db
       - dashboard
 
   proxy:
@@ -33,7 +47,10 @@ services:
       - caddy_config:/config
     restart: always
     network_mode: "host"
+    depends_on:
+      - dashboard
 
 volumes:
+  mongo_data:
   caddy_data:
   caddy_config:
