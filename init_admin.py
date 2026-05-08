@@ -1,5 +1,6 @@
 import sys
 import os
+import datetime
 
 # Add the project root to sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -9,33 +10,62 @@ from app.security import get_password_hash, generate_totp_secret
 
 def init_admin():
     users_col = sync_db["users"]
+    scanners_col = sync_db["scanners"]
     
+    # 1. Initialize Admin User
     username = "admin"
-    if users_col.find_one({"username": username}):
+    if not users_col.find_one({"username": username}):
+        password = "ChangeMe123!" # User should change this
+        hashed_password = get_password_hash(password)
+        totp_secret = generate_totp_secret()
+        
+        user_data = {
+            "username": username,
+            "hashed_password": hashed_password,
+            "totp_secret": totp_secret,
+            "role": "admin",
+            "is_admin": True,
+            "disabled": False,
+            "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+        
+        users_col.insert_one(user_data)
+        
+        print("--- Initial Admin User Created ---")
+        print(f"Username: {username}")
+        print(f"Password: {password}")
+        print(f"TOTP Secret: {totp_secret}")
+        print("IMPORTANT: Save the TOTP Secret in your authenticator app.")
+        print("----------------------------------")
+    else:
         print(f"User {username} already exists.")
-        return
 
-    password = "ChangeMe123!" # User should change this
-    hashed_password = get_password_hash(password)
-    totp_secret = generate_totp_secret()
-    
-    user_data = {
-        "username": username,
-        "hashed_password": hashed_password,
-        "totp_secret": totp_secret,
-        "is_admin": True,
-        "disabled": False,
-        "created_at": str(sync_db.client.admin.command("serverStatus")["localTime"])
-    }
-    
-    users_col.insert_one(user_data)
-    
-    print("--- Initial Admin User Created ---")
-    print(f"Username: {username}")
-    print(f"Password: {password}")
-    print(f"TOTP Secret: {totp_secret}")
-    print("IMPORTANT: Save the TOTP Secret in your authenticator app (e.g., Google Authenticator).")
-    print("----------------------------------")
+    # 2. Initialize Default Scanners
+    default_scanners = [
+        {
+            "key": "recon_agent_c",
+            "name": "C Recon Agent",
+            "status": "Stopped",
+            "max_workers": 4,
+            "last_heartbeat": datetime.datetime.utcnow(),
+            "pid": 0
+        },
+        {
+            "key": "nmap_scanner",
+            "name": "Nmap Port Scanner",
+            "status": "Stopped",
+            "max_workers": 2,
+            "last_heartbeat": datetime.datetime.utcnow(),
+            "pid": 0
+        }
+    ]
+
+    for scanner in default_scanners:
+        if not scanners_col.find_one({"key": scanner["key"]}):
+            scanners_col.insert_one(scanner)
+            print(f"Initialized default scanner: {scanner['name']}")
+        else:
+            print(f"Scanner {scanner['name']} already exists.")
 
 if __name__ == "__main__":
     init_admin()
