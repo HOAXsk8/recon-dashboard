@@ -438,7 +438,7 @@
 
                     <div class="bg-tech-bg p-8 rounded-2xl border border-slate-800">
                         <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 uppercase tracking-widest text-xs">Domain Statistics</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-y-8 gap-x-12 text-sm">
                             <div>
                                 <p class="text-slate-500 mb-1 uppercase text-[10px]">Identified Subdomains</p>
                                 <p class="text-xl font-bold text-tech-accent">${data.infrastructure?.subdomains?.length || 0}</p>
@@ -450,6 +450,23 @@
                             <div>
                                 <p class="text-slate-500 mb-1 uppercase text-[10px]">Applications Found</p>
                                 <p class="text-xl font-bold text-tech-accent">${data.web_applications?.length || 0}</p>
+                            </div>
+                            <div>
+                                <p class="text-slate-500 mb-1 uppercase text-[10px]">Open Ports Identified</p>
+                                <p class="text-xl font-bold text-tech-accent">${data.systems?.reduce((acc, s) => acc + (s.services?.length || 0), 0) || 0}</p>
+                            </div>
+                            <div class="md:col-span-2">
+                                <p class="text-slate-500 mb-2 uppercase text-[10px]">Tools Deployed</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${(() => {
+                                        const tools = [];
+                                        if (data.infrastructure?.subdomains?.length > 0) tools.push('Subdomain Enumerator');
+                                        if (data.scanned || data.systems?.length > 0) tools.push('Nmap');
+                                        if (data.web_applications?.length > 0) tools.push('Web Analyzer');
+                                        if (data.osint) tools.push('OSINT Crawler');
+                                        return tools.map(t => `<span class="px-2 py-1 bg-slate-800 text-tech-accent border border-slate-700 rounded text-[10px] font-bold uppercase tracking-tighter">${t}</span>`).join('') || '<span class="text-slate-600 italic">No tools deployed yet</span>';
+                                    })()}
+                                </div>
                             </div>
                             <div>
                                 <p class="text-slate-500 mb-1 uppercase text-[10px]">Operational Status</p>
