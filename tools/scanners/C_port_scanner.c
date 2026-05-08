@@ -18,8 +18,10 @@
 #define MONGO_URI "mongodb://admin:5I2ZKu83YQL7%2BfGu@localhost:27017/?authSource=admin"
 #define DB_NAME "recon_db"
 #define COLLECTION_NAME "domains"
-#define MAX_THREADS 4
 #define RESOURCE_LIMIT 50.0
+
+int max_workers = 4;
+int stop_signal = 0;
 
 typedef struct {
     char domain[256];
@@ -124,6 +126,36 @@ int is_alive(const char* domain) {
 }
 
 mongoc_client_pool_t* pool;
+
+void read_config() {
+    mongoc_client_t* client = mongoc_client_pool_pop(pool);
+    mongoc_collection_t* collection = mongoc_client_get_collection(client, DB_NAME, "scanners");
+    bson_t* query = BCON_NEW("key", BCON_UTF8("recon_agent_c"));
+    mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
+    const bson_t* doc;
+    
+    if (mongoc_cursor_next(cursor, &doc)) {
+        bson_iter_t iter;
+        if (bson_iter_init_find(&iter, doc, "max_workers")) {
+            max_workers = bson_iter_int32(&iter);
+            if (max_workers < 1) max_workers = 1;
+            if (max_workers > 20) max_workers = 20;
+        }
+        if (bson_iter_init_find(&iter, doc, "status")) {
+            const char* status = bson_iter_utf8(&iter, NULL);
+            if (strcmp(status, "Stopped") == 0) {
+                stop_signal = 1;
+            } else {
+                stop_signal = 0;
+            }
+        }
+    }
+    
+    mongoc_cursor_destroy(cursor);
+    bson_destroy(query);
+    mongoc_collection_destroy(collection);
+    mongoc_client_pool_push(pool, client);
+}
 
 void update_scanner_status(const char* status) {
     mongoc_client_t* client = mongoc_client_pool_pop(pool);
@@ -262,10 +294,18 @@ int main() {
     mongoc_uri_t* uri = mongoc_uri_new(MONGO_URI);
     pool = mongoc_client_pool_new(uri);
     
-    printf("[*] C Recon Agent Starting (50%% Resource Cap)...\n");
+    printf("[*] C Recon Agent Starting...\n");
     update_scanner_status("Idle");
     
     while (1) {
+        read_config();
+        
+        if (stop_signal) {
+            update_scanner_status("Stopped");
+            sleep(30);
+            continue;
+        }
+
         mongoc_client_t* client = mongoc_client_pool_pop(pool);
         mongoc_collection_t* collection = mongoc_client_get_collection(client, DB_NAME, COLLECTION_NAME);
         
@@ -273,10 +313,10 @@ int main() {
         mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, NULL, NULL);
         
         const bson_t* doc;
-        pthread_t threads[MAX_THREADS];
+        pthread_t threads[20]; // Cap at 20 workers
         int t_count = 0;
         
-        while (mongoc_cursor_next(cursor, &doc) && t_count < MAX_THREADS) {
+        while (mongoc_cursor_next(cursor, &doc) && t_count < max_workers && t_count < 20) {
             if (t_count == 0) update_scanner_status("Running");
             bson_iter_t iter;
             if (bson_iter_init_find(&iter, doc, "domain")) {
@@ -296,7 +336,6 @@ int main() {
             update_scanner_status("Idle");
             sleep(60);
         } else {
-            update_scanner_status("Idle");
             sleep(5);
         }
     }
