@@ -15,7 +15,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -948,65 +948,6 @@ async def statistics_page(request: Request, user: dict = Depends(get_current_use
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse(request, "statistics.html", {"user": user})
-
-@app.get("/tools", response_class=HTMLResponse)
-async def tools_page(request: Request, user: dict = Depends(get_current_user)):
-    if not user:
-        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "tools.html", {"user": user})
-
-@app.get("/api/tools")
-async def get_tools(user: dict = Depends(get_current_user)):
-    if not user:
-        raise HTTPException(status_code=401)
-    
-    tools = await scanners_col.find({}).to_list(length=100)
-    now = datetime.utcnow()
-    
-    results = []
-    for t in tools:
-        t["_id"] = str(t["_id"])
-        last_hb = t.get("last_heartbeat")
-        status = t.get("status", "Stopped")
-        
-        if last_hb:
-            if isinstance(last_hb, datetime):
-                last_hb_dt = last_hb
-            else:
-                last_hb_dt = datetime.utcfromtimestamp(last_hb / 1000.0)
-            
-            if (now - last_hb_dt).total_seconds() > 120:
-                # Only mark as stopped if it wasn't already explicitly stopped
-                if status != "Stopped":
-                    status = "Stopped"
-        else:
-            status = "Stopped"
-            
-        t["status"] = status
-        results.append(t)
-    return results
-
-@app.post("/api/tools/{tool_key}/config")
-async def update_tool_config(tool_key: str, request: Request, user: dict = Depends(get_current_user)):
-    check_analyst(user)
-    data = await request.json()
-    
-    update_fields = {}
-    if "status" in data:
-        update_fields["status"] = data["status"]
-    if "max_workers" in data:
-        try:
-            val = int(data["max_workers"])
-            if 1 <= val <= 5:
-                update_fields["max_workers"] = val
-        except ValueError:
-            pass
-            
-    if update_fields:
-        await scanners_col.update_one({"key": tool_key}, {"$set": update_fields}, upsert=True)
-        await log_audit(user["username"], "UPDATE_TOOL_CONFIG", f"Updated {tool_key} config: {update_fields}", request)
-        
-    return {"status": "success"}
 
 @app.get("/api/stats/dashboard")
 async def get_stats_dashboard(user: dict = Depends(get_current_user)):

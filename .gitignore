@@ -1,5 +1,4 @@
 __pycache__/
 .venv/
-tools/scanners/C_port_scanner
 *.log
 .env

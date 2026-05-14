@@ -10,7 +10,6 @@ from app.security import get_password_hash, generate_totp_secret
 
 def init_admin():
     users_col = sync_db["users"]
-    scanners_col = sync_db["scanners"]
     
     # 1. Initialize Admin User
     username = "admin"
@@ -39,33 +38,6 @@ def init_admin():
         print("----------------------------------")
     else:
         print(f"User {username} already exists.")
-
-    # 2. Initialize Default Scanners
-    default_scanners = [
-        {
-            "key": "recon_agent_c",
-            "name": "C Recon Agent",
-            "status": "Stopped",
-            "max_workers": 4,
-            "last_heartbeat": datetime.datetime.utcnow(),
-            "pid": 0
-        },
-        {
-            "key": "nmap_scanner",
-            "name": "Nmap Port Scanner",
-            "status": "Stopped",
-            "max_workers": 2,
-            "last_heartbeat": datetime.datetime.utcnow(),
-            "pid": 0
-        }
-    ]
-
-    for scanner in default_scanners:
-        if not scanners_col.find_one({"key": scanner["key"]}):
-            scanners_col.insert_one(scanner)
-            print(f"Initialized default scanner: {scanner['name']}")
-        else:
-            print(f"Scanner {scanner['name']} already exists.")
 
 if __name__ == "__main__":
     init_admin()

@@ -23,18 +23,6 @@ services:
     depends_on:
       - db
 
-  c-scanner:
-    build: .
-    container_name: recon-c-scanner
-    environment:
-      - MONGO_HOST=localhost
-    command: ["./tools/scanners/C_port_scanner"]
-    restart: always
-    network_mode: "host"
-    depends_on:
-      - db
-      - dashboard
-
   proxy:
     image: caddy:latest
     container_name: recon-proxy

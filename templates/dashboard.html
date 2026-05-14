@@ -459,15 +459,15 @@
                                 <p class="text-xl font-bold text-tech-accent">${data.systems?.reduce((acc, s) => acc + (s.services?.length || 0), 0) || 0}</p>
                             </div>
                             <div class="md:col-span-2">
-                                <p class="text-slate-500 mb-2 uppercase text-[10px]">Tools Deployed</p>
+                                <p class="text-slate-500 mb-2 uppercase text-[10px]">Analysis Capabilities</p>
                                 <div class="flex flex-wrap gap-2">
                                     ${(() => {
-                                        const tools = [];
-                                        if (data.infrastructure?.subdomains?.length > 0) tools.push('Subdomain Enumerator');
-                                        if (data.scanned || data.systems?.length > 0) tools.push('Nmap');
-                                        if (data.web_applications?.length > 0) tools.push('Web Analyzer');
-                                        if (data.osint) tools.push('OSINT Crawler');
-                                        return tools.map(t => `<span class="px-2 py-1 bg-slate-800 text-tech-accent border border-slate-700 rounded text-[10px] font-bold uppercase tracking-tighter">${t}</span>`).join('') || '<span class="text-slate-600 italic">No tools deployed yet</span>';
+                                        const tags = [];
+                                        if (data.infrastructure?.subdomains?.length > 0) tags.push('Subdomain Mapping');
+                                        if (data.scanned) tags.push('Port Analysis');
+                                        if (data.web_applications?.length > 0) tags.push('Web Identification');
+                                        if (data.osint) tags.push('OSINT Correlation');
+                                        return tags.map(t => `<span class="px-2 py-1 bg-slate-800 text-tech-accent border border-slate-700 rounded text-[10px] font-bold uppercase tracking-tighter">${t}</span>`).join('') || '<span class="text-slate-600 italic">No analysis performed</span>';
                                     })()}
                                 </div>
                             </div>
