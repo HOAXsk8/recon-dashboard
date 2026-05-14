@@ -18,6 +18,7 @@ services:
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     restart: always
     network_mode: "host"
     depends_on:
@@ -36,6 +37,58 @@ services:
     restart: always
     network_mode: "host"
     depends_on:
+      - dashboard
+
+  subdomain-discovery:
+    build: .
+    container_name: subdomain-discovery
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/subdomain_discovery.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  alive-check:
+    build: .
+    container_name: alive-check
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/alive_check.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  port-scanner:
+    build: .
+    container_name: port-scanner
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/port_scanner.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  whois-lookup:
+    build: .
+    container_name: whois-lookup
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/whois_agent.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
       - dashboard
 
 volumes:

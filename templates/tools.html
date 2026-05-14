@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Tools Monitoring - Netbytes.cloud{% endblock %}
+
+{% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-12">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight text-white">TOOLS <span class="text-tech-accent">MONITORING</span></h1>
+            <p class="text-slate-400 mt-1 font-medium">Real-time status of background reconnaissance agents.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <button onclick="fetchTools()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>Refresh Status</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Tools Sections -->
+    <div class="space-y-12">
+        <!-- Scripts Section -->
+        <div>
+            <div class="flex items-center space-x-3 mb-6">
+                <div class="h-px flex-grow bg-slate-800"></div>
+                <h2 class="text-xs font-black uppercase tracking-[0.4em] text-slate-500 flex items-center space-x-2">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <span>Operation Scripts</span>
+                </h2>
+                <div class="h-px flex-grow bg-slate-800"></div>
+            </div>
+            <div id="scripts-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Skeletons -->
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 animate-pulse col-span-full h-24"></div>
+            </div>
+        </div>
+
+        <!-- AI Agents Section -->
+        <div>
+            <div class="flex items-center space-x-3 mb-4">
+                <div class="h-px flex-grow bg-slate-800"></div>
+                <h2 class="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 flex items-center space-x-2">
+                    <svg class="w-3 h-3 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                    <span>Autonomous AI Agents</span>
+                </h2>
+                <div class="h-px flex-grow bg-slate-800"></div>
+            </div>
+            <div id="ai-agents-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div class="col-span-full text-center py-6 text-slate-600 font-mono text-[9px] uppercase tracking-widest border border-dashed border-slate-800 rounded-2xl">
+                    Deploying AI Cognitive Modules...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentTools = [];
+
+    async function fetchTools() {
+        try {
+            const resp = await fetch('/api/tools');
+            if (!resp.ok) throw new Error('Failed to fetch tools');
+            currentTools = await resp.json();
+            renderTools(currentTools);
+        } catch (e) {
+            console.error('Fetch Error:', e);
+        }
+    }
+
+    function renderTools(tools) {
+        const aiContainer = document.getElementById('ai-agents-container');
+        const scriptsContainer = document.getElementById('scripts-container');
+
+        if (tools.length === 0) {
+            const emptyMsg = `
+                <div class="col-span-full p-10 text-center bg-tech-panel rounded-2xl border border-slate-800 text-slate-500 font-mono text-xs uppercase">
+                    No active units registered in the field.
+                </div>
+            `;
+            aiContainer.innerHTML = emptyMsg;
+            scriptsContainer.innerHTML = emptyMsg;
+            return;
+        }
+
+        const aiTools = tools.filter(t => t.type === 'ai_agent');
+        const scriptTools = tools.filter(t => t.type !== 'ai_agent');
+
+        function generateToolCard(t) {
+            let statusColor = 'bg-slate-500';
+            let statusText = t.status || 'Stopped';
+            let pulseClass = '';
+
+            if (statusText === 'Running') {
+                statusColor = 'bg-tech-success';
+                pulseClass = 'animate-pulse';
+            } else if (statusText === 'Idle') {
+                statusColor = 'bg-orange-500';
+            } else if (statusText === 'Stopped') {
+                statusColor = 'bg-tech-danger';
+            }
+
+            const icon = t.type === 'ai_agent' 
+                ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>'
+                : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>';
+
+            return `
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 transition-all relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1.5 h-full ${statusColor}"></div>
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-tech-accent border border-slate-800 shadow-inner">
+                                ${icon}
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-black text-white tracking-tight leading-tight">${t.name}</h3>
+                                <p class="text-[8px] font-mono text-slate-500 uppercase tracking-widest mt-0.5">${t.key}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-1.5 bg-slate-900/80 px-2.5 py-1 rounded-full border border-slate-800 shadow-lg">
+                            <div class="w-1.5 h-1.5 rounded-full ${statusColor} ${pulseClass}"></div>
+                            <span class="text-[9px] font-black uppercase tracking-tighter ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center text-[10px] bg-slate-900/30 p-2 rounded-lg border border-slate-800/30">
+                            <span class="text-slate-500 uppercase font-bold tracking-widest text-[8px]">Heartbeat</span>
+                            <span class="text-slate-300 font-mono text-[9px]">${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleTimeString() : 'LOST'}</span>
+                        </div>
+                        <div class="flex justify-between items-center text-[10px] bg-slate-900/30 p-2 rounded-lg border border-slate-800/30">
+                            <span class="text-slate-500 uppercase font-bold tracking-widest text-[8px]">PID</span>
+                            <span class="text-slate-300 font-mono text-[9px]">${t.pid || 'N/A'}</span>
+                        </div>
+                        <div class="pt-1 flex items-center justify-between px-0.5">
+                            <span class="text-[8px] text-slate-600 font-mono uppercase tracking-[0.2em]">${t.type === 'ai_agent' ? 'Cognitive' : 'Logic'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        aiContainer.innerHTML = aiTools.length > 0 
+            ? aiTools.map(generateToolCard).join('') 
+            : '<div class="col-span-full text-center py-10 text-slate-600 font-mono text-[10px] uppercase tracking-widest border border-dashed border-slate-800 rounded-3xl">No AI agents online.</div>';
+        
+        scriptsContainer.innerHTML = scriptTools.length > 0 
+            ? scriptTools.map(generateToolCard).join('') 
+            : '<div class="col-span-full text-center py-10 text-slate-600 font-mono text-[10px] uppercase tracking-widest border border-dashed border-slate-800 rounded-3xl">No scripts deployed.</div>';
+    }
+
+    document.addEventListener('DOMContentLoaded', fetchTools);
+    setInterval(fetchTools, 10000); 
+</script>
+{% endblock %}
