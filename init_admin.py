@@ -10,6 +10,7 @@ from app.security import get_password_hash, generate_totp_secret
 
 def init_admin():
     users_col = sync_db["users"]
+    scanners_col = sync_db["scanners"]
     
     # 1. Initialize Admin User
     username = "admin"
