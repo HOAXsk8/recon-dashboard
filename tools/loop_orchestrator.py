@@ -13,57 +13,70 @@ class ContinuousLoopAgent(BaseAgent):
         self.rescan_interval = 24
 
     async def check_and_reset_cycles(self):
-        """Check for root domains that have finished their scan cycle and reset them."""
-        # A domain is "finished" if scanned=True
-        # We also check if it hasn't been scanned in the last X hours
-        threshold = datetime.datetime.utcnow() - datetime.timedelta(hours=self.rescan_interval)
+        """Check for root domains that have finished their scan cycle and reset them based on their specific intervals."""
+        # We'll use a cursor to iterate through domains that are 'scanned=True'
+        # and compare their 'last_scanned' time against their specific 'scan_interval'.
         
         cursor = self.domains_col.find({
             "scanned": True,
             "blacklisted": {"$ne": True},
-            "on_hold": {"$ne": True},
-            "$or": [
-                {"last_scanned": {"$lt": threshold.isoformat()}},
-                {"last_scanned": {"$exists": False}},
-                {"last_scanned": None}
-            ]
+            "on_hold": {"$ne": True}
         })
+        
+        now = datetime.datetime.utcnow()
         
         async for domain in cursor:
             root_domain = domain["domain"]
-            logger.info(f"Cycle complete for {root_domain}. Resetting for continuous monitoring.")
+            last_scanned_str = domain.get("last_scanned")
             
-            # 1. Reset scanned flag on domain
-            await self.domains_col.update_one(
-                {"_id": domain["_id"]},
-                {"$set": {"scanned": False, "last_cycle_completed": domain.get("last_scanned")}}
-            )
+            # Default to global interval if not set on domain
+            interval_hours = domain.get("scan_interval", self.rescan_interval)
             
-            # 2. Clear old tasks for this domain to allow re-entry
-            # We preserve directory_hunt, js_mine, and bypass_403 tasks so they only run once
-            # unless a change is detected (handled by other agents).
-            await self.tasks_col.delete_many({
-                "root_domain": root_domain,
-                "task_type": {"$in": ["discovery", "verify", "scan", "tech_fingerprint"]},
-                "status": {"$in": ["completed", "failed"]}
-            })
+            should_reset = False
+            if not last_scanned_str:
+                should_reset = True
+            else:
+                try:
+                    last_scanned = datetime.datetime.fromisoformat(last_scanned_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if now - last_scanned > datetime.timedelta(hours=interval_hours):
+                        should_reset = True
+                except Exception as e:
+                    logger.error(f"Error parsing last_scanned for {root_domain}: {e}")
+                    should_reset = True
             
-            # 3. Create a fresh discovery task for the root domain
-            # This will re-trigger the entire chain: Discovery -> Verification -> Scan -> Tech/Dir Hunt
-            exists = await self.tasks_col.find_one({
-                "root_domain": root_domain,
-                "target": root_domain,
-                "task_type": "discovery"
-            })
-            if not exists:
-                await self.tasks_col.insert_one({
+            if should_reset:
+                logger.info(f"Cycle complete for {root_domain} (Interval: {interval_hours}h). Resetting for continuous monitoring.")
+                
+                # 1. Reset scanned flag on domain
+                await self.domains_col.update_one(
+                    {"_id": domain["_id"]},
+                    {"$set": {"scanned": False, "last_cycle_completed": last_scanned_str}}
+                )
+                
+                # 2. Clear old tasks for this domain to allow re-entry
+                # We preserve directory_hunt, js_mine, and bypass_403 tasks so they only run once
+                # unless a change is detected (handled by other agents).
+                await self.tasks_col.delete_many({
+                    "root_domain": root_domain,
+                    "task_type": {"$in": ["discovery", "verify", "scan", "tech_fingerprint"]},
+                    "status": {"$in": ["completed", "failed"]}
+                })
+                
+                # 3. Create a fresh discovery task for the root domain
+                exists = await self.tasks_col.find_one({
                     "root_domain": root_domain,
                     "target": root_domain,
-                    "task_type": "discovery",
-                    "status": "pending",
-                    "created_at": datetime.datetime.utcnow()
+                    "task_type": "discovery"
                 })
-                logger.info(f"Re-queued discovery for {root_domain}")
+                if not exists:
+                    await self.tasks_col.insert_one({
+                        "root_domain": root_domain,
+                        "target": root_domain,
+                        "task_type": "discovery",
+                        "status": "pending",
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    logger.info(f"Re-queued discovery for {root_domain}")
 
     async def process_tasks(self):
         """Orchestrator doesn't process specific 'tasks' from the collection, 

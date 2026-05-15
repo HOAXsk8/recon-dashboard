@@ -51,6 +51,7 @@
                         {% endif %}
                         <th class="px-6 py-4">Domain</th>
                         <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Interval</th>
                         <th class="px-6 py-4">Last Scanned</th>
                         <th class="px-6 py-4">Added At</th>
                         <th class="px-6 py-4">Notes</th>
@@ -89,6 +90,16 @@
                 <button onclick="bulkUpdateStatus('pending')" class="px-3 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-[10px] font-bold rounded transition-all">PENDING</button>
                 <button onclick="bulkUpdateStatus('scanned')" class="px-3 py-1 bg-slate-800 hover:bg-tech-success hover:text-tech-bg text-[10px] font-bold rounded transition-all">SCANNED</button>
                 <button onclick="bulkUpdateStatus('on_hold')" class="px-3 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-[10px] font-bold rounded transition-all">ON HOLD</button>
+            </div>
+        </div>
+
+        <div class="h-10 w-px bg-slate-700 mx-2"></div>
+
+        <div class="flex flex-col">
+            <span class="text-[10px] uppercase font-bold text-slate-500 mb-1">Set Interval (hrs)</span>
+            <div class="flex space-x-2">
+                <input type="number" id="bulk-interval-input" value="24" min="1" class="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent">
+                <button onclick="bulkUpdateInterval()" class="px-3 py-1 bg-tech-accent text-tech-bg text-[10px] font-bold rounded hover:opacity-90 transition-all">SET</button>
             </div>
         </div>
 
@@ -240,6 +251,9 @@ async function loadDomains() {
                     ${!domain.is_root ? '<span class="ml-1 px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
                 </td>
                 <td class="px-6 py-4">${statusBadge}</td>
+                <td class="px-6 py-4">
+                    <span class="text-xs font-bold text-slate-300">${domain.scan_interval}h</span>
+                </td>
                 <td class="px-6 py-4 text-xs font-mono text-slate-400">
                     ${domain.last_scanned && domain.last_scanned !== 'Never' ? new Date(domain.last_scanned).toLocaleString() : '<span class="text-slate-600 italic">Never</span>'}
                 </td>
@@ -504,6 +518,30 @@ async function bulkBlacklist() {
         }
     } catch (error) {
         console.error('Bulk blacklist error:', error);
+    }
+}
+
+async function bulkUpdateInterval() {
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    if (!selected.length) return;
+    
+    const interval = document.getElementById('bulk-interval-input').value;
+    
+    try {
+        const response = await fetch('/api/domains/bulk-update-interval', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selected, interval: interval })
+        });
+        const result = await response.json();
+        if (result.status === 'success') {
+            clearSelection();
+            loadDomains();
+        } else {
+            alert(result.detail || 'Error updating interval');
+        }
+    } catch (error) {
+        console.error('Bulk interval update error:', error);
     }
 }
 

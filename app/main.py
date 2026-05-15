@@ -112,7 +112,8 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "scanned": 1,
                 "blacklisted": 1,
                 "on_hold": 1,
-                "added_at": 1
+                "added_at": 1,
+                "scan_interval": 1
             }
         },
         {"$unwind": "$targets"},
@@ -123,6 +124,7 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "is_root": {"$ifNull": ["$targets.is_root", False]},
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
+                "scan_interval": {"$ifNull": ["$scan_interval", 24]},
                 "subdomain_count": 1,
                 "recon_date": {"$ifNull": ["$targets.added_at", "$added_at"]},
                 "system": {
@@ -1005,19 +1007,49 @@ async def get_domains(
         is_scanned = d.get("scanned_flag", False) if d.get("is_root") else (True if d.get("system") else False)
         last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
         
+        # Get scan_interval from root domain data if it's a flattened subdomain doc
+        # In flattened view, we might need a separate lookup or projected field.
+        # For now, we'll try to find it in the projection if possible, but the current project doesn't have it.
+        # Let's assume we'll update the pipeline project stage to include it.
+        
         results.append({
             "id": str(d["_id"]),
             "domain": d["domain"],
             "scanned": is_scanned,
             "on_hold": d.get("on_hold_flag", False),
-            "blacklisted": False, # Flattened view doesn't show blacklisted root if root_query excludes it
-            "notes": "", # Notes are per-root-domain in current schema
+            "blacklisted": False, 
+            "notes": "", 
             "added_at": d.get("recon_date", "N/A"),
             "last_scanned": last_scanned,
-            "is_root": d.get("is_root", False)
+            "is_root": d.get("is_root", False),
+            "scan_interval": d.get("scan_interval", 24) # Default to 24 if not set
         })
     
     return {"domains": results, "total": total, "page": page, "limit": limit}
+
+@app.post("/api/domains/bulk-update-interval")
+@limiter.limit("5/minute")
+async def bulk_update_interval(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    data = await request.json()
+    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    interval = data.get("interval")
+    
+    try:
+        interval = int(interval)
+        if interval < 1:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid interval. Must be a positive integer (hours).")
+        
+    await domains_col.update_many(
+        {"_id": {"$in": ids}},
+        {"$set": {"scan_interval": interval}}
+    )
+    
+    await log_audit(user["username"], "BULK_UPDATE_INTERVAL", f"Updated scan interval of {len(ids)} domains to {interval} hours", request)
+    return {"status": "success"}
 
 @app.post("/api/domains/add")
 async def add_domain(request: Request, domain: str = Form(...), user: dict = Depends(get_current_user)):
