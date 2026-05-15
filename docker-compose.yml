@@ -19,6 +19,10 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -85,6 +89,79 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/whois_agent.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter:
+    build: .
+    container_name: directory-hunter
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/directory_hunter.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  tech-fingerprinter:
+    build: .
+    container_name: tech-fingerprinter
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/tech_fingerprinter.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  loop-orchestrator:
+    build: .
+    container_name: loop-orchestrator
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/loop_orchestrator.py"]
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  js-miner:
+    build: .
+    container_name: js-miner
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/js_miner.py"]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  bypass-403:
+    build: .
+    container_name: bypass-403
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/bypass_403.py"]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:

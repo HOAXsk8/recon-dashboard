@@ -52,7 +52,6 @@
                         <th class="px-6 py-4">Domain</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Last Scanned</th>
-                        <th class="px-6 py-4">Blacklisted</th>
                         <th class="px-6 py-4">Added At</th>
                         <th class="px-6 py-4">Notes</th>
                         {% if user.role in ['admin', 'analyst'] %}
@@ -236,12 +235,13 @@ async function loadDomains() {
             }
 
             rowHtml += `
-                <td class="px-6 py-4 font-mono font-bold">${domain.domain}</td>
+                <td class="px-6 py-4 font-mono font-bold text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent('${domain.domain}')">
+                    ${domain.domain}
+                    ${!domain.is_root ? '<span class="ml-1 px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
+                </td>
                 <td class="px-6 py-4">${statusBadge}</td>
-                <td class="px-6 py-4">
-                    <span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase ${isBlacklisted ? 'bg-tech-danger/10 text-tech-danger' : 'bg-slate-500/10 text-slate-500'}">
-                        ${isBlacklisted ? 'Yes' : 'No'}
-                    </span>
+                <td class="px-6 py-4 text-xs font-mono text-slate-400">
+                    ${domain.last_scanned && domain.last_scanned !== 'Never' ? new Date(domain.last_scanned).toLocaleString() : '<span class="text-slate-600 italic">Never</span>'}
                 </td>
                 <td class="px-6 py-4 text-xs text-slate-500 font-mono">${domain.added_at}</td>
                 <td class="px-6 py-4">

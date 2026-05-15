@@ -9,14 +9,16 @@ class PortScannerAgent(BaseAgent):
         super().__init__("port_scanner", "Port Scanner Tool")
 
     async def run_nmap(self, target):
-        logger.info(f"Running FULL Nmap (TCP/UDP) on {target}")
+        logger.info(f"Running optimized Nmap on {target}")
+        # Optimized for speed: TCP only, top 1000 ports, service versioning
         cmd = [
-            "nmap", "-sS", "-sU", "-p-", "-sV",
-            "--max-retries", "2",
-            "--max-rtt-timeout", "1s",
+            "nmap", "-sS", "--top-ports", "1000", "-sV",
+            "--max-retries", "1",
+            "--max-rtt-timeout", "500ms",
             "-T4", target, "-oX", "-"
         ]
-        stdout, stderr = await self.run_command(cmd)
+        # Set a 10-minute timeout for the scan
+        stdout, stderr = await self.run_command(cmd, timeout=600)
         if stderr:
             logger.warning(f"Nmap stderr: {stderr}")
         return stdout
@@ -39,17 +41,61 @@ class PortScannerAgent(BaseAgent):
                         state = state_el.get('state')
                         if state == 'open':
                             service = port.find('service')
+                            service_name = service.get('name', 'unknown') if service is not None else 'unknown'
                             soft = service.get('product', '') if service is not None else ''
+                            version = service.get('version', '') if service is not None else ''
                             services.append({
                                 "port": int(p_id),
                                 "protocol": proto,
-                                "software": soft
+                                "service": service_name,
+                                "software": soft,
+                                "version": version
                             })
         except Exception as e:
             logger.error(f"Error parsing Nmap XML: {e}")
         return ip, services
 
+    async def create_port_alert(self, root_domain, target, old_ports, new_ports):
+        """Create a lead/alert for changed ports using the centralized alerting system."""
+        old_set = {f"{p['port']}/{p['protocol']}" for p in old_ports}
+        new_set = {f"{p['port']}/{p['protocol']}" for p in new_ports}
+        
+        added = new_set - old_set
+        removed = old_set - new_set
+        
+        if not added and not removed:
+            return
+
+        title = f"Port Change Detected: {target}"
+        changes = []
+        if added:
+            changes.append(f"OPENED: {', '.join(added)}")
+        if removed:
+            changes.append(f"CLOSED: {', '.join(removed)}")
+        
+        description = " | ".join(changes)
+        risk = "high" if any(p.split('/')[0] in ['22', '3389', '21', '23', '445'] for p in added) else "medium"
+        
+        details = f"A change in the open ports was detected for {target}.\n\nPrevious ports: {', '.join(old_set) or 'None'}\nNew ports: {', '.join(new_set) or 'None'}"
+        exploitation = f"### Port Analysis\n\n1. **Verify Services**: For new ports, identify the service running and check for vulnerabilities.\n2. **Firewall Check**: Ensure that newly opened ports are intended to be public.\n3. **Decommissioning**: If ports were closed, verify if it was a planned decommission or a service failure."
+
+        await self.create_alert(title, description, target, risk, details, exploitation)
+
     async def update_scan_results_in_db(self, root_domain, target, ip, services):
+        # Fetch previous results for comparison
+        domain_doc = await self.domains_col.find_one({"domain": root_domain})
+        old_systems = domain_doc.get("systems", [])
+        
+        # Find latest scan for this specific target
+        latest_prev_scan = None
+        for sys in reversed(old_systems):
+            if sys.get("target") == target:
+                latest_prev_scan = sys
+                break
+        
+        if latest_prev_scan:
+            await self.create_port_alert(root_domain, target, latest_prev_scan.get("services", []), services)
+
         system_entry = {
             "ip": ip,
             "target": target,
@@ -93,6 +139,47 @@ class PortScannerAgent(BaseAgent):
             
             if services:
                 await self.update_scan_results_in_db(root_domain, target, ip, services)
+                
+                # Trigger directory hunt for web services
+                for svc in services:
+                    if svc['port'] in [80, 443, 8080, 8443, 3000, 5000, 8000] or svc['service'] in ['http', 'https']:
+                        proto = 'https' if svc['port'] in [443, 8443] or svc['service'] == 'https' else 'http'
+                        exists = await self.tasks_col.find_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "port": svc['port'],
+                            "task_type": "directory_hunt"
+                        })
+                        if not exists:
+                            await self.tasks_col.insert_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "protocol": proto,
+                                "port": svc['port'],
+                                "task_type": "directory_hunt",
+                                "status": "pending",
+                                "created_at": datetime.datetime.utcnow()
+                            })
+                            logger.info(f"Queued directory hunt for {target}:{svc['port']}")
+
+                        # Also trigger tech fingerprinting
+                        exists_tech = await self.tasks_col.find_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "port": svc['port'],
+                            "task_type": "tech_fingerprint"
+                        })
+                        if not exists_tech:
+                            await self.tasks_col.insert_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "protocol": proto,
+                                "port": svc['port'],
+                                "task_type": "tech_fingerprint",
+                                "status": "pending",
+                                "created_at": datetime.datetime.utcnow()
+                            })
+                            logger.info(f"Queued tech fingerprint for {target}:{svc['port']}")
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

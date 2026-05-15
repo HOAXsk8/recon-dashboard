@@ -277,7 +277,17 @@
             options: {
                 ...ctxOptions,
                 indexAxis: 'y',
-                plugins: { legend: { display: false } }
+                plugins: { legend: { display: false } },
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const tech = data.tech[index].name;
+                        window.location.href = `/dashboard?tech=${encodeURIComponent(tech)}`;
+                    }
+                },
+                onHover: (e, elements) => {
+                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                }
             }
         });
 
@@ -345,7 +355,17 @@
             options: {
                 ...ctxOptions,
                 scales: { r: { grid: { color: '#334155' }, ticks: { display: false } } },
-                plugins: { legend: { position: 'right', labels: { color: '#94a3b8' } } }
+                plugins: { legend: { position: 'right', labels: { color: '#94a3b8' } } },
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const waf = data.waf[index].name;
+                        window.location.href = `/dashboard?q=${encodeURIComponent(waf)}`;
+                    }
+                },
+                onHover: (e, elements) => {
+                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                }
             }
         });
 
@@ -363,7 +383,17 @@
             },
             options: {
                 ...ctxOptions,
-                plugins: { legend: { display: false } }
+                plugins: { legend: { display: false } },
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const software = data.software[index].name;
+                        window.location.href = `/dashboard?q=${encodeURIComponent(software)}`;
+                    }
+                },
+                onHover: (e, elements) => {
+                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                }
             }
         });
 
@@ -398,7 +428,17 @@
             },
             options: {
                 ...ctxOptions,
-                plugins: { legend: { display: false } }
+                plugins: { legend: { display: false } },
+                onClick: (e, elements) => {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const domain = data.subdomain_counts[index].name;
+                        window.location.href = `/dashboard?q=${encodeURIComponent(domain)}`;
+                    }
+                },
+                onHover: (e, elements) => {
+                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                }
             }
         });
     }

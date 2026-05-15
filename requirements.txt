@@ -11,3 +11,4 @@ pymongo
 email-validator
 pandas
 openpyxl
+httpx

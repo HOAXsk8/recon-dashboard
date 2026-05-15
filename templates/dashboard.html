@@ -110,6 +110,10 @@
 
 <!-- Domain Pop-up Menu -->
 <div id="domain-menu" class="fixed hidden z-[200] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-2 w-48 animate-in fade-in zoom-in duration-200">
+    <button id="menu-inspect-btn" class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        <span>Inspect Asset</span>
+    </button>
     <button id="menu-open-btn" class="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex items-center space-x-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
         <span>Open in new tab</span>
@@ -187,6 +191,7 @@
     let currentSortBy = 'domain';
     let currentSortDir = 'asc';
     let currentPortFilter = null;
+    let autoOpenDomain = null;
 
     async function fetchInventory(append = false) {
         if (isLoading) return;
@@ -213,7 +218,8 @@
                 has_subdomains: hasSubdomains,
                 tech: tech,
                 sort_by: currentSortBy,
-                sort_dir: currentSortDir
+                sort_dir: currentSortDir,
+                _t: Date.now()
             });
             if (currentPortFilter) params.append('port', currentPortFilter);
             
@@ -235,6 +241,9 @@
                     
                     const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-md text-[10px] text-slate-400">${t}</span>`).join(' ');
                     
+                    const isSubdomain = item.subdomain_count === 0 && item.domain.split('.').length > 2;
+                    const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
+
                     row.innerHTML = `
                         <td class="px-8 py-5">
                             <div class="flex items-center space-x-3">
@@ -242,7 +251,10 @@
                                     ${item.domain[0].toUpperCase()}
                                 </div>
                                 <div class="flex flex-col">
-                                    <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${item.domain}</span>
+                                    <div class="flex items-center">
+                                        <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${item.domain}')">${item.domain}</span>
+                                        ${typeBadge}
+                                    </div>
                                     <span class="text-xs text-slate-500 font-mono">${item.ip}</span>
                                 </div>
                             </div>
@@ -278,6 +290,12 @@
                     `;
                     tbody.appendChild(row);
                 });
+                
+                if (autoOpenDomain && data.subdomains.length > 0) {
+                    const match = data.subdomains.find(d => d.domain.toLowerCase() === autoOpenDomain.toLowerCase());
+                    if (match) openDetails(match.domain);
+                    autoOpenDomain = null;
+                }
                 
                 hasMore = (currentPage * limit) < data.total;
                 document.getElementById('pagination-info').textContent = `Showing ${Math.min(currentPage * limit, data.total)} of ${data.total} Assets`;
@@ -398,11 +416,12 @@
         switch(tabId) {
             case 'overview':
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
+                const reconDate = data.recon_date ? new Date(data.recon_date).toLocaleString() : 'N/A';
                 content.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
                         <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Capture Timestamp</h4>
-                            <p class="text-lg font-mono text-slate-300">${new Date(data.recon_date).toLocaleString()}</p>
+                            <p class="text-lg font-mono text-slate-300">${reconDate}</p>
                         </div>
                         <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">WAF / CDN Detected</h4>
@@ -518,7 +537,7 @@
                                         <tr><th class="pb-3">Name</th><th class="pb-3">IP</th><th class="pb-3">Type</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-800">
-                                        ${subs.map(s => `<tr><td class="py-2 font-mono text-tech-accent">${s.name}</td><td class="py-2 font-mono text-slate-400">${s.ip || 'N/A'}</td><td class="py-2"><span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] uppercase">${s.type}</span></td></tr>`).join('') || '<tr><td colspan="3" class="py-4 text-center text-slate-500">None found</td></tr>'}
+                                        ${subs.map(s => `<tr><td class="py-2 font-mono text-tech-accent cursor-pointer hover:underline" onclick="showDomainMenu(event, '${s.name}')">${s.name}</td><td class="py-2 font-mono text-slate-400">${s.ip || 'N/A'}</td><td class="py-2"><span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] uppercase">${s.type}</span></td></tr>`).join('') || '<tr><td colspan="3" class="py-4 text-center text-slate-500">None found</td></tr>'}
                                     </tbody>
                                 </table>
                             </div>
@@ -551,6 +570,7 @@
                             <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800">
                                 <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-800 pb-6">
                                     <div>
+                                        <h4 class="text-white font-bold mb-1 cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${sys.target || data.domain}')">${sys.target || data.domain}</h4>
                                         <p class="font-mono text-tech-accent text-sm">${sys.ip} • OS: ${sys.os || 'Unknown'}</p>
                                     </div>
                                     <div class="flex space-x-2">
@@ -565,8 +585,8 @@
                                                     ${svc.port}
                                                 </div>
                                                 <div>
-                                                    <p class="font-bold text-white uppercase text-sm tracking-widest">${svc.service}</p>
-                                                    <p class="text-xs text-slate-500 font-mono">${svc.software} ${svc.version}</p>
+                                                    <p class="font-bold text-white uppercase text-sm tracking-widest">${svc.service || 'Unknown Service'}</p>
+                                                    <p class="text-xs text-slate-500 font-mono">${svc.software || ''} ${svc.version || ''}</p>
                                                 </div>
                                             </div>
                                             <span class="px-3 py-1 bg-tech-success/10 text-tech-success rounded-lg text-[10px] font-bold uppercase tracking-widest border border-tech-success/20">Open</span>
@@ -612,10 +632,55 @@
                                         <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
                                             ${app.sensitive_files?.map(f => `
                                                 <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
-                                                    <span class="text-xs font-mono text-slate-300">${f.path}</span>
+                                                    <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors">${f.path}</a>
                                                     <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
                                                 </div>
                                             `).join('') || '<p class="text-xs text-slate-500 italic">No files identified.</p>'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div>
+                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">JS Mining Findings</h4>
+                                        <div class="grid grid-cols-1 gap-4">
+                                            <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50">
+                                                <h5 class="text-xs font-bold text-tech-accent uppercase mb-3">Extracted Secrets</h5>
+                                                <div class="space-y-2">
+                                                    ${app.js_findings?.filter(f => f.type === 'secret').map(f => `
+                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-danger/20">
+                                                            <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
+                                                            <div class="text-xs font-mono text-tech-danger break-all">${f.value}</div>
+                                                        </div>
+                                                    `).join('') || '<p class="text-xs text-slate-600 italic">No secrets identified.</p>'}
+                                                </div>
+                                            </div>
+                                            <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50">
+                                                <h5 class="text-xs font-bold text-tech-accent uppercase mb-3">Hidden URLs</h5>
+                                                <div class="space-y-2">
+                                                    ${app.js_findings?.filter(f => f.type === 'url').map(f => `
+                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-accent/20">
+                                                            <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
+                                                            <div class="text-xs font-mono text-slate-300 break-all">${f.value}</div>
+                                                        </div>
+                                                    `).join('') || '<p class="text-xs text-slate-600 italic">No hidden URLs identified.</p>'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">403 Bypass Findings</h4>
+                                        <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50 h-full">
+                                            <h5 class="text-xs font-bold text-tech-success uppercase mb-3">Successful Access</h5>
+                                            <div class="space-y-3">
+                                                ${app["403_bypasses"]?.map(b => `
+                                                    <div class="p-4 bg-tech-panel/50 rounded-xl border border-tech-success/30 relative overflow-hidden">
+                                                        <div class="absolute top-0 right-0 px-2 py-0.5 bg-tech-success/20 text-tech-success text-[8px] font-black uppercase">${b.type}</div>
+                                                        <div class="text-[10px] text-slate-500 mb-1 font-mono">${b.url}</div>
+                                                        <div class="text-xs font-bold text-white mb-2">Payload: <span class="font-mono text-tech-success">${b.payload}</span></div>
+                                                        <div class="text-[10px] px-2 py-1 bg-slate-900 rounded inline-block text-slate-400">Response Code: <span class="text-tech-success font-black">${b.status}</span></div>
+                                                    </div>
+                                                `).join('') || '<div class="flex flex-col items-center justify-center h-40 text-slate-600 opacity-50"><svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><p class="text-xs italic tracking-widest uppercase">No bypasses identified</p></div>'}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -689,10 +754,9 @@
                                     <div>
                                         <p class="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Nameservers</p>
                                         <div class="flex flex-wrap gap-2 mt-1">
-                                            ${data.ownership?.nameservers?.map(ns => `<span class="px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-slate-400">${ns}</span>`).join('') || '<span class="text-slate-500 text-xs">N/A</span>'}
+                                            ${data.ownership?.nameservers?.map(ns => `<span class="px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-slate-400 cursor-pointer hover:bg-slate-700 hover:text-tech-accent transition-all" onclick="showDomainMenu(event, '${ns}')">${ns}</span>`).join('') || '<span class="text-slate-500 text-xs">N/A</span>'}
                                         </div>
-                                    </div>
-                                </div>
+                                    </div>                                </div>
                             </div>
                         </div>
 
@@ -780,12 +844,18 @@
     function showDomainMenu(event, domain) {
         event.stopPropagation();
         const menu = document.getElementById('domain-menu');
+        const inspectBtn = document.getElementById('menu-inspect-btn');
         const openBtn = document.getElementById('menu-open-btn');
         const copyBtn = document.getElementById('menu-copy-btn');
 
         menu.style.left = `${event.clientX}px`;
         menu.style.top = `${event.clientY + 10}px`;
         menu.classList.remove('hidden');
+
+        inspectBtn.onclick = () => {
+            openDetails(domain);
+            menu.classList.add('hidden');
+        };
 
         openBtn.onclick = () => {
             window.open(`https://${domain}`, '_blank');
@@ -822,14 +892,15 @@
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const port = urlParams.get('port');
+        const query = urlParams.get('q');
+        const tech = urlParams.get('tech');
+
         if (port) {
             currentPortFilter = port;
-            // Add a visual indicator or just search
             const searchInput = document.getElementById('main-search');
             searchInput.placeholder = `Filtering assets with open port: ${port}...`;
             searchInput.classList.add('ring-2', 'ring-tech-success');
             
-            // Clear on interaction
             const clearPortFilter = () => {
                 currentPortFilter = null;
                 searchInput.placeholder = "Search domains...";
@@ -838,6 +909,18 @@
             };
             searchInput.addEventListener('input', clearPortFilter);
         }
+
+        if (tech) {
+            const techInput = document.getElementById('filter-tech');
+            techInput.value = tech;
+            techInput.classList.add('ring-2', 'ring-tech-accent');
+        }
+
+        if (query) {
+            document.getElementById('main-search').value = query;
+            autoOpenDomain = query;
+        }
+
         fetchInventory();
     });
     async function deleteDomain(domainId) {

@@ -6,24 +6,33 @@
 
 {% block content %}
 <div class="space-y-10 animate-fade-in">
-    <div class="flex justify-between items-center">
+    <div class="flex justify-between items-end">
         <div>
             <h1 class="text-3xl font-extrabold tracking-tight text-white">Hunting <span class="text-tech-accent">Leads</span></h1>
+            <p class="text-slate-500 text-sm mt-1">Showing <span id="filtered-count" class="text-tech-accent font-bold">0</span> of <span id="total-count" class="text-white font-bold">0</span> total findings</p>
         </div>
-        <button onclick="exportLeads()" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all flex items-center space-x-2 shadow-lg shadow-green-900/20">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            <span>Export Excel</span>
-        </button>
+        <div class="flex space-x-4">
+            <button onclick="deleteAllLeads()" class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all flex items-center space-x-2 shadow-lg shadow-red-900/20">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m3 4s.5-1 1-1h-4c.5 0 1 1 1 1"></path></svg>
+                <span>Delete All</span>
+            </button>
+            <button onclick="exportLeads()" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all flex items-center space-x-2 shadow-lg shadow-green-900/20">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span>Export Excel</span>
+            </button>
+        </div>
     </div>
 
     <!-- Advanced Filters -->
-    <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
         <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-            <option value="">All Statuses</option>
+            <option value="">Active Alerts</option>
             <option value="new">New</option>
             <option value="in_progress">In Progress</option>
             <option value="true_positive">True Positive</option>
             <option value="false_positive">False Positive</option>
+            <option value="muted">Muted / Suppressed</option>
+            <option value="all">All Statuses</option>
         </select>
         <select id="filter-risk" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
             <option value="">All Risks</option>
@@ -33,9 +42,26 @@
         </select>
         <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+        <input type="text" id="filter-status-code" oninput="debounceLeadsSearch()" placeholder="Status Code..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <div class="flex space-x-2">
             <input type="date" id="filter-start-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="Start Date">
             <input type="date" id="filter-end-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="End Date">
+        </div>
+        <div id="bulk-actions" class="hidden flex items-center space-x-2 animate-fade-in">
+            <select id="bulk-status-select" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                <option value="">Set Status...</option>
+                <option value="new">New</option>
+                <option value="in_progress">In Progress</option>
+                <option value="true_positive">True Positive</option>
+                <option value="false_positive">False Positive</option>
+                <option value="muted">Muted / Suppressed</option>
+            </select>
+            <button onclick="bulkUpdateStatus()" class="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all" title="Apply Status">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            </button>
+            <button onclick="bulkDelete()" class="p-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all" title="Delete Selected">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m3 4s.5-1 1-1h-4c.5 0 1 1 1 1"></path></svg>
+            </button>
         </div>
     </div>
 
@@ -44,7 +70,10 @@
             <table class="w-full text-left">
                 <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                     <tr>
-                        <th class="px-8 py-4">Status</th>
+                        <th class="px-6 py-4 w-10">
+                            <input type="checkbox" id="select-all" onchange="toggleSelectAll()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                        </th>
+                        <th class="px-4 py-4">Status</th>
                         <th class="px-6 py-4">Risk</th>
                         <th class="px-6 py-4">Title / Lead</th>
                         <th class="px-6 py-4">Target</th>
@@ -78,7 +107,7 @@
                     <div class="space-y-4">
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Target Asset</h4>
-                            <p id="modal-target" class="text-lg font-mono text-tech-accent"></p>
+                            <p id="modal-target" class="text-lg font-mono text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent(this.textContent)"></p>
                         </div>
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Detection Time</h4>
@@ -86,12 +115,19 @@
                         </div>
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Current Status</h4>
-                            <select id="modal-status-select" onchange="updateLeadStatus()" class="mt-1 block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
-                                <option value="new">New</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="true_positive">True Positive</option>
-                                <option value="false_positive">False Positive</option>
-                            </select>
+                            <div class="flex space-x-2">
+                                <select id="modal-status-select" onchange="updateLeadStatus()" class="block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
+                                    <option value="new">New</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="true_positive">True Positive</option>
+                                    <option value="false_positive">False Positive</option>
+                                    <option value="muted">Muted / Suppressed</option>
+                                </select>
+                                <button onclick="muteFinding(activeLeadId)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-all flex items-center space-x-2" title="Suppress future alerts for this finding">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                                    <span>Mute</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50">
@@ -146,6 +182,7 @@
         const risk = document.getElementById('filter-risk').value;
         const title = document.getElementById('filter-title').value;
         const target = document.getElementById('filter-target').value;
+        const statusCode = document.getElementById('filter-status-code').value;
         const startDate = document.getElementById('filter-start-date').value;
         const endDate = document.getElementById('filter-end-date').value;
 
@@ -154,6 +191,7 @@
             risk: risk,
             title: title,
             target: target,
+            status_code: statusCode,
             start_date: startDate,
             end_date: endDate
         });
@@ -165,25 +203,33 @@
         const tbody = document.getElementById('leads-table-body');
         tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
-        const status = document.getElementById('filter-status').value;
+        let status = document.getElementById('filter-status').value;
+        if (status === 'all') status = ''; 
+        
         const risk = document.getElementById('filter-risk').value;
         const title = document.getElementById('filter-title').value;
         const target = document.getElementById('filter-target').value;
+        const statusCode = document.getElementById('filter-status-code').value;
         const startDate = document.getElementById('filter-start-date').value;
         const endDate = document.getElementById('filter-end-date').value;
 
         try {
             const params = new URLSearchParams({
-                status: status,
+                status: status === 'all' ? 'all' : status,
                 risk: risk,
                 title: title,
                 target: target,
+                status_code: statusCode,
                 start_date: startDate,
                 end_date: endDate
             });
             const resp = await fetch(`/api/leads?${params.toString()}`);
-            const leads = await resp.json();
+            const data = await resp.json();
+            const leads = data.leads || [];
             currentLeads = leads;
+            
+            document.getElementById('total-count').textContent = data.total_count || 0;
+            document.getElementById('filtered-count').textContent = data.filtered_count || 0;
             
             tbody.innerHTML = '';
             if (leads.length === 0) {
@@ -204,39 +250,125 @@
                 else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
                 else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
                 else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
+                else if (lead.status === 'muted') statusBadge = 'bg-slate-700 text-slate-400';
                 
-                row.innerHTML = " \
-                    <td class=\"px-8 py-5\"> \
-                        <span class=\"px-2 py-1 rounded text-[10px] font-bold uppercase " + statusBadge + "\">" + lead.status.replace('_', ' ') + "</span> \
-                    </td> \
-                    <td class=\"px-6 py-5\"> \
-                        <div class=\"flex items-center space-x-2\"> \
-                            <span class=\"w-3 h-3 rounded-full " + riskColor + " " + (lead.risk_level === 'high' ? 'animate-pulse' : '') + "\"></span> \
-                            <span class=\"text-xs font-bold text-slate-300\">" + riskText + "</span> \
-                        </div> \
-                    </td> \
-                    <td class=\"px-6 py-5\"> \
-                        <div class=\"flex flex-col\"> \
-                            <span class=\"font-bold text-slate-100 group-hover:text-tech-accent transition-colors\">" + lead.title + "</span> \
-                            <span class=\"text-xs text-slate-500 line-clamp-1\">" + lead.description + "</span> \
-                        </div> \
-                    </td> \
-                    <td class=\"px-6 py-5 font-mono text-xs text-slate-400\">" + lead.target + "</td> \
-                    <td class=\"px-6 py-5 text-xs text-slate-500\">" + new Date(lead.timestamp).toLocaleString() + "</td> \
-                    <td class=\"px-8 py-5 text-right flex justify-end space-x-2\"> \
-                        <button onclick=\"event.stopPropagation(); openLeadModal('" + lead._id + "')\" class=\"p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all\" title=\"View Details\"> \
-                            <svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M15 12a3 3 0 11-6 0 3 3 0 016 0z\"></path><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z\"></path></svg> \
-                        </button> \
-                        <button onclick=\"event.stopPropagation(); openNotesModal('" + lead._id + "')\" class=\"p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all\" title=\"Add Notes\"> \
-                            <svg class=\"w-4 h-4\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z\"></path></svg> \
-                        </button> \
-                    </td> \
-                ";
+                row.innerHTML = `
+                    <td class="px-6 py-5">
+                        <input type="checkbox" value="${lead._id}" onchange="updateBulkUI()" onclick="event.stopPropagation()" class="lead-checkbox rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                    </td>
+                    <td class="px-4 py-5">
+                        <span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${statusBadge}">${lead.status.replace('_', ' ')}</span>
+                    </td>
+                    <td class="px-6 py-5">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 rounded-full ${riskColor} ${lead.risk_level === 'high' ? 'animate-pulse' : ''}"></span>
+                            <span class="text-xs font-bold text-slate-300">${riskText}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-5">
+                        <div class="flex flex-col">
+                            <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title}</span>
+                            <span class="text-xs text-slate-500 line-clamp-1">${lead.description}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); window.location.href='/dashboard?q=' + encodeURIComponent('${lead.target}')">${lead.target}</td>
+                    <td class="px-6 py-5 text-xs text-slate-500">${new Date(lead.timestamp).toLocaleString()}</td>
+                    <td class="px-8 py-5 text-right flex justify-end space-x-2">
+                        <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all" title="View Details">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </button>
+                        <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all" title="Add Notes">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                        <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Mute/Suppress Finding">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                        </button>
+                    </td>
+                `;
                 tbody.appendChild(row);
             });
         } catch (e) {
             console.error(e);
-            tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center text-red-500">Failed to load leads.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center text-red-500">Failed to load leads.</td></tr>';
+        }
+    }
+
+    function toggleSelectAll() {
+        const master = document.getElementById('select-all');
+        document.querySelectorAll('.lead-checkbox').forEach(cb => {
+            cb.checked = master.checked;
+        });
+        updateBulkUI();
+    }
+
+    function updateBulkUI() {
+        const selected = document.querySelectorAll('.lead-checkbox:checked').length;
+        const bulkBar = document.getElementById('bulk-actions');
+        if (selected > 0) {
+            bulkBar.classList.remove('hidden');
+        } else {
+            bulkBar.classList.add('hidden');
+        }
+    }
+
+    async function bulkUpdateStatus() {
+        const newStatus = document.getElementById('bulk-status-select').value;
+        if (!newStatus) {
+            alert('Please select a status first');
+            return;
+        }
+
+        const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
+        if (!confirm(`Are you sure you want to update ${ids.length} alerts to ${newStatus}?`)) return;
+
+        try {
+            const resp = await fetch("/api/leads/bulk-status", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids, status: newStatus })
+            });
+            if (resp.ok) {
+                document.getElementById('select-all').checked = false;
+                fetchLeads();
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    async function bulkDelete() {
+        const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
+        if (!confirm(`Are you sure you want to PERMANENTLY DELETE ${ids.length} alerts?`)) return;
+
+        try {
+            const resp = await fetch("/api/leads/bulk-delete", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids })
+            });
+            if (resp.ok) {
+                document.getElementById('select-all').checked = false;
+                fetchLeads();
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    async function deleteAllLeads() {
+        if (!confirm("Are you ABSOLUTELY SURE you want to delete ALL alerts? This action cannot be undone and will clear the entire hunting lead database.")) {
+            return;
+        }
+
+        try {
+            const resp = await fetch("/api/leads/delete-all", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (resp.ok) {
+                fetchLeads();
+            } else {
+                alert("Failed to delete all alerts.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("An error occurred while deleting alerts.");
         }
     }
 
@@ -249,7 +381,22 @@
         document.getElementById('modal-target').textContent = lead.target;
         document.getElementById('modal-time').textContent = new Date(lead.timestamp).toLocaleString();
         document.getElementById('modal-details').textContent = lead.details;
+        
+        // Configure marked to open links in new tab
+        const renderer = {
+            link(token) {
+                const href = token.href;
+                const title = token.title || '';
+                const text = token.text;
+                return `<a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer" class="text-tech-accent hover:underline decoration-tech-accent font-bold inline-flex items-center">
+                    ${text}
+                    <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                </a>`;
+            }
+        };
+        marked.use({ renderer });
         document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
+        
         document.getElementById('modal-status-select').value = lead.status;
         
         const indicator = document.getElementById('modal-risk-indicator');
@@ -314,6 +461,24 @@
             });
             
             if (resp.ok) {
+                fetchLeads();
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function muteFinding(id) {
+        const leadId = id || activeLeadId;
+        if (!leadId) return;
+        
+        try {
+            const resp = await fetch("/api/leads/" + leadId + "/mute", {
+                method: 'POST'
+            });
+            
+            if (resp.ok) {
+                if (activeLeadId === leadId) closeLeadModal();
                 fetchLeads();
             }
         } catch (e) {
