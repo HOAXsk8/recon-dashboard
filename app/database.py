@@ -22,9 +22,11 @@ users_col = db["users"]
 audit_logs_col = db["audit_logs"]
 leads_col = db["leads"]
 scanners_col = db["scanners"]
+settings_col = db["settings"]
 
 # Sync client for setup scripts
 sync_client = MongoClient(MONGO_URI)
 sync_db = sync_client[DB_NAME]
 sync_leads_col = sync_db["leads"]
 sync_scanners_col = sync_db["scanners"]
+sync_settings_col = sync_db["settings"]

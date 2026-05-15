@@ -13,6 +13,10 @@
             <p class="text-slate-400 mt-1 font-medium">Real-time status of background reconnaissance agents.</p>
         </div>
         <div class="flex items-center space-x-3">
+            <button id="pause-btn" onclick="togglePause()" class="px-4 py-2 bg-tech-danger hover:opacity-90 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-danger hidden">
+                <svg id="pause-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="pause-text">Pause Scanning</span>
+            </button>
             <button onclick="fetchTools()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span>Refresh Status</span>
@@ -59,6 +63,47 @@
 
 <script>
     let currentTools = [];
+
+    async function fetchSettings() {
+        try {
+            const resp = await fetch('/api/settings');
+            const settings = await resp.json();
+            updatePauseUI(settings.scan_pause);
+        } catch (e) {
+            console.error('Settings Fetch Error:', e);
+        }
+    }
+
+    function updatePauseUI(isPaused) {
+        const btn = document.getElementById('pause-btn');
+        const text = document.getElementById('pause-text');
+        const icon = document.getElementById('pause-icon');
+        
+        btn.classList.remove('hidden');
+        if (isPaused) {
+            btn.classList.remove('bg-tech-danger', 'border-tech-danger');
+            btn.classList.add('bg-tech-success', 'border-tech-success');
+            text.innerText = 'Resume Scanning';
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+        } else {
+            btn.classList.remove('bg-tech-success', 'border-tech-success');
+            btn.classList.add('bg-tech-danger', 'border-tech-danger');
+            text.innerText = 'Pause Scanning';
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+        }
+    }
+
+    async function togglePause() {
+        try {
+            const resp = await fetch('/api/settings/toggle-pause', { method: 'POST' });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                updatePauseUI(result.scan_pause);
+            }
+        } catch (e) {
+            console.error('Toggle Error:', e);
+        }
+    }
 
     async function fetchTools() {
         try {
@@ -157,7 +202,13 @@
             : '<div class="col-span-full text-center py-10 text-slate-600 font-mono text-[10px] uppercase tracking-widest border border-dashed border-slate-800 rounded-3xl">No scripts deployed.</div>';
     }
 
-    document.addEventListener('DOMContentLoaded', fetchTools);
-    setInterval(fetchTools, 10000); 
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchTools();
+        fetchSettings();
+    });
+    setInterval(() => {
+        fetchTools();
+        fetchSettings();
+    }, 10000); 
 </script>
 {% endblock %}

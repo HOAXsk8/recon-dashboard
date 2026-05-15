@@ -15,7 +15,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -1298,6 +1298,37 @@ async def get_tools(user: dict = Depends(get_current_user)):
         t["status"] = status
         results.append(t)
     return results
+
+@app.get("/api/settings")
+async def get_settings(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    settings = await settings_col.find_one({"key": "global_settings"})
+    if not settings:
+        # Default settings
+        settings = {"key": "global_settings", "scan_pause": False}
+        await settings_col.insert_one(settings)
+    
+    settings["_id"] = str(settings["_id"])
+    return settings
+
+@app.post("/api/settings/toggle-pause")
+async def toggle_scan_pause(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    settings = await settings_col.find_one({"key": "global_settings"})
+    current_state = settings.get("scan_pause", False) if settings else False
+    new_state = not current_state
+    
+    await settings_col.update_one(
+        {"key": "global_settings"},
+        {"$set": {"scan_pause": new_state}},
+        upsert=True
+    )
+    
+    await log_audit(user["username"], "TOGGLE_SCAN_PAUSE", f"{'Paused' if new_state else 'Resumed'} all scanning activity", request)
+    return {"status": "success", "scan_pause": new_state}
 
 @app.get("/api/stats/dashboard")
 async def get_stats_dashboard(user: dict = Depends(get_current_user)):

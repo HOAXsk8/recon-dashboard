@@ -30,8 +30,19 @@ class BaseAgent:
         self.tasks_col = self.db["tasks"]
         self.leads_col = self.db["leads"]
         self.fingerprints_col = self.db["alert_fingerprints"]
+        self.settings_col = self.db["settings"]
         self.pause_event = asyncio.Event()
         self.pause_event.set() # Default to running
+
+    async def check_global_pause(self):
+        """Check if scanning is globally paused."""
+        try:
+            settings = await self.settings_col.find_one({"key": "global_settings"})
+            if settings and settings.get("scan_pause", False):
+                return True
+        except Exception as e:
+            logger.error(f"Error checking global pause: {e}")
+        return False
 
     async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions):
         """
@@ -118,14 +129,31 @@ class BaseAgent:
                 )
 
                 scanner = await self.scanners_col.find_one({"key": self.agent_key})
-                if scanner and scanner.get("status") == "Stopped":
+                global_paused = await self.check_global_pause()
+                
+                if global_paused:
+                    if self.pause_event.is_set():
+                        logger.info(f"{self.agent_name} PAUSED (Global Pause Active).")
+                        self.pause_event.clear()
+                    # Optionally update status in scanners_col to reflect global pause
+                    await self.scanners_col.update_one(
+                        {"key": self.agent_key},
+                        {"$set": {"status": "Paused (Global)"}}
+                    )
+                elif scanner and scanner.get("status") == "Stopped":
                     if self.pause_event.is_set():
                         logger.info(f"{self.agent_name} PAUSED via UI.")
                         self.pause_event.clear()
                 else:
                     if not self.pause_event.is_set():
-                        logger.info(f"{self.agent_name} RESUMED via UI.")
+                        logger.info(f"{self.agent_name} RESUMED.")
                         self.pause_event.set()
+                    # Ensure status is Running if it was previously Paused (Global)
+                    if scanner and scanner.get("status") == "Paused (Global)":
+                        await self.scanners_col.update_one(
+                            {"key": self.agent_key},
+                            {"$set": {"status": "Running"}}
+                        )
 
             except Exception as e:
                 logger.error(f"Heartbeat update failed: {e}")
