@@ -144,8 +144,28 @@ class TechFingerprinterAgent(BaseAgent):
                         if app.get("target") == target:
                             # Check for tech stack changes
                             old_tech = app.get("tech_stack", [])
-                            if set(old_tech) != set(tech_stack):
+                            tech_changed = set(old_tech) != set(tech_stack)
+                            
+                            if tech_changed:
                                 await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
+                                
+                                # Force a re-run of directory hunt because the web app changed
+                                await self.tasks_col.delete_many({
+                                    "root_domain": root_domain,
+                                    "target": target,
+                                    "port": port,
+                                    "task_type": "directory_hunt"
+                                })
+                                await self.tasks_col.insert_one({
+                                    "root_domain": root_domain,
+                                    "target": target,
+                                    "protocol": protocol,
+                                    "port": port,
+                                    "task_type": "directory_hunt",
+                                    "status": "pending",
+                                    "created_at": datetime.datetime.utcnow()
+                                })
+                                logger.info(f"Forced NEW directory hunt for {target}:{port} due to tech stack change.")
                             
                             # Check for header regressions
                             old_headers = app.get("security_headers", {})

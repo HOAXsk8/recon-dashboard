@@ -86,6 +86,10 @@ class Bypass403Agent(BaseAgent):
 
     async def create_bypass_alert(self, root_domain, target, finding):
         """Create a high-risk lead/alert for a successful 403 bypass using the centralized alerting system."""
+        # Suppress alerts for 403 bypasses as part of directory/file discovery suppression.
+        # Findings are still stored in the database under web_applications.403_bypasses.
+        return
+        
         title = f"SECURITY CRITICAL: 403 Bypass Success on {target}"
         risk = "high"
         

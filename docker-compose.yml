@@ -102,6 +102,10 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/directory_hunter.py"]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:

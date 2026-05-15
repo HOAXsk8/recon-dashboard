@@ -93,8 +93,19 @@ class PortScannerAgent(BaseAgent):
                 latest_prev_scan = sys
                 break
         
+        changed_ports = set()
         if latest_prev_scan:
-            await self.create_port_alert(root_domain, target, latest_prev_scan.get("services", []), services)
+            old_services = latest_prev_scan.get("services", [])
+            await self.create_port_alert(root_domain, target, old_services, services)
+            
+            # Identify which ports are new or have changed service info
+            old_map = {p['port']: p for p in old_services}
+            for s in services:
+                if s['port'] not in old_map or old_map[s['port']] != s:
+                    changed_ports.add(s['port'])
+        else:
+            # All ports are "new" if no previous scan exists
+            changed_ports = {s['port'] for s in services}
 
         system_entry = {
             "ip": ip,
@@ -106,6 +117,7 @@ class PortScannerAgent(BaseAgent):
             {"domain": root_domain},
             {"$push": {"systems": system_entry}}
         )
+        return changed_ports
 
     async def check_completion(self, root_domain):
         """Check if all tasks for this root domain are completed."""
@@ -138,19 +150,25 @@ class PortScannerAgent(BaseAgent):
             ip, services = self.parse_nmap_xml(xml_data)
             
             if services:
-                await self.update_scan_results_in_db(root_domain, target, ip, services)
+                changed_ports = await self.update_scan_results_in_db(root_domain, target, ip, services)
                 
                 # Trigger directory hunt for web services
                 for svc in services:
                     if svc['port'] in [80, 443, 8080, 8443, 3000, 5000, 8000] or svc['service'] in ['http', 'https']:
                         proto = 'https' if svc['port'] in [443, 8443] or svc['service'] == 'https' else 'http'
+                        
                         exists = await self.tasks_col.find_one({
                             "root_domain": root_domain,
                             "target": target,
                             "port": svc['port'],
                             "task_type": "directory_hunt"
                         })
-                        if not exists:
+                        
+                        # Re-run if it doesn't exist OR if the port changed
+                        if not exists or svc['port'] in changed_ports:
+                            if exists:
+                                await self.tasks_col.delete_one({"_id": exists["_id"]})
+                                
                             await self.tasks_col.insert_one({
                                 "root_domain": root_domain,
                                 "target": target,
@@ -160,7 +178,7 @@ class PortScannerAgent(BaseAgent):
                                 "status": "pending",
                                 "created_at": datetime.datetime.utcnow()
                             })
-                            logger.info(f"Queued directory hunt for {target}:{svc['port']}")
+                            logger.info(f"Queued directory hunt for {target}:{svc['port']} (Change detected: {svc['port'] in changed_ports})")
 
                         # Also trigger tech fingerprinting
                         exists_tech = await self.tasks_col.find_one({

@@ -40,9 +40,11 @@ class ContinuousLoopAgent(BaseAgent):
             )
             
             # 2. Clear old tasks for this domain to allow re-entry
-            # We delete completed/failed tasks so they can be re-added
+            # We preserve directory_hunt, js_mine, and bypass_403 tasks so they only run once
+            # unless a change is detected (handled by other agents).
             await self.tasks_col.delete_many({
                 "root_domain": root_domain,
+                "task_type": {"$in": ["discovery", "verify", "scan", "tech_fingerprint"]},
                 "status": {"$in": ["completed", "failed"]}
             })
             

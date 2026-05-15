@@ -42,6 +42,10 @@ class JavascriptMinerAgent(BaseAgent):
 
     async def create_js_alert(self, root_domain, target, finding_type, finding_value, source_url):
         """Create a lead/alert for a JS finding using the centralized alerting system."""
+        # Suppress alerts for JS discoveries as part of directory/file discovery suppression.
+        # Findings are still stored in the database under web_applications.js_findings.
+        return
+
         if finding_type == "url":
             title = f"JS Discovery: Hidden URL"
             risk = "low"

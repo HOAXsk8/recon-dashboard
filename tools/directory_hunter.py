@@ -98,6 +98,10 @@ class DirectoryHunterAgent(BaseAgent):
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
+        # Suppress alerts for directory and file discoveries as requested.
+        # Findings are still stored in the database under web_applications.sensitive_files.
+        return
+        
         full_discovery_url = f"{url}/{item['path']}".replace("//", "/").replace(":/", "://")
         
         title = f"Sensitive Discovery: {item['path']}"
