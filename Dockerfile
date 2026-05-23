@@ -19,8 +19,17 @@ RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/
 # Install httpx
 RUN wget https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_linux_amd64.zip \
     && unzip httpx_1.6.0_linux_amd64.zip \
-    && mv httpx /usr/local/bin/ \
+    && mv httpx /usr/local/bin/pd-httpx \
     && rm httpx_1.6.0_linux_amd64.zip
+
+# Install nuclei
+RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_amd64.zip \
+    && unzip -o nuclei_3.3.0_linux_amd64.zip \
+    && mv nuclei /usr/local/bin/ \
+    && rm nuclei_3.3.0_linux_amd64.zip
+
+# Initialize nuclei templates
+RUN nuclei -update-templates
 
 # Setup wordlists
 RUN mkdir -p /app/wordlists && \

@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Live Logs - Netbytes.cloud{% endblock %}
+
+{% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
+
+{% block content %}
+<div class="w-full space-y-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight text-white">LIVE <span class="text-tech-accent">LOGS</span></h1>
+            <p class="text-slate-400 mt-1 font-medium">Real-time activity of the reconnaissance pipeline.</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-2 bg-slate-800/50 p-1.5 rounded-xl border border-slate-700">
+                <button id="live-toggle" onclick="toggleLive()" class="px-4 py-2 bg-tech-accent text-tech-bg rounded-lg font-bold text-xs transition-all flex items-center space-x-2">
+                    <div class="w-2 h-2 rounded-full bg-tech-bg animate-pulse"></div>
+                    <span>LIVE MODE</span>
+                </button>
+            </div>
+            <button onclick="fetchTasks()" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all border border-slate-700">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            </button>
+            <button onclick="clearLogs()" class="px-4 py-2 bg-tech-danger/10 hover:bg-tech-danger text-tech-danger hover:text-white rounded-xl font-bold text-xs transition-all border border-tech-danger/20 flex items-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                <span>Clear All Logs</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-tech-panel/50 p-4 rounded-2xl border border-slate-800">
+        <div class="space-y-1.5">
+            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Filter by Tool</label>
+            <select id="filter-tool" onchange="fetchTasks()" class="w-full bg-slate-900 border-slate-800 text-slate-300 rounded-xl text-xs font-bold focus:ring-tech-accent focus:border-tech-accent">
+                <option value="all">All Tools</option>
+                <option value="discovery">Subdomain Discovery</option>
+                <option value="verification">Alive Check</option>
+                <option value="scan">Port Scanner</option>
+                <option value="directory_hunt">Directory Hunt</option>
+                <option value="tech_fingerprint">Tech Fingerprint</option>
+                <option value="whois">Whois Agent</option>
+                <option value="js_mining">JS Mining</option>
+                <option value="bypass_403">403 Bypasser</option>
+            </select>
+        </div>
+        <div class="space-y-1.5">
+            <label class="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Filter by Status</label>
+            <select id="filter-status" onchange="fetchTasks()" class="w-full bg-slate-900 border-slate-800 text-slate-300 rounded-xl text-xs font-bold focus:ring-tech-accent focus:border-tech-accent">
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+            </select>
+        </div>
+        <div class="md:col-span-2 flex items-end">
+            <div class="w-full h-10 bg-slate-900/50 rounded-xl border border-slate-800/50 flex items-center px-4">
+                <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Pipeline Health:</span>
+                <div class="ml-4 flex space-x-1" id="pipeline-indicators">
+                    <div class="w-1.5 h-4 bg-tech-success/50 rounded-full"></div>
+                    <div class="w-1.5 h-6 bg-tech-success rounded-full"></div>
+                    <div class="w-1.5 h-3 bg-tech-success/30 rounded-full"></div>
+                    <div class="w-1.5 h-5 bg-tech-success rounded-full"></div>
+                </div>
+                <span class="ml-auto text-[10px] font-mono text-tech-accent font-bold" id="task-count">0 TASKS LOADED</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="bg-tech-panel rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-slate-900/50 border-b border-slate-800">
+                        <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Tool / Type</th>
+                        <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Target Asset</th>
+                        <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Status</th>
+                        <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Timestamps (Started / Finished)</th>
+                        <th class="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Details</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-container">
+                    <!-- Loading state -->
+                    <tr>
+                        <td colspan="5" class="px-6 py-20 text-center">
+                            <div class="flex flex-col items-center justify-center space-y-4">
+                                <div class="w-10 h-10 border-4 border-tech-accent/20 border-t-tech-accent rounded-full animate-spin"></div>
+                                <span class="text-xs font-mono text-slate-500 uppercase tracking-widest">Querying Task Database...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let isLive = true;
+    let liveInterval = null;
+
+    function toggleLive() {
+        isLive = !isLive;
+        const btn = document.getElementById('live-toggle');
+        if (isLive) {
+            btn.classList.add('bg-tech-accent', 'text-tech-bg');
+            btn.classList.remove('bg-slate-800', 'text-slate-400');
+            btn.querySelector('div').classList.add('animate-pulse');
+            liveInterval = setInterval(fetchTasks, 3000);
+        } else {
+            btn.classList.remove('bg-tech-accent', 'text-tech-bg');
+            btn.classList.add('bg-slate-800', 'text-slate-400');
+            btn.querySelector('div').classList.remove('animate-pulse');
+            clearInterval(liveInterval);
+        }
+    }
+
+    async function fetchTasks() {
+        const tool = document.getElementById('filter-tool').value;
+        const status = document.getElementById('filter-status').value;
+        
+        try {
+            const resp = await fetch(`/api/tasks?task_type=${tool}&status=${status}&limit=50`);
+            if (!resp.ok) throw new Error('API Error');
+            const data = await resp.json();
+            renderTasks(data.tasks);
+            document.getElementById('task-count').textContent = `${data.total} TASKS IN VIEW`;
+        } catch (e) {
+            console.error('Fetch Error:', e);
+        }
+    }
+
+    async function clearLogs() {
+        if (!confirm('Are you absolutely sure you want to delete ALL task logs? This cannot be undone.')) return;
+        
+        try {
+            const resp = await fetch('/api/tasks/clear', { method: 'DELETE' });
+            if (resp.ok) {
+                fetchTasks();
+            } else {
+                alert('Failed to clear logs. Ensure you have the required permissions.');
+            }
+        } catch (e) {
+            console.error('Clear Error:', e);
+        }
+    }
+
+    function renderTasks(tasks) {
+        const container = document.getElementById('logs-container');
+        if (tasks.length === 0) {
+            container.innerHTML = `
+                <tr>
+                    <td colspan="5" class="px-6 py-20 text-center text-slate-600 font-mono text-[10px] uppercase tracking-widest">
+                        No tasks matching the current filters.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        container.innerHTML = tasks.map(t => {
+            let statusBadge = '';
+            switch(t.status) {
+                case 'completed':
+                    statusBadge = '<span class="px-2.5 py-1 bg-tech-success/10 text-tech-success rounded-lg text-[9px] font-black uppercase border border-tech-success/20">Completed</span>';
+                    break;
+                case 'processing':
+                    statusBadge = '<span class="px-2.5 py-1 bg-tech-accent/10 text-tech-accent rounded-lg text-[9px] font-black uppercase border border-tech-accent/20 animate-pulse">Processing</span>';
+                    break;
+                case 'failed':
+                    statusBadge = '<span class="px-2.5 py-1 bg-tech-danger/10 text-tech-danger rounded-lg text-[9px] font-black uppercase border border-tech-danger/20">Failed</span>';
+                    break;
+                default:
+                    statusBadge = '<span class="px-2.5 py-1 bg-slate-800 text-slate-500 rounded-lg text-[9px] font-black uppercase border border-slate-700">Pending</span>';
+            }
+
+            const toolName = t.task_type.replace('_', ' ').toUpperCase();
+            const started = t.started_at ? new Date(t.started_at).toLocaleTimeString() : '--:--:--';
+            const finished = t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : (t.status === 'processing' ? 'ACTIVE' : '--:--:--');
+            
+            let details = '';
+            if (t.error) {
+                details = `<span class="text-tech-danger truncate max-w-xs inline-block" title="${t.error}">${t.error}</span>`;
+            } else if (t.status === 'completed') {
+                if (t.task_type === 'scan') details = 'Ports analyzed';
+                else if (t.task_type === 'verification') details = t.alive ? 'Target ALIVE' : 'Target DEAD';
+                else details = 'Task successful';
+            } else if (t.status === 'processing') {
+                details = '<span class="text-tech-accent italic">Working...</span>';
+            }
+
+            return `
+                <tr class="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors group">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-2 h-2 rounded-full bg-tech-accent shadow-[0_0_8px_rgba(56,189,248,0.4)]"></div>
+                            <span class="text-xs font-black text-slate-300 tracking-tight">${toolName}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-mono font-bold text-white">${t.target}</span>
+                            <span class="text-[9px] font-mono text-slate-500 uppercase tracking-tighter">${t.root_domain || ''}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">${statusBadge}</td>
+                    <td class="px-6 py-4">
+                        <div class="flex items-center space-x-2 text-[10px] font-mono font-bold">
+                            <span class="text-slate-400">${started}</span>
+                            <span class="text-slate-600">→</span>
+                            <span class="${t.status === 'processing' ? 'text-tech-accent animate-pulse' : 'text-slate-400'}">${finished}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-right text-[10px] font-medium text-slate-400 uppercase tracking-tight">
+                        ${details}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetchTasks();
+        liveInterval = setInterval(fetchTasks, 3000);
+    });
+</script>
+{% endblock %}

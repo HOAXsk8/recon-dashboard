@@ -107,6 +107,8 @@ class SubdomainDiscoveryAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
+            await self.check_completion(root_domain)
+
             logger.info(f"Completed discovery for {target}")
 
         except Exception as e:

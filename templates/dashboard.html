@@ -172,6 +172,26 @@
     </div>
 </div>
 
+<!-- Modal for 403 Bypass Content -->
+<div id="bypass-content-modal" class="fixed inset-0 z-[110] hidden overflow-y-auto bg-slate-950/80 backdrop-blur-md">
+    <div class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-4xl bg-tech-panel rounded-2xl border border-slate-700 shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-white uppercase tracking-widest">Bypass Response Content</h3>
+                <button onclick="closeBypassContent()" class="text-slate-500 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-grow bg-tech-bg/50">
+                <pre id="bypass-raw-content" class="text-xs font-mono text-slate-300 whitespace-pre-wrap break-all"></pre>
+            </div>
+            <div class="px-6 py-4 border-t border-slate-800 flex justify-end">
+                <button onclick="closeBypassContent()" class="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-all font-bold text-xs uppercase">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
@@ -183,6 +203,11 @@
 </style>
 
 <script>
+    window.addEventListener('error', function(event) {
+        console.error('Global JS Error:', event.error);
+        // alert('System Error: ' + event.message);
+    });
+
     let currentPage = 1;
     let isLoading = false;
     let hasMore = true;
@@ -192,6 +217,9 @@
     let currentSortDir = 'asc';
     let currentPortFilter = null;
     let autoOpenDomain = null;
+
+    // Map to store finding objects for deletion/viewing to avoid escaping issues in HTML attributes
+    window.currentFindingsMap = new Map();
 
     async function fetchInventory(append = false) {
         if (isLoading) return;
@@ -301,7 +329,8 @@
                 document.getElementById('pagination-info').textContent = `Showing ${Math.min(currentPage * limit, data.total)} of ${data.total} Assets`;
                 document.getElementById('stat-total-docs').textContent = `${data.total} Total Domains`;
                 document.getElementById('stat-scanned').textContent = `${data.scanned_total} Scanned`;
-                }        } catch (e) {
+            }
+        } catch (e) {
             console.error(e);
         } finally {
             isLoading = false;
@@ -413,6 +442,11 @@
         if (!currentDetailData) return;
         const data = currentDetailData;
 
+        // Clear the findings map when switching tabs or refreshing content
+        if (tabId === 'webapps') {
+            window.currentFindingsMap.clear();
+        }
+
         switch(tabId) {
             case 'overview':
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
@@ -430,33 +464,33 @@
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                         <div class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4">
-                            <div class="p-3 bg-red-500/10 text-red-500 rounded-xl">
+                         <a href="/alerts?target=${encodeURIComponent(data.domain)}" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                            <div class="p-3 bg-red-500/10 text-red-500 rounded-xl group-hover:bg-red-500/20 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                             </div>
                             <div>
                                 <h4 class="text-xs font-bold text-slate-500 uppercase">Open Alerts</h4>
                                 <p class="text-2xl font-bold text-white">${stats.open_alerts}</p>
                             </div>
-                        </div>
-                        <div class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4">
-                            <div class="p-3 bg-tech-success/10 text-tech-success rounded-xl">
+                        </a>
+                        <a href="/alerts?target=${encodeURIComponent(data.domain)}&status=true_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                            <div class="p-3 bg-tech-success/10 text-tech-success rounded-xl group-hover:bg-tech-success/20 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                             </div>
                             <div>
                                 <h4 class="text-xs font-bold text-slate-500 uppercase">True Positives</h4>
                                 <p class="text-2xl font-bold text-white">${stats.true_positives}</p>
                             </div>
-                        </div>
-                        <div class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4">
-                            <div class="p-3 bg-slate-700/50 text-slate-400 rounded-xl">
+                        </a>
+                        <a href="/alerts?target=${encodeURIComponent(data.domain)}&status=false_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                            <div class="p-3 bg-slate-700/50 text-slate-400 rounded-xl group-hover:bg-slate-700/70 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                             </div>
                             <div>
                                 <h4 class="text-xs font-bold text-slate-500 uppercase">False Positives</h4>
                                 <p class="text-2xl font-bold text-white">${stats.false_positives}</p>
                             </div>
-                        </div>
+                        </a>
                     </div>
 
                     <div class="bg-tech-bg p-8 rounded-2xl border border-slate-800">
@@ -602,13 +636,56 @@
                 const apps = data.web_applications || [];
                 content.innerHTML = `
                     <div class="space-y-8">
-                        ${apps.map(app => `
+                        ${apps.map(app => {
+                            const compStack = app.comprehensive_tech_stack;
+                            let compStackHtml = '';
+                            if (compStack) {
+                                compStackHtml = `
+                                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-tech-accent/20 mb-6">
+                                        <h5 class="text-[10px] font-black text-tech-accent uppercase tracking-[0.2em] mb-4">AI-Synthesized Profile</h5>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div>
+                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Frontend</h6>
+                                                <p class="text-xs text-slate-200">${compStack.frontend || 'N/A'}</p>
+                                            </div>
+                                            <div>
+                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Backend</h6>
+                                                <p class="text-xs text-slate-200">${compStack.backend || 'N/A'}</p>
+                                            </div>
+                                            <div>
+                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Database</h6>
+                                                <p class="text-xs text-slate-200">${compStack.database || 'N/A'}</p>
+                                            </div>
+                                            <div>
+                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Infrastructure</h6>
+                                                <p class="text-xs text-slate-200">${compStack.infrastructure || 'N/A'}</p>
+                                            </div>
+                                        </div>
+                                        <div class="mt-4 pt-4 border-t border-slate-800">
+                                            <p class="text-[11px] text-slate-400 italic leading-relaxed">${compStack.summary || ''}</p>
+                                            <div class="flex flex-wrap gap-1.5 mt-3">
+                                                ${compStack.libraries?.map(l => `<span class="px-1.5 py-0.5 bg-tech-accent/5 border border-tech-accent/10 rounded text-[9px] text-tech-accent/70">${l}</span>`).join('') || ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }
+
+                            return `
                             <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800">
                                 <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-800 pb-6">
-                                    <div class="flex flex-wrap gap-2 mt-2">
+                                    <div>
+                                        <h4 class="text-white font-bold mb-1">${app.target}</h4>
+                                        <a href="${app.url}" target="_blank" class="text-xs font-mono text-tech-accent hover:underline">${app.url}</a>
+                                        <p class="text-xs text-slate-500 mt-1">${app.title || ''}</p>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
                                         ${app.tech_stack?.map(t => `<span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 font-bold uppercase">${t}</span>`).join('') || 'No tech stack identified'}
                                     </div>
                                 </div>
+                                
+                                ${compStackHtml}
+
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                     <div>
                                         <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">Security Headers</h4>
@@ -628,64 +705,124 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">Discovered Files / Dirs</h4>
-                                        <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
-                                            ${app.sensitive_files?.map(f => `
-                                                <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
-                                                    <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors">${f.path}</a>
-                                                    <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
+                                        <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                                            <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Discovered Files / Dirs</h4>
+                                            <div class="flex items-center space-x-4">
+                                                <div class="flex items-center space-x-2">
+                                                    <input type="number" id="status-select-sensitive_files" placeholder="Status Code" class="w-16 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 focus:ring-1 focus:ring-tech-accent outline-none">
+                                                    <button onclick="selectByStatus('sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase tracking-tighter">Select</button>
+                                                    <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-tighter">Delete All</button>
                                                 </div>
-                                            `).join('') || '<p class="text-xs text-slate-500 italic">No files identified.</p>'}
+                                            </div>
+                                        </div>
+                                        <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                                            ${app.sensitive_files?.map(f => {
+                                                const fid = 'sf_' + Math.random().toString(36).substr(2, 9);
+                                                window.currentFindingsMap.set(fid, f);
+                                                return `
+                                                <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50 group finding-item-sensitive_files" data-fid="${fid}">
+                                                    <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors">${f.path}</a>
+                                                    <div class="flex items-center">
+                                                        <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
+                                                        <button onclick="deleteFinding('${data._id}', '${app.target}', 'sensitive_files', '${fid}')" class="ml-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                        </button>
+                                                    </div>
+                                                </div>`;
+                                            }).join('') || '<p class="text-xs text-slate-500 italic">No files identified.</p>'}
                                         </div>
                                     </div>
                                 </div>
                                 <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                                     <div>
-                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">JS Mining Findings</h4>
+                                        <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                                            <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">JS Mining Findings</h4>
+                                        </div>
                                         <div class="grid grid-cols-1 gap-4">
                                             <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50">
                                                 <h5 class="text-xs font-bold text-tech-accent uppercase mb-3">Extracted Secrets</h5>
                                                 <div class="space-y-2">
-                                                    ${app.js_findings?.filter(f => f.type === 'secret').map(f => `
-                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-danger/20">
-                                                            <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
-                                                            <div class="text-xs font-mono text-tech-danger break-all">${f.value}</div>
-                                                        </div>
-                                                    `).join('') || '<p class="text-xs text-slate-600 italic">No secrets identified.</p>'}
+                                                    ${app.js_findings?.filter(f => f.type === 'secret').map(f => {
+                                                        const fid = 'js_' + Math.random().toString(36).substr(2, 9);
+                                                        window.currentFindingsMap.set(fid, f);
+                                                        return `
+                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-danger/20 group relative flex items-start space-x-3">
+                                                            <div class="flex-grow min-w-0">
+                                                                <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
+                                                                <div class="text-xs font-mono text-tech-danger break-all">${f.value}</div>
+                                                            </div>
+                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                            </button>
+                                                        </div>`;
+                                                    }).join('') || '<p class="text-xs text-slate-600 italic">No secrets identified.</p>'}
                                                 </div>
                                             </div>
                                             <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50">
                                                 <h5 class="text-xs font-bold text-tech-accent uppercase mb-3">Hidden URLs</h5>
                                                 <div class="space-y-2">
-                                                    ${app.js_findings?.filter(f => f.type === 'url').map(f => `
-                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-accent/20">
-                                                            <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
-                                                            <div class="text-xs font-mono text-slate-300 break-all">${f.value}</div>
-                                                        </div>
-                                                    `).join('') || '<p class="text-xs text-slate-600 italic">No hidden URLs identified.</p>'}
+                                                    ${app.js_findings?.filter(f => f.type === 'url').map(f => {
+                                                        const fid = 'js_' + Math.random().toString(36).substr(2, 9);
+                                                        window.currentFindingsMap.set(fid, f);
+                                                        return `
+                                                        <div class="p-3 bg-tech-panel/50 rounded-xl border border-tech-accent/20 group relative flex items-start space-x-3">
+                                                            <div class="flex-grow min-w-0">
+                                                                <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
+                                                                <a href="${f.value.startsWith('http') ? f.value : (f.value.startsWith('//') ? 'https:' + f.value : (f.value.startsWith('/') ? app.url + f.value : app.url + '/' + f.value))}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 break-all hover:text-tech-accent transition-colors">${f.value}</a>
+                                                            </div>
+                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                            </button>
+                                                        </div>`;
+                                                    }).join('') || '<p class="text-xs text-slate-600 italic">No hidden URLs identified.</p>'}
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                     <div>
-                                        <h4 class="text-sm font-bold text-slate-500 uppercase mb-4 tracking-widest">403 Bypass Findings</h4>
+                                        <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                                            <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">403 Bypass Findings</h4>
+                                            <div class="flex items-center space-x-4">
+                                                <div class="flex items-center space-x-2">
+                                                    <input type="number" id="status-select-403_bypasses" placeholder="Status Code" class="w-16 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 focus:ring-1 focus:ring-tech-accent outline-none">
+                                                    <button onclick="selectByStatus('403_bypasses', document.getElementById('status-select-403_bypasses').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase tracking-tighter">Select</button>
+                                                    <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', '403_bypasses', document.getElementById('status-select-403_bypasses').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-tighter">Delete All</button>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50 h-full">
                                             <h5 class="text-xs font-bold text-tech-success uppercase mb-3">Successful Access</h5>
                                             <div class="space-y-3">
-                                                ${app["403_bypasses"]?.map(b => `
-                                                    <div class="p-4 bg-tech-panel/50 rounded-xl border border-tech-success/30 relative overflow-hidden">
+                                                ${app["403_bypasses"]?.map(b => {
+                                                    const fid = 'bp_' + Math.random().toString(36).substr(2, 9);
+                                                    window.currentFindingsMap.set(fid, b);
+                                                    return `
+                                                    <div class="p-4 bg-tech-panel/50 rounded-xl border border-tech-success/30 relative overflow-hidden group finding-item-403_bypasses" data-fid="${fid}">
                                                         <div class="absolute top-0 right-0 px-2 py-0.5 bg-tech-success/20 text-tech-success text-[8px] font-black uppercase">${b.type}</div>
-                                                        <div class="text-[10px] text-slate-500 mb-1 font-mono">${b.url}</div>
-                                                        <div class="text-xs font-bold text-white mb-2">Payload: <span class="font-mono text-tech-success">${b.payload}</span></div>
-                                                        <div class="text-[10px] px-2 py-1 bg-slate-900 rounded inline-block text-slate-400">Response Code: <span class="text-tech-success font-black">${b.status}</span></div>
-                                                    </div>
-                                                `).join('') || '<div class="flex flex-col items-center justify-center h-40 text-slate-600 opacity-50"><svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><p class="text-xs italic tracking-widest uppercase">No bypasses identified</p></div>'}
+                                                        <div class="flex items-start space-x-3">
+                                                            <div class="flex-grow min-w-0">
+                                                                <div class="text-[10px] text-slate-500 mb-1 font-mono">${b.url}</div>
+                                                                <div class="text-xs font-bold text-white mb-2">Payload: <span class="font-mono text-tech-success">${b.payload}</span></div>
+                                                                <div class="flex justify-between items-center">
+                                                                   <div class="text-[10px] px-2 py-1 bg-slate-900 rounded inline-block text-slate-400">Response Code: <span class="text-tech-success font-black">${b.status}</span></div>
+                                                                   <div class="flex items-center space-x-3">
+                                                                       ${b.content ? `<button onclick="openBypassContent('${fid}')" class="text-[10px] text-tech-accent hover:underline uppercase font-bold">View Response</button>` : ''}
+                                                                       <button onclick="deleteFinding('${data._id}', '${app.target}', '403_bypasses', '${fid}')" class="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                                       </button>
+                                                                   </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>`;
+                                                }).join('') || '<div class="flex flex-col items-center justify-center h-40 text-slate-600 opacity-50"><svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><p class="text-xs italic tracking-widest uppercase">No bypasses identified</p></div>'}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        `).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No web applications identified for this target.</div>'}
+                            `;
+                        }).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No web applications identified for this target.</div>'}
                     </div>
                 `;
                 break;
@@ -959,6 +1096,106 @@
             console.error(e);
             alert('Failed to blacklist domain');
         }
+    }
+
+    async function deleteFinding(domainId, target, category, findingId) {
+        try {
+            const finding = window.currentFindingsMap.get(findingId);
+            if (!finding) {
+                alert('Error: Finding data not found in local session.');
+                return;
+            }
+
+            const resp = await fetch(`/api/domains/${domainId}/webapps/delete-finding`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target: target,
+                    category: category,
+                    finding: finding
+                })
+            });
+            
+            if (resp.ok) {
+                // Refresh the modal content
+                const refreshResp = await fetch(`/search?q=${encodeURIComponent(currentDetailData.target_query || currentDetailData.domain)}`);
+                const newData = await refreshResp.json();
+                if (!newData.error) {
+                    currentDetailData = newData;
+                    renderTabContent('webapps');
+                }
+            } else {
+                const err = await resp.json();
+                alert('Error: ' + (err.detail || 'Failed to delete finding'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to delete finding');
+        }
+    }
+
+    async function bulkDeleteFindings(domainId, target, category, statusCode = null) {
+        if (!statusCode) {
+            alert('Please enter a status code to delete.');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/webapps/bulk-delete-findings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target: target,
+                    category: category,
+                    status_code: statusCode
+                })
+            });
+            
+            if (resp.ok) {
+                const refreshResp = await fetch(`/search?q=${encodeURIComponent(currentDetailData.target_query || currentDetailData.domain)}`);
+                const newData = await refreshResp.json();
+                if (!newData.error) {
+                    currentDetailData = newData;
+                    renderTabContent('webapps');
+                }
+            } else {
+                const err = await resp.json();
+                alert('Error: ' + (err.detail || 'Failed to bulk delete findings'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to bulk delete findings');
+        }
+    }
+
+    function selectByStatus(category, statusCode) {
+        if (!statusCode) return;
+        const code = parseInt(statusCode);
+        // Highlight matching findings instead of checking boxes
+        document.querySelectorAll(`.finding-item-${category}`).forEach(el => {
+            const fid = el.dataset.fid;
+            const finding = window.currentFindingsMap.get(fid);
+            if (finding && finding.status === code) {
+                el.classList.add('ring-1', 'ring-tech-accent');
+            } else {
+                el.classList.remove('ring-1', 'ring-tech-accent');
+            }
+        });
+    }
+
+    function toggleAllCategory(category, checked) {
+        document.querySelectorAll(`.bulk-select-${category}`).forEach(cb => cb.checked = checked);
+    }
+
+    function openBypassContent(findingId) {
+        const finding = window.currentFindingsMap.get(findingId);
+        if (!finding || !finding.content) return;
+        document.getElementById('bypass-raw-content').textContent = finding.content;
+        document.getElementById('bypass-content-modal').classList.remove('hidden');
+    }
+
+    function closeBypassContent() {
+        document.getElementById('bypass-content-modal').classList.add('hidden');
     }
 </script>
 {% endblock %}

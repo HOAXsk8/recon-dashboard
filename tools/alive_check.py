@@ -74,10 +74,16 @@ class AliveCheckAgent(BaseAgent):
             if alive:
                 # 3. Add to domains collection if it's a subdomain
                 if target != root_domain:
-                    await self.domains_col.update_one(
-                        {"domain": root_domain},
-                        {"$addToSet": {"infrastructure.subdomains": {"name": target, "added_at": datetime.datetime.utcnow().isoformat()}}}
-                    )
+                    # Only add if it doesn't exist to avoid duplicates with different timestamps
+                    exists = await self.domains_col.find_one({
+                        "domain": root_domain,
+                        "infrastructure.subdomains.name": target
+                    })
+                    if not exists:
+                        await self.domains_col.update_one(
+                            {"domain": root_domain},
+                            {"$addToSet": {"infrastructure.subdomains": {"name": target, "added_at": datetime.datetime.utcnow().isoformat()}}}
+                        )
                 
                 # 4. Add discovery task for recursion (ONLY if it's not a wildcard child or we really trust it)
                 # For now, let's limit recursion to 2 levels to prevent explosion
@@ -120,6 +126,7 @@ class AliveCheckAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "alive": alive, "completed_at": datetime.datetime.utcnow()}}
             )
+            await self.check_completion(root_domain)
 
         except Exception as e:
             logger.error(f"Error in verification for {target}: {e}")

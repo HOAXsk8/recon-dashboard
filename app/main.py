@@ -11,11 +11,12 @@ from typing import Optional, List
 import os
 import io
 import pandas as pd
+import asyncio
 
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -94,10 +95,22 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
         {
             "$project": {
                 "targets": {
-                    "$concatArrays": [
-                        [{"name": "$domain", "is_root": True, "added_at": "$added_at"}],
-                        {"$ifNull": ["$infrastructure.subdomains", []]}
-                    ]
+                    "$reduce": {
+                        "input": {
+                            "$concatArrays": [
+                                [{"name": "$domain", "is_root": True, "added_at": "$added_at"}],
+                                {"$ifNull": ["$infrastructure.subdomains", []]}
+                            ]
+                        },
+                        "initialValue": [],
+                        "in": {
+                            "$cond": [
+                                {"$in": ["$$this.name", {"$map": {"input": "$$value", "as": "v", "in": "$$v.name"}}]},
+                                "$$value",
+                                {"$concatArrays": ["$$value", ["$$this"]]}
+                            ]
+                        }
+                    }
                 },
                 "subdomain_count": {
                     "$cond": {
@@ -107,8 +120,8 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                     }
                 },
                 "domain": 1,
-                "systems": 1,
-                "web_applications": 1,
+                "systems": {"$ifNull": ["$systems", []]},
+                "web_applications": {"$ifNull": ["$web_applications", []]},
                 "scanned": 1,
                 "blacklisted": 1,
                 "on_hold": 1,
@@ -173,15 +186,18 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
 
     if status_val:
         if status_val == "scanned":
-            # For root, use scanned_flag. For sub, check if we have system data.
+            # Consider an asset scanned if it has system data OR is a root marked as scanned
             pipeline.append({"$match": {"$or": [
-                {"$and": [{"is_root": True}, {"scanned_flag": True}]},
-                {"$and": [{"is_root": False}, {"system": {"$ne": None}}]}
+                {"system": {"$ne": None}},
+                {"$and": [{"is_root": True}, {"scanned_flag": True}]}
             ]}})
         elif status_val == "pending":
-            pipeline.append({"$match": {"$or": [
-                {"$and": [{"is_root": True}, {"scanned_flag": False}]},
-                {"$and": [{"is_root": False}, {"system": None}]}
+            pipeline.append({"$match": {"$and": [
+                {"system": None},
+                {"$or": [
+                    {"is_root": False},
+                    {"$and": [{"is_root": True}, {"scanned_flag": False}]}
+                ]}
             ]}})
         elif status_val == "on_hold":
             match_stage["on_hold_flag"] = True
@@ -501,8 +517,13 @@ async def get_subdomains(
     pipeline.append({"$skip": (page - 1) * limit})
     pipeline.append({"$limit": limit})
 
-    cursor = domains_col.aggregate(pipeline)
-    docs = await cursor.to_list(length=limit)
+    try:
+        cursor = domains_col.aggregate(pipeline)
+        docs = await cursor.to_list(length=limit)
+        print(f"DEBUG: assets endpoint returning {len(docs)} assets for query {root_query}")
+    except Exception as e:
+        print(f"ERROR: Aggregation failed: {e}")
+        return {"subdomains": [], "total": 0, "error": str(e)}
     
     results = []
     for d in docs:
@@ -513,8 +534,8 @@ async def get_subdomains(
         tech_stack = web_app_info.get("tech_stack", [])
         
         # Determine scanned status: 
-        # For root domain, use the scanned flag. For subdomains, check if we have system info.
-        is_scanned = d.get("scanned_flag", False) if d.get("is_root") else (True if d.get("system") else False)
+        # If we have system info, it's definitely scanned. Fallback to root's scanned_flag.
+        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
         
         results.append({
             "id": str(d["_id"]),
@@ -569,7 +590,7 @@ async def export_subdomains(
         
         ip = system_info.get("ip", "N/A")
         tech_stack = web_app_info.get("tech_stack", [])
-        is_scanned = d.get("scanned_flag", False) if d.get("is_root") else (True if d.get("system") else False)
+        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
         
         data.append({
             "Domain": d["domain"],
@@ -711,6 +732,37 @@ async def delete_user(request: Request, target_username: str = Form(...), user: 
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 
+def build_leads_query(status, risk, title, target, status_code, start_date, end_date):
+    query = {}
+    if status == "all":
+        pass # Include everything
+    elif status:
+        query["status"] = status
+    else:
+        # Default: exclude false positives, muted, and benign
+        query["status"] = {"$nin": ["false_positive", "muted", "benign"]}
+        
+    if risk:
+        query["risk_level"] = risk
+    if title:
+        query["title"] = {"$regex": re.escape(title), "$options": "i"}
+    if target:
+        query["target"] = {"$regex": re.escape(target), "$options": "i"}
+    
+    if status_code:
+        query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
+    
+    if start_date or end_date:
+        query["timestamp"] = {}
+        if start_date:
+            query["timestamp"]["$gte"] = start_date
+        if end_date:
+            if len(end_date) == 10:
+                query["timestamp"]["$lte"] = f"{end_date}T23:59:59Z"
+            else:
+                query["timestamp"]["$lte"] = end_date
+    return query
+
 @app.get("/alerts", response_class=HTMLResponse)
 async def alerts_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
@@ -731,37 +783,7 @@ async def get_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
-    if status == "all":
-        pass # Include everything
-    elif status:
-        query["status"] = status
-    else:
-        # Default: exclude false positives and muted
-        query["status"] = {"$nin": ["false_positive", "muted"]}
-        
-    if risk:
-        query["risk_level"] = risk
-    if title:
-        query["title"] = {"$regex": re.escape(title), "$options": "i"}
-    if target:
-        query["target"] = {"$regex": re.escape(target), "$options": "i"}
-    
-    if status_code:
-        # Search for the status code in details (most common place it's stored)
-        # We look for "status code {status_code}" or just the code surrounded by boundaries
-        query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
-    
-    if start_date or end_date:
-        query["timestamp"] = {}
-        if start_date:
-            query["timestamp"]["$gte"] = start_date
-        if end_date:
-            # End of day for the end_date if it's just a date
-            if len(end_date) == 10:
-                query["timestamp"]["$lte"] = f"{end_date}T23:59:59Z"
-            else:
-                query["timestamp"]["$lte"] = end_date
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date)
             
     cursor = leads_col.find(query).sort("timestamp", -1)
     leads = await cursor.to_list(length=100)
@@ -823,33 +845,7 @@ async def export_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
-    if status == "all":
-        pass
-    elif status:
-        query["status"] = status
-    else:
-        query["status"] = {"$nin": ["false_positive", "muted"]}
-        
-    if risk:
-        query["risk_level"] = risk
-    if title:
-        query["title"] = {"$regex": re.escape(title), "$options": "i"}
-    if target:
-        query["target"] = {"$regex": re.escape(target), "$options": "i"}
-    
-    if status_code:
-        query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
-    
-    if start_date or end_date:
-        query["timestamp"] = {}
-        if start_date:
-            query["timestamp"]["$gte"] = start_date
-        if end_date:
-            if len(end_date) == 10:
-                query["timestamp"]["$lte"] = f"{end_date}T23:59:59Z"
-            else:
-                query["timestamp"]["$lte"] = end_date
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date)
             
     cursor = leads_col.find(query).sort("timestamp", -1)
     leads = await cursor.to_list(length=1000) # Increased limit for export
@@ -898,13 +894,23 @@ async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = D
 async def bulk_delete_leads(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
-    if not ids:
-        return {"status": "error", "message": "No IDs provided"}
     
-    await leads_col.delete_many({"_id": {"$in": ids}})
-    await log_audit(user["username"], "BULK_DELETE_LEADS", f"Deleted {len(ids)} alerts", request)
-    return {"status": "success"}
+    apply_to_all = data.get("apply_to_all", False)
+    if apply_to_all:
+        query = build_leads_query(
+            data.get("status"), data.get("risk"), data.get("title"),
+            data.get("target"), data.get("status_code"), data.get("start_date"), data.get("end_date")
+        )
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+        if not ids:
+            return {"status": "error", "message": "No IDs provided"}
+        query = {"_id": {"$in": ids}}
+    
+    count = await leads_col.count_documents(query)
+    await leads_col.delete_many(query)
+    await log_audit(user["username"], "BULK_DELETE_LEADS", f"Deleted {count} alerts", request)
+    return {"status": "success", "count": count}
 
 @app.post("/api/leads/delete-all")
 async def delete_all_leads(request: Request, user: dict = Depends(get_current_user)):
@@ -918,53 +924,63 @@ async def delete_all_leads(request: Request, user: dict = Depends(get_current_us
 async def bulk_status_leads(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     new_status = data.get("status")
-    
-    if not ids or not new_status:
-        return {"status": "error", "message": "Missing IDs or status"}
-        
-    await leads_col.update_many({"_id": {"$in": ids}}, {"$set": {"status": new_status}})
-    
+
+    if not new_status:
+        return {"status": "error", "message": "Missing status"}
+
+    apply_to_all = data.get("apply_to_all", False)
+    if apply_to_all:
+        query = build_leads_query(
+            data.get("status_filter"), data.get("risk"), data.get("title"),
+            data.get("target"), data.get("status_code"), data.get("start_date"), data.get("end_date")
+        )
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+        if not ids:
+            return {"status": "error", "message": "No IDs provided"}
+        query = {"_id": {"$in": ids}}
+
+    count = await leads_col.count_documents(query)
+    await leads_col.update_many(query, {"$set": {"status": new_status}})
+
     # If muting, also update fingerprints for future suppression
     if new_status == "muted":
         from app.database import db
         fingerprints_col = db["alert_fingerprints"]
-        
-        # Get all fingerprints for these IDs
-        cursor = leads_col.find({"_id": {"$in": ids}}, {"fingerprint": 1})
-        leads = await cursor.to_list(length=len(ids))
-        fingerprints = [l["fingerprint"] for l in leads if l.get("fingerprint")]
-        
-        if fingerprints:
-            await fingerprints_col.update_many(
-                {"fingerprint": {"$in": fingerprints}},
-                {
-                    "$set": {
-                        "status": "suppressed",
-                        "suppressed_at": datetime.utcnow().isoformat(),
-                        "suppressed_by": user["username"]
-                    }
-                },
-                upsert=False
-            )
-            
-    await log_audit(user["username"], "BULK_STATUS_LEADS", f"Updated {len(ids)} alerts to {new_status}", request)
-    return {"status": "success"}
 
+        # Get all fingerprints for matching leads
+        cursor = leads_col.find(query, {"fingerprint": 1})
+        async for lead in cursor:
+            fp = lead.get("fingerprint")
+            if fp:
+                await fingerprints_col.update_one(
+                    {"fingerprint": fp},
+                    {
+                        "$set": {
+                            "status": "suppressed",
+                            "suppressed_at": datetime.utcnow().isoformat(),
+                            "suppressed_by": user["username"]
+                        }
+                    },
+                    upsert=True
+                )
+
+    await log_audit(user["username"], "BULK_STATUS_LEADS", f"Updated {count} alerts to {new_status}", request)
+    return {"status": "success", "count": count}
 @app.get("/api/notifications/count")
 async def get_notifications_count(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    # Count leads where acknowledged is either False or missing
-    count = await leads_col.count_documents({"acknowledged": {"$ne": True}})
+    # Count leads where status is "new" and acknowledged is either False or missing
+    count = await leads_col.count_documents({"status": "new", "acknowledged": {"$ne": True}})
     return {"count": count}
 
 @app.post("/api/notifications/clear")
 async def clear_notifications(user: dict = Depends(get_current_user)):
     check_analyst(user)
-    # Mark all leads as acknowledged
-    await leads_col.update_many({"acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
+    # Mark 'new' leads as acknowledged
+    await leads_col.update_many({"status": "new", "acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
     return {"status": "success"}
 
 # --- Domain Management Routes ---
@@ -999,12 +1015,17 @@ async def get_domains(
     pipeline.append({"$skip": (page - 1) * limit})
     pipeline.append({"$limit": limit})
 
-    cursor = domains_col.aggregate(pipeline)
-    docs = await cursor.to_list(length=limit)
+    try:
+        cursor = domains_col.aggregate(pipeline)
+        docs = await cursor.to_list(length=limit)
+        print(f"DEBUG: assets endpoint returning {len(docs)} assets for query {root_query}")
+    except Exception as e:
+        print(f"ERROR: Aggregation failed: {e}")
+        return {"subdomains": [], "total": 0, "error": str(e)}
     
     results = []
     for d in docs:
-        is_scanned = d.get("scanned_flag", False) if d.get("is_root") else (True if d.get("system") else False)
+        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
         last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
         
         # Get scan_interval from root domain data if it's a flattened subdomain doc
@@ -1194,11 +1215,199 @@ async def delete_domain(domain_id: str, request: Request, user: dict = Depends(g
     await log_audit(user["username"], "DELETE_DOMAIN", f"Deleted domain: {domain_doc['domain']}", request)
     return {"status": "success"}
 
+@app.post("/api/domains/{domain_id}/webapps/delete-finding")
+async def delete_webapp_finding(
+    domain_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    data = await request.json()
+    target = data.get("target")
+    category = data.get("category")
+    finding = data.get("finding")
+    
+    if not all([target, category, finding]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+        
+    result = await domains_col.update_one(
+        {"_id": ObjectId(domain_id), "web_applications.target": target},
+        {"$pull": {f"web_applications.$.{category}": finding}}
+    )
+    
+    if result.modified_count == 0:
+        # If exact match fails, try matching by key fields if it's a known category
+        # This adds robustness against minor serialization differences
+        pull_query = {}
+        if category == "sensitive_files":
+            pull_query = {"path": finding.get("path")}
+        elif category == "js_findings":
+            pull_query = {"value": finding.get("value"), "source": finding.get("source")}
+        elif category == "403_bypasses":
+            pull_query = {"payload": finding.get("payload"), "url": finding.get("url")}
+        
+        if pull_query:
+            result = await domains_col.update_one(
+                {"_id": ObjectId(domain_id), "web_applications.target": target},
+                {"$pull": {f"web_applications.$.{category}": pull_query}}
+            )
+
+    # Log counts for debugging
+    print(f"DEBUG: Single Delete - Matched: {result.matched_count}, Modified: {result.modified_count} for {target}")
+
+    await log_audit(user["username"], "DELETE_FINDING", f"Deleted finding in {category} for {target} (Domain ID: {domain_id})", request)
+    return {"status": "success", "count": result.modified_count}
+
+@app.post("/api/domains/{domain_id}/webapps/bulk-delete-findings")
+async def bulk_delete_webapp_findings(
+    domain_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    data = await request.json()
+    target = data.get("target")
+    category = data.get("category")
+    findings = data.get("findings")
+    status_code = data.get("status_code")
+    
+    if not all([target, category]):
+        raise HTTPException(status_code=400, detail="Missing required fields (target or category)")
+    
+    pull_filter = None
+    
+    if status_code is not None:
+        try:
+            sc = int(status_code)
+            pull_filter = {"status": sc}
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid status code format")
+    elif findings:
+        # Build a pull query that matches any of the provided findings by their key fields
+        or_filters = []
+        for f in findings:
+            if category == "sensitive_files":
+                or_filters.append({"path": f.get("path")})
+            elif category == "js_findings":
+                or_filters.append({"value": f.get("value"), "source": f.get("source")})
+            elif category == "403_bypasses":
+                or_filters.append({"payload": f.get("payload"), "url": f.get("url")})
+            else:
+                or_filters.append(f)
+        
+        if or_filters:
+            pull_filter = {"$or": or_filters}
+    
+    if not pull_filter:
+        return {"status": "success", "count": 0}
+
+    result = await domains_col.update_one(
+        {"_id": ObjectId(domain_id), "web_applications.target": target},
+        {"$pull": {f"web_applications.$.{category}": pull_filter}}
+    )
+    
+    # Log counts for debugging
+    print(f"DEBUG: Bulk Delete - Matched: {result.matched_count}, Modified: {result.modified_count} for {target}")
+
+    await log_audit(user["username"], "BULK_DELETE_FINDINGS", f"Bulk deleted findings in {category} for {target} (Domain ID: {domain_id})", request)
+    return {"status": "success", "count": result.modified_count}
+
 @app.post("/api/domains/{domain_id}/notes")
 async def update_domain_notes(domain_id: str, request: Request, notes: str = Form(...), user: dict = Depends(get_current_user)):
     check_analyst(user)
     
     await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"notes": notes}})
+    return {"status": "success"}
+
+@app.post("/api/domains/{domain_id}/scan-now")
+async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    
+    root_domain = domain_doc["domain"]
+    
+    # 1. Reset scanned flag and on_hold flag
+    await domains_col.update_one(
+        {"_id": ObjectId(domain_id)},
+        {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+    )
+    
+    # 2. Clear old tasks for this domain to allow re-entry
+    await tasks_col.delete_many({
+        "root_domain": root_domain,
+        "task_type": {"$in": ["discovery", "verification", "scan", "tech_fingerprint", "directory_hunt", "js_mine", "bypass_403"]},
+        "status": {"$in": ["completed", "failed"]}
+    })
+    
+    # 3. Create a fresh discovery task for the root domain
+    # This is what triggers the whole pipeline
+    exists = await tasks_col.find_one({
+        "root_domain": root_domain,
+        "target": root_domain,
+        "task_type": "discovery"
+    })
+    if not exists:
+        await tasks_col.insert_one({
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "discovery",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        })
+    
+    await log_audit(user["username"], "SCAN_NOW", f"Triggered immediate scan for domain: {root_domain}", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/bulk-scan-now")
+async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    data = await request.json()
+    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    
+    if not ids:
+        return {"status": "error", "message": "No domains selected"}
+    
+    # Process each domain
+    for d_id in ids:
+        domain_doc = await domains_col.find_one({"_id": d_id})
+        if not domain_doc:
+            continue
+            
+        root_domain = domain_doc["domain"]
+        
+        # 1. Reset flags
+        await domains_col.update_one(
+            {"_id": d_id},
+            {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+        )
+        
+        # 2. Clear old tasks
+        await tasks_col.delete_many({
+            "root_domain": root_domain,
+            "task_type": {"$in": ["discovery", "verification", "scan", "tech_fingerprint", "directory_hunt", "js_mine", "bypass_403"]},
+            "status": {"$in": ["completed", "failed"]}
+        })
+        
+        # 3. Create fresh discovery task
+        exists = await tasks_col.find_one({
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "discovery"
+        })
+        if not exists:
+            await tasks_col.insert_one({
+                "root_domain": root_domain,
+                "target": root_domain,
+                "task_type": "discovery",
+                "status": "pending",
+                "created_at": datetime.utcnow()
+            })
+            
+    await log_audit(user["username"], "BULK_SCAN_NOW", f"Triggered immediate scan for {len(ids)} domains", request)
     return {"status": "success"}
 
 # --- Bulk Actions Endpoints ---
@@ -1268,6 +1477,73 @@ async def tools_page(request: Request, user: dict = Depends(get_current_user)):
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse(request, "tools.html", {"user": user})
 
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "logs.html", {"user": user})
+
+@app.get("/api/tasks")
+async def get_tasks(
+    task_type: Optional[str] = None,
+    status: Optional[str] = None,
+    page: int = 1,
+    limit: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {}
+    if task_type and task_type != "all":
+        query["task_type"] = task_type
+    if status and status != "all":
+        query["status"] = status
+        
+    total = await tasks_col.count_documents(query)
+    cursor = tasks_col.find(query).sort("created_at", -1).skip((page - 1) * limit).limit(limit)
+    tasks = await cursor.to_list(length=limit)
+    
+    for t in tasks:
+        t["_id"] = str(t["_id"])
+        for field in ["created_at", "started_at", "completed_at"]:
+            if t.get(field) and isinstance(t[field], datetime):
+                t[field] = t[field].isoformat()
+    
+    return {"tasks": tasks, "total": total, "page": page, "limit": limit}
+
+@app.delete("/api/tasks/clear")
+async def clear_all_tasks(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    # Only clear completed, failed or very old tasks to avoid killing active ones
+    # But user asked to "delete all logs", so we'll delete everything except 'processing'
+    # to be safe, or just everything if they really mean EVERYTHING.
+    # Let's delete EVERYTHING but log it.
+    result = await tasks_col.delete_many({})
+    await log_audit(user["username"], "CLEAR_LOGS", f"Deleted {result.deleted_count} task logs", request)
+    return {"status": "success", "deleted_count": result.deleted_count}
+
+async def cleanup_old_tasks():
+    """Background task to keep only 2 days of logs."""
+    while True:
+        try:
+            retention_limit = datetime.utcnow() - timedelta(days=2)
+            # Delete tasks older than 2 days
+            result = await tasks_col.delete_many({
+                "created_at": {"$lt": retention_limit},
+                "status": {"$ne": "processing"} # Don't delete active tasks even if old
+            })
+            if result.deleted_count > 0:
+                print(f"Cleanup: Deleted {result.deleted_count} tasks older than 2 days.")
+        except Exception as e:
+            print(f"Cleanup Error: {e}")
+        await asyncio.sleep(3600) # Run every hour
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(cleanup_old_tasks())
+
 @app.get("/api/tools")
 async def get_tools(user: dict = Depends(get_current_user)):
     if not user:
@@ -1335,11 +1611,23 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
-    # 1. Domain Status Distribution
-    total_domains = await domains_col.count_documents({})
-    scanned_count = await domains_col.count_documents({"scanned": True, "on_hold": {"$ne": True}})
+    # 1. Domain Status Distribution (Using flattened pipeline to count all assets)
+    all_assets_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}})
+    all_assets_pipeline.append({"$count": "total"})
+    all_assets_result = await domains_col.aggregate(all_assets_pipeline).to_list(length=1)
+    total_assets = all_assets_result[0]["total"] if all_assets_result else 0
+    
+    scanned_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}}, status_val="scanned")
+    scanned_pipeline.append({"$count": "total"})
+    scanned_result = await domains_col.aggregate(scanned_pipeline).to_list(length=1)
+    scanned_count = scanned_result[0]["total"] if scanned_result else 0
+    
+    pending_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}}, status_val="pending")
+    pending_pipeline.append({"$count": "total"})
+    pending_result = await domains_col.aggregate(pending_pipeline).to_list(length=1)
+    pending_count = pending_result[0]["total"] if pending_result else 0
+
     on_hold_count = await domains_col.count_documents({"on_hold": True})
-    pending_count = await domains_col.count_documents({"scanned": False, "on_hold": {"$ne": True}})
     blacklisted_count = await domains_col.count_documents({"blacklisted": True})
     
     # 2. Risk Distribution (Leads)
@@ -1351,6 +1639,7 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
     
     # 3. Top Technologies & Headers (Separated)
     all_tech_agg = await domains_col.aggregate([
+        {"$match": {"web_applications": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
         {"$unwind": "$web_applications"},
         {"$unwind": "$web_applications.tech_stack"},
         {"$group": {"_id": "$web_applications.tech_stack", "count": {"$sum": 1}}},
@@ -1398,7 +1687,7 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
     
     # 5. Geographic (MOCK/SAMPLE derived from IPs)
     geo_agg = await domains_col.aggregate([
-        {"$match": {"systems.0": {"$exists": True}}},
+        {"$match": {"systems": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
         {"$project": {"ip": {"$arrayElemAt": ["$systems.ip", 0]}}},
         {"$limit": 2000}
     ]).to_list(length=2000)
@@ -1414,14 +1703,15 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
 
     # 6. WAF/CDN Providers
     waf_agg = await domains_col.aggregate([
-        {"$match": {"waf_cdn.provider": {"$exists": True, "$ne": ""}}},
-        {"$group": {"_id": "$waf_cdn.provider", "count": {"$sum": 1}}},
+        {"$match": {"infrastructure.waf_cdn.provider": {"$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$infrastructure.waf_cdn.provider", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10}
     ]).to_list(length=10)
 
     # 7. Top Ports
     ports_agg = await domains_col.aggregate([
+        {"$match": {"systems": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
         {"$unwind": "$systems"},
         {"$unwind": "$systems.services"},
         {"$group": {"_id": "$systems.services.port", "count": {"$sum": 1}}},
@@ -1431,6 +1721,7 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
 
     # 8. Software Distribution
     software_agg = await domains_col.aggregate([
+        {"$match": {"systems": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
         {"$unwind": "$systems"},
         {"$unwind": "$systems.services"},
         {"$match": {"systems.services.software": {"$exists": True, "$ne": ""}}},
@@ -1467,7 +1758,7 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
 
     return {
         "inventory": {
-            "total": total_domains,
+            "total": total_assets,
             "scanned": scanned_count,
             "pending": pending_count,
             "on_hold": on_hold_count,

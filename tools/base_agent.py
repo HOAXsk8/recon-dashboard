@@ -20,9 +20,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class BaseAgent:
-    def __init__(self, agent_key, agent_name):
+    def __init__(self, agent_key, agent_name, type="script"):
         self.agent_key = agent_key
         self.agent_name = agent_name
+        self.type = type
         self.client = AsyncIOMotorClient(MONGO_URI)
         self.db = self.client[DB_NAME]
         self.domains_col = self.db["domains"]
@@ -107,7 +108,7 @@ class BaseAgent:
             {
                 "$set": {
                     "name": self.agent_name,
-                    "type": "script",
+                    "type": self.type,
                     "status": "Running",
                     "last_heartbeat": datetime.datetime.utcnow(),
                     "pid": os.getpid()
@@ -122,10 +123,14 @@ class BaseAgent:
                     {"key": self.agent_key},
                     {
                         "$set": {
+                            "name": self.agent_name,
+                            "type": self.type,
+                            "status": "Running",
                             "last_heartbeat": datetime.datetime.utcnow(),
                             "pid": os.getpid()
                         }
-                    }
+                    },
+                    upsert=True
                 )
 
                 scanner = await self.scanners_col.find_one({"key": self.agent_key})
@@ -158,6 +163,19 @@ class BaseAgent:
             except Exception as e:
                 logger.error(f"Heartbeat update failed: {e}")
             await asyncio.sleep(10)
+
+    async def check_completion(self, root_domain):
+        """Check if all tasks for this root domain are completed."""
+        pending = await self.tasks_col.count_documents({
+            "root_domain": root_domain,
+            "status": {"$in": ["pending", "processing"]}
+        })
+        if pending == 0:
+            await self.domains_col.update_one(
+                {"domain": root_domain},
+                {"$set": {"scanned": True, "last_scanned": datetime.datetime.utcnow().isoformat()}}
+            )
+            logger.info(f"Root domain {root_domain} fully scanned.")
 
     async def run_command(self, cmd, timeout=300):
         """Helper to run shell commands asynchronously with a timeout."""

@@ -7,16 +7,16 @@ from base_agent import BaseAgent, logger
 
 class TechFingerprinterAgent(BaseAgent):
     def __init__(self):
-        super().__init__("tech_fingerprinter", "Technology Fingerprinter")
+        super().__init__("tech_fingerprinter", "Technology Fingerprinter", type="ai_agent")
 
     async def run_httpx(self, url):
         logger.info(f"Running httpx fingerprinting on {url}")
         
-        # Use httpx with tech detection and JSON output
+        # Use pd-httpx (Go binary) with tech detection and JSON output
         # -td: tech detect, -title: get page title, -server: get server header
         # -sc: status code, -sh: show headers (we'll parse them for security headers)
         cmd = [
-            "httpx", "-u", url, "-td", "-title", "-server", "-sc", "-json", "-silent"
+            "pd-httpx", "-u", url, "-td", "-title", "-server", "-sc", "-json", "-silent"
         ]
         try:
             stdout, stderr = await self.run_command(cmd, timeout=60)
@@ -171,14 +171,32 @@ class TechFingerprinterAgent(BaseAgent):
                             old_headers = app.get("security_headers", {})
                             await self.create_header_alert(target, old_headers, security_headers, url)
 
+                            # Update security headers
                             app["tech_stack"] = tech_stack
                             app["security_headers"] = security_headers
                             app["title"] = data.get("title", "")
                             app_found = True
+                            
+                            # Queue JS Scrape for this target
+                            exists_js = await self.tasks_col.find_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "task_type": "js_scrape"
+                            })
+                            if not exists_js:
+                                await self.tasks_col.insert_one({
+                                    "root_domain": root_domain,
+                                    "target": target,
+                                    "url": url,
+                                    "task_type": "js_scrape",
+                                    "status": "pending",
+                                    "created_at": datetime.datetime.utcnow()
+                                })
+                                logger.info(f"Queued JS SCRAPE for {url}")
                             break
                     
                     if not app_found:
-                        # New application discovery - also generate an alert if tech is found
+                        # New application discovery
                         if tech_stack:
                             await self.create_tech_alert(root_domain, target, [], tech_stack, url)
                             
@@ -190,6 +208,17 @@ class TechFingerprinterAgent(BaseAgent):
                             "title": data.get("title", ""),
                             "sensitive_files": []
                         })
+                        
+                        # Queue JS Scrape for NEW target
+                        await self.tasks_col.insert_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "url": url,
+                            "task_type": "js_scrape",
+                            "status": "pending",
+                            "created_at": datetime.datetime.utcnow()
+                        })
+                        logger.info(f"Queued JS SCRAPE for NEW app: {url}")
                     
                     await self.domains_col.update_one(
                         {"domain": root_domain},
@@ -201,6 +230,7 @@ class TechFingerprinterAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
+            await self.check_completion(root_domain)
 
         except Exception as e:
             logger.error(f"Error in tech fingerprint for {target}: {e}")

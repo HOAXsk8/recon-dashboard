@@ -119,19 +119,6 @@ class PortScannerAgent(BaseAgent):
         )
         return changed_ports
 
-    async def check_completion(self, root_domain):
-        """Check if all tasks for this root domain are completed."""
-        pending = await self.tasks_col.count_documents({
-            "root_domain": root_domain,
-            "status": {"$in": ["pending", "processing"]}
-        })
-        if pending == 0:
-            await self.domains_col.update_one(
-                {"domain": root_domain},
-                {"$set": {"scanned": True, "last_scanned": datetime.datetime.utcnow().isoformat()}}
-            )
-            logger.info(f"Root domain {root_domain} fully scanned.")
-
     async def process_tasks(self):
         task = await self.tasks_col.find_one_and_update(
             {"task_type": "scan", "status": "pending"},
@@ -198,6 +185,25 @@ class PortScannerAgent(BaseAgent):
                                 "created_at": datetime.datetime.utcnow()
                             })
                             logger.info(f"Queued tech fingerprint for {target}:{svc['port']}")
+
+                        # Also trigger nuclei scanning
+                        exists_nuclei = await self.tasks_col.find_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "port": svc['port'],
+                            "task_type": "nuclei_scan"
+                        })
+                        if not exists_nuclei:
+                            await self.tasks_col.insert_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "protocol": proto,
+                                "port": svc['port'],
+                                "task_type": "nuclei_scan",
+                                "status": "pending",
+                                "created_at": datetime.datetime.utcnow()
+                            })
+                            logger.info(f"Queued NUCLEI scan for {target}:{svc['port']}")
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

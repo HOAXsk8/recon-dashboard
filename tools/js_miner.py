@@ -9,14 +9,35 @@ from base_agent import BaseAgent, logger
 
 class JavascriptMinerAgent(BaseAgent):
     def __init__(self):
-        super().__init__("js_miner", "Javascript Source Miner")
-        # Regex for secrets: matches common keywords followed by an assignment and a string
-        self.secret_regex = re.compile(
-            r'(?:user|pass|key|secret|token|api|auth|creds|aws|google|github|private|access)[^=]{0,20}=\s*[\'"]([^\'"]+)[\'"]',
-            re.IGNORECASE
-        )
-        # Regex for URLs
-        self.url_regex = re.compile(r'https?://[^\s\'"]+')
+        super().__init__("js_miner", "Javascript Source Miner", type="script")
+        # High-confidence regex for common API keys/secrets/tokens
+        self.secret_patterns = {
+            "Google API Key": re.compile(r'\bAIza[0-9A-Za-z-_]{35}\b'),
+            "AWS Access Key": re.compile(r'\bAKIA[0-9A-Z]{16}\b'),
+            "AWS Secret Key": re.compile(r'[^A-Za-z0-9/+=]([A-Za-z0-9/+=]{40})[^A-Za-z0-9/+=]'),
+            "JWT Token": re.compile(r'\beyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*\b'),
+            "Bearer Token": re.compile(r'\bBearer\s+[A-Za-z0-9-._~+/]+=*\b'),
+            "Stripe Key": re.compile(r'\bsk_(?:live|test)_[0-9a-zA-Z]{24}\b'),
+            "Firebase Key": re.compile(r'\b[a-zA-Z0-9]{40}:APA91b[a-zA-Z0-9-_]{134}\b'),
+            "Slack Token": re.compile(r'\bxox[baprs]-[0-9a-zA-Z]{10,48}\b'),
+            "GitHub Token": re.compile(r'\bgh[opsu]_[0-9a-zA-Z]{36}\b'),
+            "SSH Private Key": re.compile(r'-----BEGIN [A-Z]+ PRIVATE KEY-----'),
+            "Slack Webhook": re.compile(r'https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}'),
+            "Generic High-Entropy": re.compile(r'(?i)(?:key|secret|token|auth|password|passwd)[\s:="\' ]+([a-zA-Z0-9_-]{40,})'),
+        }
+        # Noise filter for common library/framework strings
+        self.noise_blacklist = {
+            "__vlist", "callback", "undefined", "function", "true", "false", "Object", "Array", "String",
+            "prototype", "webpack", "module", "exports", "default", "window", "document", "script",
+            "single", "values", "pushState", "onCompositionStart", "Bearer", "Unknown", "Unknown WAF",
+            "callback for watcher", "sub_component_", "KeyObject"
+        }
+        # Robust regex for absolute URLs
+        self.abs_url_regex = re.compile(r'https?://[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)')
+        # Robust regex for relative paths (looking for paths starting with /, ./, or ../)
+        self.rel_path_regex = re.compile(r'(?:"|\')((?:/|\.\./|\./)[a-zA-Z0-9_\-\./]+(?:\?[^\s"\'<>]+)?)(?:"|\')')
+        
+        self.garbage_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.woff', '.ttf', '.ico', '.pdf', '.zip', '.gz', '.tar']
 
     async def fetch_js_content(self, url):
         """Fetch JS content using httpx."""
@@ -29,38 +50,168 @@ class JavascriptMinerAgent(BaseAgent):
             logger.error(f"Error fetching JS content from {url}: {e}")
         return None
 
-    def mine_content(self, content):
+    def mine_content(self, content, source_url):
         """Extract secrets and URLs from content."""
-        secrets = self.secret_regex.findall(content)
-        urls = self.url_regex.findall(content)
+        findings_secrets = []
+        findings_urls = []
         
-        # Deduplicate and clean
-        unique_secrets = list(set([s.strip() for s in secrets if len(s.strip()) > 5]))
-        unique_urls = list(set([u.strip() for u in urls]))
+        # Extract Secrets
+        for type_name, pattern in self.secret_patterns.items():
+            matches = pattern.findall(content)
+            for m in set(matches):
+                if isinstance(m, tuple): m = m[0]
+                
+                # Apply noise filter
+                if m in self.noise_blacklist or len(m) < 8:
+                    continue
+                
+                # Check for common non-secret artifacts
+                if any(noise in m for noise in ["{", "}", "[", "]", "(", ")", ";"]):
+                    continue
+
+                findings_secrets.append({"type": type_name, "value": m})
         
-        return unique_secrets, unique_urls
+        # Extract URLs
+        all_found_urls = set(self.abs_url_regex.findall(content))
+        for rel_match in self.rel_path_regex.finditer(content):
+            all_found_urls.add(rel_match.group(1))
+            
+        for u in all_found_urls:
+            # Resolve relative URLs
+            if not u.startswith(('http://', 'https://', '//')):
+                import urllib.parse
+                full_url = urllib.parse.urljoin(source_url, u)
+            else:
+                full_url = u if not u.startswith('//') else f"https:{u}"
+            
+            # Skip garbage
+            if any(full_url.lower().endswith(ext) or f"{ext}?" in full_url.lower() for ext in self.garbage_extensions):
+                continue
+            
+            findings_urls.append(full_url)
+            
+        return list({s["value"]: s for s in findings_secrets}.values()), list(set(findings_urls))
 
     async def create_js_alert(self, root_domain, target, finding_type, finding_value, source_url):
         """Create a lead/alert for a JS finding using the centralized alerting system."""
-        # Suppress alerts for JS discoveries as part of directory/file discovery suppression.
-        # Findings are still stored in the database under web_applications.js_findings.
-        return
-
         if finding_type == "url":
             title = f"JS Discovery: Hidden URL"
             risk = "low"
-            description = f"Discovered hidden URL: {finding_value}"
+            # Truncate long URLs in description
+            desc_val = finding_value if len(finding_value) < 100 else finding_value[:97] + "..."
+            description = f"Discovered hidden URL: {desc_val}"
         else:
             title = f"JS Discovery: Potential Secret"
             risk = "high"
-            description = f"Discovered potential secret/key: {finding_value[:10]}..."
+            description = f"Discovered potential secret/key: {finding_value[:15]}..."
 
         details = f"A finding was discovered in a Javascript file at {source_url}.\n\nType: {finding_type}\nValue: {finding_value}"
         exploitation = f"### JS Mining Analysis\n\n1. **Verify Finding**: Check the source file at {source_url} to confirm the context of the finding.\n2. **Impact Assessment**: Determine if the secret is valid or if the hidden URL points to internal/unprotected endpoints.\n3. **Remediation**: Remove hardcoded secrets and ensure hidden URLs are properly protected."
 
         await self.create_alert(title, description, target, risk, details, exploitation)
 
+    async def scrape_js_links(self, html_content, base_url):
+        """Extract JS links from HTML content."""
+        # Match <script src="...">
+        src_regex = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
+        links = src_regex.findall(html_content)
+        
+        js_links = []
+        for link in links:
+            # Handle relative vs absolute URLs
+            if link.startswith("http://") or link.startswith("https://"):
+                js_links.append(link)
+            elif link.startswith("//"):
+                js_links.append(f"https:{link}")
+            elif link.startswith("/"):
+                js_links.append(f"{base_url.rstrip('/')}/{link.lstrip('/')}")
+            else:
+                js_links.append(f"{base_url.rstrip('/')}/{link}")
+        
+        return list(set(js_links))
+
+    async def validate_url(self, client, url):
+        """Check if a URL is alive (not 404)."""
+        try:
+            # We use GET with a short timeout. 
+            # We consider it "valid" if it doesn't return a 404.
+            # (e.g., 200, 403, 500 are all potentially interesting endpoints)
+            resp = await client.get(url, timeout=5.0, follow_redirects=True)
+            return resp.status_code != 404
+        except Exception:
+            # If it's a connection error or timeout, we might still want it if it was in JS?
+            # But the user specifically asked to check if it exists. 
+            # Let's assume connection errors = invalid for now to keep the dashboard clean.
+            return False
+
     async def process_tasks(self):
+        # 1. Handle JS Scraping (finding links in HTML)
+        scrape_task = await self.tasks_col.find_one_and_update(
+            {"task_type": "js_scrape", "status": "pending"},
+            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
+            sort=[("created_at", 1)]
+        )
+
+        if scrape_task:
+            target = scrape_task["target"]
+            root_domain = scrape_task["root_domain"]
+            url = scrape_task["url"]
+            
+            try:
+                async with httpx.AsyncClient(verify=False, timeout=30.0, follow_redirects=True) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        js_links = await self.scrape_js_links(resp.text, url)
+                        for link in js_links:
+                            # Create js_mine task for each found JS file
+                            # Extract path and base_url from the link
+                            if "://" in link:
+                                parts = link.split("://", 1)
+                                proto = parts[0]
+                                rest = parts[1].split("/", 1)
+                                link_host = rest[0]
+                                link_path = rest[1] if len(rest) > 1 else ""
+                                link_base = f"{proto}://{link_host}"
+                            else:
+                                # Fallback (shouldn't happen with scrape_js_links logic)
+                                link_base = url
+                                link_path = link
+
+                            # Only process if it's on the same domain or a subdomain
+                            # (Avoid scraping external JS like Google Analytics etc. unless specifically wanted)
+                            if root_domain in link:
+                                exists = await self.tasks_col.find_one({
+                                    "root_domain": root_domain,
+                                    "target": target,
+                                    "path": link_path,
+                                    "task_type": "js_mine"
+                                })
+                                if not exists:
+                                    await self.tasks_col.insert_one({
+                                        "root_domain": root_domain,
+                                        "target": target,
+                                        "path": link_path,
+                                        "base_url": link_base,
+                                        "task_type": "js_mine",
+                                        "status": "pending",
+                                        "created_at": datetime.datetime.utcnow()
+                                    })
+                                    logger.info(f"Queued JS MINE for {link}")
+
+                await self.tasks_col.update_one(
+                    {"_id": scrape_task["_id"]},
+                    {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
+                )
+                await self.check_completion(root_domain)
+            except Exception as e:
+                logger.error(f"Error scraping JS links from {url}: {e}")
+                await self.tasks_col.update_one(
+                    {"_id": scrape_task["_id"]},
+                    {"$set": {"status": "failed", "error": str(e)}}
+                )
+            return # Process one task per loop
+
+        # 2. Handle JS Mining (analyzing file content) - Original logic
         task = await self.tasks_col.find_one_and_update(
             {"task_type": "js_mine", "status": "pending"},
             {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
@@ -80,11 +231,27 @@ class JavascriptMinerAgent(BaseAgent):
         try:
             content = await self.fetch_js_content(full_url)
             if content:
-                secrets, urls = self.mine_content(content)
+                secrets, raw_urls = self.mine_content(content, full_url)
+                
+                # Validate URLs found in JS
+                urls = []
+                async with httpx.AsyncClient(verify=False, timeout=10.0, follow_redirects=True) as client:
+                    # To avoid overwhelming, we could use a semaphore, but for small sets gather is fine.
+                    # Limit concurrency to 5
+                    sem = asyncio.Semaphore(5)
+                    async def sem_validate(u):
+                        async with sem:
+                            return await self.validate_url(client, u)
+                    
+                    validation_tasks = [sem_validate(u) for u in raw_urls]
+                    results = await asyncio.gather(*validation_tasks)
+                    for u, is_valid in zip(raw_urls, results):
+                        if is_valid:
+                            urls.append(u)
                 
                 # Create alerts
                 for s in secrets:
-                    await self.create_js_alert(root_domain, target, "secret", s, full_url)
+                    await self.create_js_alert(root_domain, target, "secret", s["value"], full_url)
                 for u in urls:
                     await self.create_js_alert(root_domain, target, "url", u, full_url)
                 
@@ -100,11 +267,22 @@ class JavascriptMinerAgent(BaseAgent):
                             # Deduplicate and add
                             existing_findings = {f["value"]: f["type"] for f in js_findings}
                             for s in secrets:
-                                if s not in existing_findings:
-                                    js_findings.append({"type": "secret", "value": s, "source": full_url})
+                                if s["value"] not in existing_findings:
+                                    js_findings.append({
+                                        "type": "secret", 
+                                        "value": s["value"], 
+                                        "secret_type": s["type"], 
+                                        "source": full_url,
+                                        "discovered_at": datetime.datetime.utcnow().isoformat()
+                                    })
                             for u in urls:
                                 if u not in existing_findings:
-                                    js_findings.append({"type": "url", "value": u, "source": full_url})
+                                    js_findings.append({
+                                        "type": "url", 
+                                        "value": u, 
+                                        "source": full_url,
+                                        "discovered_at": datetime.datetime.utcnow().isoformat()
+                                    })
                             
                             app["js_findings"] = js_findings
                             break
@@ -113,12 +291,13 @@ class JavascriptMinerAgent(BaseAgent):
                         {"domain": root_domain},
                         {"$set": {"web_applications": web_apps}}
                     )
-                    logger.info(f"Mined JS {full_url}: {len(secrets)} secrets, {len(urls)} URLs.")
+                    logger.info(f"Mined JS {full_url}: {len(secrets)} secrets, {len(urls)} validated URLs (from {len(raw_urls)} raw).")
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
+            await self.check_completion(root_domain)
 
         except Exception as e:
             logger.error(f"Error in JS mining for {full_url}: {e}")

@@ -172,6 +172,23 @@ services:
       - db
       - dashboard
 
+  nuclei-scanner:
+    build: .
+    container_name: nuclei-scanner
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/nuclei_scanner.py"]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
 volumes:
   mongo_data:
   caddy_data:

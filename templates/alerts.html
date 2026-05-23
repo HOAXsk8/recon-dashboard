@@ -31,6 +31,7 @@
             <option value="in_progress">In Progress</option>
             <option value="true_positive">True Positive</option>
             <option value="false_positive">False Positive</option>
+            <option value="benign">Benign</option>
             <option value="muted">Muted / Suppressed</option>
             <option value="all">All Statuses</option>
         </select>
@@ -54,6 +55,7 @@
                 <option value="in_progress">In Progress</option>
                 <option value="true_positive">True Positive</option>
                 <option value="false_positive">False Positive</option>
+                <option value="benign">Benign</option>
                 <option value="muted">Muted / Suppressed</option>
             </select>
             <button onclick="bulkUpdateStatus()" class="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all" title="Apply Status">
@@ -66,6 +68,11 @@
     </div>
 
     <div class="bg-tech-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+        <div id="global-selection-bar" class="hidden bg-tech-accent/10 border-b border-slate-800 px-8 py-3 text-sm text-center">
+            <span id="selection-message" class="text-slate-300"></span>
+            <button id="select-all-matching-btn" onclick="activateGlobalSelection()" class="ml-2 text-tech-accent font-black hover:underline uppercase text-xs tracking-widest">Select all matching alerts</button>
+            <button id="clear-selection-btn" onclick="clearGlobalSelection()" class="hidden ml-2 text-slate-500 font-bold hover:text-white uppercase text-xs tracking-widest">Clear selection</button>
+        </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left">
                 <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
@@ -91,7 +98,7 @@
 
 <div id="lead-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-tech-bg/95 backdrop-blur-md">
     <div class="min-h-screen p-4 md:p-10 flex items-center justify-center">
-        <div class="max-w-4xl w-full bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl overflow-hidden">
+        <div class="max-w-6xl w-full bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl overflow-hidden">
             <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center">
                 <div class="flex items-center space-x-4">
                     <div id="modal-risk-indicator" class="w-4 h-4 rounded-full"></div>
@@ -121,6 +128,7 @@
                                     <option value="in_progress">In Progress</option>
                                     <option value="true_positive">True Positive</option>
                                     <option value="false_positive">False Positive</option>
+                                    <option value="benign">Benign</option>
                                     <option value="muted">Muted / Suppressed</option>
                                 </select>
                                 <button onclick="muteFinding(activeLeadId)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-all flex items-center space-x-2" title="Suppress future alerts for this finding">
@@ -130,9 +138,9 @@
                             </div>
                         </div>
                     </div>
-                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50">
+                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50 overflow-hidden">
                         <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Technical Details</h4>
-                        <p id="modal-details" class="text-sm text-slate-400 leading-relaxed"></p>
+                        <div id="modal-details" class="text-sm text-slate-400 leading-relaxed break-words prose prose-invert prose-sm max-w-none"></div>
                     </div>
                 </div>
 
@@ -171,6 +179,8 @@
     let currentLeads = [];
     let activeLeadId = null;
     let leadsSearchTimeout;
+    let filteredCount = 0;
+    let isGlobalSelectionActive = false;
 
     function debounceLeadsSearch() {
         clearTimeout(leadsSearchTimeout);
@@ -201,8 +211,10 @@
 
     async function fetchLeads() {
         const tbody = document.getElementById('leads-table-body');
-        tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
+        clearGlobalSelection();
+
         let status = document.getElementById('filter-status').value;
         if (status === 'all') status = ''; 
         
@@ -227,13 +239,14 @@
             const data = await resp.json();
             const leads = data.leads || [];
             currentLeads = leads;
+            filteredCount = data.filtered_count || 0;
             
             document.getElementById('total-count').textContent = data.total_count || 0;
-            document.getElementById('filtered-count').textContent = data.filtered_count || 0;
+            document.getElementById('filtered-count').textContent = filteredCount;
             
             tbody.innerHTML = '';
             if (leads.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="py-20 text-center text-slate-500 italic">No hunting leads identified yet.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center text-slate-500 italic">No hunting leads identified yet.</td></tr>';
                 return;
             }
 
@@ -250,6 +263,7 @@
                 else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
                 else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
                 else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
+                else if (lead.status === 'benign') statusBadge = 'bg-slate-500/10 text-slate-400';
                 else if (lead.status === 'muted') statusBadge = 'bg-slate-700 text-slate-400';
                 
                 row.innerHTML = `
@@ -303,12 +317,37 @@
 
     function updateBulkUI() {
         const selected = document.querySelectorAll('.lead-checkbox:checked').length;
+        const totalOnPage = document.querySelectorAll('.lead-checkbox').length;
         const bulkBar = document.getElementById('bulk-actions');
+        const selectionBar = document.getElementById('global-selection-bar');
+
         if (selected > 0) {
             bulkBar.classList.remove('hidden');
+            if (selected === totalOnPage && filteredCount > totalOnPage && !isGlobalSelectionActive) {
+                selectionBar.classList.remove('hidden');
+                document.getElementById('selection-message').textContent = `All ${selected} alerts on this page are selected.`;
+                document.getElementById('select-all-matching-btn').classList.remove('hidden');
+                document.getElementById('clear-selection-btn').classList.add('hidden');
+            } else if (!isGlobalSelectionActive) {
+                selectionBar.classList.add('hidden');
+            }
         } else {
             bulkBar.classList.add('hidden');
+            clearGlobalSelection();
         }
+    }
+
+    function activateGlobalSelection() {
+        isGlobalSelectionActive = true;
+        document.getElementById('selection-message').textContent = `All ${filteredCount} alerts matching this filter are selected.`;
+        document.getElementById('select-all-matching-btn').classList.add('hidden');
+        document.getElementById('clear-selection-btn').classList.remove('hidden');
+    }
+
+    function clearGlobalSelection() {
+        isGlobalSelectionActive = false;
+        document.getElementById('global-selection-bar').classList.add('hidden');
+        document.getElementById('clear-selection-btn').classList.add('hidden');
     }
 
     async function bulkUpdateStatus() {
@@ -318,14 +357,35 @@
             return;
         }
 
-        const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
-        if (!confirm(`Are you sure you want to update ${ids.length} alerts to ${newStatus}?`)) return;
+        let body = {};
+        let confirmMsg = "";
+
+        if (isGlobalSelectionActive) {
+            confirmMsg = `Are you sure you want to update ALL ${filteredCount} matching alerts to ${newStatus}?`;
+            body = {
+                apply_to_all: true,
+                status: newStatus,
+                status_filter: document.getElementById('filter-status').value,
+                risk: document.getElementById('filter-risk').value,
+                title: document.getElementById('filter-title').value,
+                target: document.getElementById('filter-target').value,
+                status_code: document.getElementById('filter-status-code').value,
+                start_date: document.getElementById('filter-start-date').value,
+                end_date: document.getElementById('filter-end-date').value
+            };
+        } else {
+            const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
+            confirmMsg = `Are you sure you want to update ${ids.length} alerts to ${newStatus}?`;
+            body = { ids: ids, status: newStatus };
+        }
+
+        if (!confirm(confirmMsg)) return;
 
         try {
             const resp = await fetch("/api/leads/bulk-status", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: ids, status: newStatus })
+                body: JSON.stringify(body)
             });
             if (resp.ok) {
                 document.getElementById('select-all').checked = false;
@@ -335,14 +395,34 @@
     }
 
     async function bulkDelete() {
-        const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
-        if (!confirm(`Are you sure you want to PERMANENTLY DELETE ${ids.length} alerts?`)) return;
+        let body = {};
+        let confirmMsg = "";
+
+        if (isGlobalSelectionActive) {
+            confirmMsg = `Are you sure you want to PERMANENTLY DELETE ALL ${filteredCount} matching alerts?`;
+            body = {
+                apply_to_all: true,
+                status: document.getElementById('filter-status').value,
+                risk: document.getElementById('filter-risk').value,
+                title: document.getElementById('filter-title').value,
+                target: document.getElementById('filter-target').value,
+                status_code: document.getElementById('filter-status-code').value,
+                start_date: document.getElementById('filter-start-date').value,
+                end_date: document.getElementById('filter-end-date').value
+            };
+        } else {
+            const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
+            confirmMsg = `Are you sure you want to PERMANENTLY DELETE ${ids.length} alerts?`;
+            body = { ids: ids };
+        }
+
+        if (!confirm(confirmMsg)) return;
 
         try {
             const resp = await fetch("/api/leads/bulk-delete", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: ids })
+                body: JSON.stringify(body)
             });
             if (resp.ok) {
                 document.getElementById('select-all').checked = false;
@@ -380,8 +460,6 @@
         document.getElementById('modal-lead-title').textContent = lead.title;
         document.getElementById('modal-target').textContent = lead.target;
         document.getElementById('modal-time').textContent = new Date(lead.timestamp).toLocaleString();
-        document.getElementById('modal-details').textContent = lead.details;
-        
         // Configure marked to open links in new tab
         const renderer = {
             link(token) {
@@ -395,6 +473,8 @@
             }
         };
         marked.use({ renderer });
+
+        document.getElementById('modal-details').innerHTML = marked.parse(lead.details);
         document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
         
         document.getElementById('modal-status-select').value = lead.status;
@@ -486,7 +566,18 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', fetchLeads);
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const target = urlParams.get('target');
+        const status = urlParams.get('status');
+        const risk = urlParams.get('risk');
+        
+        if (target) document.getElementById('filter-target').value = target;
+        if (status) document.getElementById('filter-status').value = status;
+        if (risk) document.getElementById('filter-risk').value = risk;
+        
+        fetchLeads();
+    });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLeadModal(); });
 </script>
 

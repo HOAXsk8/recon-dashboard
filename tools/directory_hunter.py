@@ -47,7 +47,12 @@ class DirectoryHunterAgent(BaseAgent):
                             full_url = r['url']
                             rel_path = full_url.replace(base_url, "").lstrip("/")
                             
-                            results.append({"path": rel_path, "status": r['status']})
+                            results.append({
+                                "path": rel_path, 
+                                "status": r['status'],
+                                "length": r.get('length', 0),
+                                "words": r.get('words', 0)
+                            })
                             
                             # If it looks like a directory, add to our list for Phase 2
                             # ffuf recursion already determines what is a directory
@@ -84,7 +89,12 @@ class DirectoryHunterAgent(BaseAgent):
                             for r in res_list:
                                 f_url = r['url']
                                 f_rel_path = f_url.replace(base_url, "").lstrip("/")
-                                results.append({"path": f_rel_path, "status": r['status']})
+                                results.append({
+                                    "path": f_rel_path, 
+                                    "status": r['status'],
+                                    "length": r.get('length', 0),
+                                    "words": r.get('words', 0)
+                                })
                         except: continue
             except Exception as e:
                 logger.error(f"File hunt error for {target_url}: {e}")
@@ -92,15 +102,17 @@ class DirectoryHunterAgent(BaseAgent):
         # Deduplicate results by path
         unique_results = {}
         for r in results:
-            unique_results[r['path']] = r['status']
+            unique_results[r['path']] = {
+                "status": r['status'],
+                "length": r.get('length', 0),
+                "words": r.get('words', 0)
+            }
             
-        return [{"path": k, "status": v} for k, v in unique_results.items()], discovered_dirs
+        return [{"path": k, **v} for k, v in unique_results.items()], discovered_dirs
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
-        # Suppress alerts for directory and file discoveries as requested.
-        # Findings are still stored in the database under web_applications.sensitive_files.
-        return
+        # Alerts are now filtered by fingerprint in process_tasks.
         
         full_discovery_url = f"{url}/{item['path']}".replace("//", "/").replace(":/", "://")
         
@@ -142,6 +154,18 @@ class DirectoryHunterAgent(BaseAgent):
         try:
             found_items, _ = await self.run_ffuf_recursive(url)
             
+            # Identify catch-all patterns (False Positives)
+            # We group by (status, length, words) fingerprint
+            fingerprints = {}
+            for item in found_items:
+                fp = (item['status'], item.get('length', 0), item.get('words', 0))
+                fingerprints[fp] = fingerprints.get(fp, 0) + 1
+            
+            # Threshold: if more than 5 identical responses (size/words), it's likely a catch-all
+            catch_all_fps = {fp for fp, count in fingerprints.items() if count > 5}
+            if catch_all_fps:
+                logger.info(f"Identified {len(catch_all_fps)} catch-all patterns for {target}. Suppressing {sum(count for fp, count in fingerprints.items() if fp in catch_all_fps)} alerts.")
+
             # Update web_applications in the domains collection
             domain_doc = await self.domains_col.find_one({"domain": root_domain})
             if domain_doc:
@@ -154,8 +178,14 @@ class DirectoryHunterAgent(BaseAgent):
                         
                         for item in found_items:
                             if item["path"] not in existing_files:
-                                # This is a new discovery! Create an alert.
-                                await self.create_alert_for_item(root_domain, target, item, url)
+                                # Check if this item is part of a catch-all pattern
+                                item_fp = (item['status'], item.get('length', 0), item.get('words', 0))
+                                if item_fp not in catch_all_fps:
+                                    # This is a new discovery and NOT a catch-all! Create an alert.
+                                    await self.create_alert_for_item(root_domain, target, item, url)
+                                else:
+                                    logger.debug(f"Suppressing alert for catch-all path: {item['path']}")
+                                
                                 existing_files[item["path"]] = item["status"]
                                 
                                 # Trigger JS mining for .js files
@@ -205,7 +235,9 @@ class DirectoryHunterAgent(BaseAgent):
                 if not app_found:
                     # Create new app entry
                     for item in found_items:
-                        await self.create_alert_for_item(root_domain, target, item, url)
+                        item_fp = (item['status'], item.get('length', 0), item.get('words', 0))
+                        if item_fp not in catch_all_fps:
+                            await self.create_alert_for_item(root_domain, target, item, url)
                         
                         # Trigger JS mining for .js files
                         if item["path"].lower().endswith(".js"):
@@ -265,6 +297,9 @@ class DirectoryHunterAgent(BaseAgent):
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
             logger.info(f"Completed directory hunt for {url}. Found {len(found_items)} items.")
+
+            # Check if this was the last task for the root domain
+            await self.check_completion(root_domain)
 
         except Exception as e:
             logger.error(f"Error in directory hunt for {target}: {e}")
