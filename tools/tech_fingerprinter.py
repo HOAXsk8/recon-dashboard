@@ -147,7 +147,9 @@ class TechFingerprinterAgent(BaseAgent):
                             tech_changed = set(old_tech) != set(tech_stack)
                             
                             if tech_changed:
-                                await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
+                                # Only alert if we had a previous tech stack (not the first scan)
+                                if old_tech:
+                                    await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
                                 
                                 # Force a re-run of directory hunt because the web app changed
                                 await self.tasks_col.delete_many({
@@ -196,10 +198,7 @@ class TechFingerprinterAgent(BaseAgent):
                             break
                     
                     if not app_found:
-                        # New application discovery
-                        if tech_stack:
-                            await self.create_tech_alert(root_domain, target, [], tech_stack, url)
-                            
+                        # New application discovery - no alert on first scan
                         web_apps.append({
                             "target": target,
                             "url": url,
