@@ -4,7 +4,9 @@ import datetime
 import urllib.parse
 from motor.motor_asyncio import AsyncIOMotorClient
 
-MONGO_ROOT_PASSWORD = os.getenv("MONGO_ROOT_PASSWORD", "5I2ZKu83YQL7+fGu")
+MONGO_ROOT_PASSWORD = os.getenv("MONGO_ROOT_PASSWORD")
+if not MONGO_ROOT_PASSWORD:
+    raise ValueError("MONGO_ROOT_PASSWORD environment variable is not set")
 PASSWORD = urllib.parse.quote_plus(MONGO_ROOT_PASSWORD)
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_URI = f"mongodb://admin:{PASSWORD}@{MONGO_HOST}:27017/?authSource=admin"

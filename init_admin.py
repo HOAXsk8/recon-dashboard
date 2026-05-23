@@ -15,7 +15,10 @@ def init_admin():
     # 1. Initialize Admin User
     username = "admin"
     if not users_col.find_one({"username": username}):
-        password = "ChangeMe123!" # User should change this
+        password = os.getenv("ADMIN_INITIAL_PASSWORD", "ChangeMe123!")
+        if password == "ChangeMe123!":
+            print("WARNING: ADMIN_INITIAL_PASSWORD not set. Using default: ChangeMe123!")
+        
         hashed_password = get_password_hash(password)
         totp_secret = generate_totp_secret()
         
