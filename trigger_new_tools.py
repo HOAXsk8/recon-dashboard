@@ -20,10 +20,7 @@ async def force_trigger():
 
     print("--- Triggering New Scans for New Tools ---")
     
-    # 1. Reset scanned flag for all domains to trigger discovery if needed
-    # await domains_col.update_many({}, {"$set": {"scanned": False}})
-    
-    # 2. Find all systems with web ports and create tasks directly
+    # 1. Find all systems with web ports and create tasks directly
     cursor = domains_col.find({})
     async for domain in cursor:
         root_domain = domain["domain"]
