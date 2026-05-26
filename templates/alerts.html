@@ -25,16 +25,17 @@
 
     <!-- Advanced Filters -->
     <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-        <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-            <option value="">Active Alerts</option>
-            <option value="new">New</option>
-            <option value="in_progress">In Progress</option>
-            <option value="true_positive">True Positive</option>
-            <option value="false_positive">False Positive</option>
-            <option value="benign">Benign</option>
-            <option value="muted">Muted / Suppressed</option>
-            <option value="all">All Statuses</option>
-        </select>
+            <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                <option value="">Active Alerts</option>
+                <option value="new">New</option>
+                <option value="in_progress">In Progress</option>
+                <option value="investigating">Send to investigate</option>
+                <option value="true_positive">True Positive</option>
+                <option value="false_positive">False Positive</option>
+                <option value="benign">Benign</option>
+                <option value="muted">Muted / Suppressed</option>
+                <option value="all">All Statuses</option>
+            </select>
         <select id="filter-risk" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
             <option value="">All Risks</option>
             <option value="high">High</option>
@@ -53,6 +54,7 @@
                 <option value="">Set Status...</option>
                 <option value="new">New</option>
                 <option value="in_progress">In Progress</option>
+                <option value="investigating">Send to investigate</option>
                 <option value="true_positive">True Positive</option>
                 <option value="false_positive">False Positive</option>
                 <option value="benign">Benign</option>
@@ -126,6 +128,7 @@
                                 <select id="modal-status-select" onchange="updateLeadStatus()" class="block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
                                     <option value="new">New</option>
                                     <option value="in_progress">In Progress</option>
+                                    <option value="investigating">Send to investigate</option>
                                     <option value="true_positive">True Positive</option>
                                     <option value="false_positive">False Positive</option>
                                     <option value="benign">Benign</option>

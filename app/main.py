@@ -739,10 +739,11 @@ def build_leads_query(status, risk, title, target, status_code, start_date, end_
     elif status:
         query["status"] = status
     else:
-        # Default: exclude false positives, muted, and benign
-        query["status"] = {"$nin": ["false_positive", "muted", "benign"]}
-        
+        # Default: exclude false positives, muted, benign, and investigating
+        query["status"] = {"$nin": ["false_positive", "muted", "benign", "investigating"]}
+
     if risk:
+
         query["risk_level"] = risk
     if title:
         query["title"] = {"$regex": re.escape(title), "$options": "i"}
@@ -768,6 +769,12 @@ async def alerts_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse(request, "alerts.html", {"user": user})
+
+@app.get("/investigate", response_class=HTMLResponse)
+async def investigate_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "investigate.html", {"user": user})
 
 @app.get("/api/leads")
 async def get_leads(
