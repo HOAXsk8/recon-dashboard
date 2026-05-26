@@ -45,6 +45,15 @@
         <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <input type="text" id="filter-status-code" oninput="debounceLeadsSearch()" placeholder="Status Code..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+        <select id="filter-quick-time" onchange="applyQuickTime()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+            <option value="">All Time</option>
+            <option value="1h">Last Hour</option>
+            <option value="4h">Last 4 Hours</option>
+            <option value="12h">Last 12 Hours</option>
+            <option value="24h">Last 24 Hours</option>
+            <option value="1w">Last Week</option>
+            <option value="1m">Last Month</option>
+        </select>
         <div class="flex space-x-2">
             <input type="date" id="filter-start-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="Start Date">
             <input type="date" id="filter-end-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="End Date">
@@ -212,7 +221,39 @@
         window.location.href = `/api/leads/export?${params.toString()}`;
     }
 
-    async function fetchLeads() {
+    function applyQuickTime() {
+        const val = document.getElementById('filter-quick-time').value;
+        const startInput = document.getElementById('filter-start-date');
+        const endInput = document.getElementById('filter-end-date');
+        
+        if (!val) {
+            startInput.value = '';
+            endInput.value = '';
+            fetchLeads();
+            return;
+        }
+
+        const now = new Date();
+        let startTime;
+
+        switch(val) {
+            case '1h': startTime = new Date(now.getTime() - 60 * 60 * 1000); break;
+            case '4h': startTime = new Date(now.getTime() - 4 * 60 * 60 * 1000); break;
+            case '12h': startTime = new Date(now.getTime() - 12 * 60 * 60 * 1000); break;
+            case '24h': startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000); break;
+            case '1w': startTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
+            case '1m': startTime = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()); break;
+        }
+
+        // For the date inputs, we need YYYY-MM-DD
+        startInput.value = startTime.toISOString().slice(0, 10);
+        endInput.value = now.toISOString().slice(0, 10);
+        
+        // We'll pass the full ISO string to the fetchLeads if it's a quick filter for precision
+        fetchLeads(startTime.toISOString());
+    }
+
+    async function fetchLeads(preciseStart = null) {
         const tbody = document.getElementById('leads-table-body');
         tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
@@ -225,7 +266,7 @@
         const title = document.getElementById('filter-title').value;
         const target = document.getElementById('filter-target').value;
         const statusCode = document.getElementById('filter-status-code').value;
-        const startDate = document.getElementById('filter-start-date').value;
+        let startDate = preciseStart || document.getElementById('filter-start-date').value;
         const endDate = document.getElementById('filter-end-date').value;
 
         try {
