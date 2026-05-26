@@ -42,6 +42,10 @@
             <option value="medium">Medium</option>
             <option value="low">Low</option>
         </select>
+        <select id="filter-tool" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+            <option value="">All Tools</option>
+            <!-- Dynamically Populated -->
+        </select>
         <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
         <input type="text" id="filter-status-code" oninput="debounceLeadsSearch()" placeholder="Status Code..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
@@ -202,6 +206,7 @@
     function exportLeads() {
         const status = document.getElementById('filter-status').value;
         const risk = document.getElementById('filter-risk').value;
+        const tool = document.getElementById('filter-tool').value;
         const title = document.getElementById('filter-title').value;
         const target = document.getElementById('filter-target').value;
         const statusCode = document.getElementById('filter-status-code').value;
@@ -211,6 +216,7 @@
         const params = new URLSearchParams({
             status: status,
             risk: risk,
+            source: tool,
             title: title,
             target: target,
             status_code: statusCode,
@@ -263,6 +269,7 @@
         if (status === 'all') status = ''; 
         
         const risk = document.getElementById('filter-risk').value;
+        const tool = document.getElementById('filter-tool').value;
         const title = document.getElementById('filter-title').value;
         const target = document.getElementById('filter-target').value;
         const statusCode = document.getElementById('filter-status-code').value;
@@ -273,6 +280,7 @@
             const params = new URLSearchParams({
                 status: status === 'all' ? 'all' : status,
                 risk: risk,
+                source: tool,
                 title: title,
                 target: target,
                 status_code: statusCode,
@@ -610,6 +618,24 @@
         }
     }
 
+    async function fetchTools() {
+        try {
+            const resp = await fetch('/api/leads/sources');
+            if (resp.ok) {
+                const sources = await resp.json();
+                const select = document.getElementById('filter-tool');
+                sources.forEach(source => {
+                    const opt = document.createElement('option');
+                    opt.value = source;
+                    opt.textContent = source;
+                    select.appendChild(opt);
+                });
+            }
+        } catch (e) {
+            console.error('Failed to fetch tool sources', e);
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const target = urlParams.get('target');
@@ -620,6 +646,7 @@
         if (status) document.getElementById('filter-status').value = status;
         if (risk) document.getElementById('filter-risk').value = risk;
         
+        fetchTools();
         fetchLeads();
     });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLeadModal(); });

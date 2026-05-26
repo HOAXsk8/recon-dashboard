@@ -75,6 +75,7 @@ class BaseAgent:
             "target": target,
             "risk_level": risk_level,
             "status": "new",
+            "source": self.agent_name,
             "timestamp": datetime.datetime.utcnow().isoformat(),
             "details": details,
             "exploitation_suggestions": exploitation_suggestions,

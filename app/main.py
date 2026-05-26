@@ -732,7 +732,7 @@ async def delete_user(request: Request, target_username: str = Form(...), user: 
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 
-def build_leads_query(status, risk, title, target, status_code, start_date, end_date):
+def build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=None):
     query = {}
     if status == "all":
         pass # Include everything
@@ -743,12 +743,13 @@ def build_leads_query(status, risk, title, target, status_code, start_date, end_
         query["status"] = {"$nin": ["false_positive", "muted", "benign", "investigating"]}
 
     if risk:
-
         query["risk_level"] = risk
     if title:
         query["title"] = {"$regex": re.escape(title), "$options": "i"}
     if target:
         query["target"] = {"$regex": re.escape(target), "$options": "i"}
+    if source:
+        query["source"] = source
     
     if status_code:
         query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
@@ -782,6 +783,7 @@ async def get_leads(
     risk: Optional[str] = None,
     title: Optional[str] = None,
     target: Optional[str] = None,
+    source: Optional[str] = None,
     status_code: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -790,7 +792,7 @@ async def get_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date)
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
             
     cursor = leads_col.find(query).sort("timestamp", -1)
     leads = await cursor.to_list(length=100)
@@ -832,6 +834,14 @@ async def apply_lead_mute(lead: dict, user: dict, request: Request):
     
     await log_audit(user["username"], "MUTE_LEAD", f"Muted/Suppressed lead: {lead['title']} on {lead['target']}", request)
 
+@app.get("/api/leads/sources")
+async def get_lead_sources(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    sources = await leads_col.distinct("source")
+    # Filter out None and empty strings
+    return [s for s in sources if s]
+
 @app.post("/api/leads/{lead_id}/mute")
 async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
@@ -850,6 +860,7 @@ async def export_leads(
     risk: Optional[str] = None,
     title: Optional[str] = None,
     target: Optional[str] = None,
+    source: Optional[str] = None,
     status_code: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -858,7 +869,7 @@ async def export_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date)
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
             
     cursor = leads_col.find(query).sort("timestamp", -1)
     leads = await cursor.to_list(length=1000) # Increased limit for export
