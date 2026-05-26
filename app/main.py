@@ -806,18 +806,13 @@ async def get_leads(
         "filtered_count": filtered_count
     }
 
-@app.post("/api/leads/{lead_id}/mute")
-async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
-    check_analyst(user)
-    
-    lead = await leads_col.find_one({"_id": ObjectId(lead_id)})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-        
+async def apply_lead_mute(lead: dict, user: dict, request: Request):
+    lead_id = lead["_id"]
     fingerprint = lead.get("fingerprint")
     
-    # 1. Mark the lead as muted
-    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": "muted"}})
+    # 1. Mark the lead as muted (or keep current status if called from status update)
+    # If the lead already has a terminal status like false_positive, we keep that status
+    # but still ensure the fingerprint is suppressed.
     
     # 2. Add to alert_fingerprints as suppressed if fingerprint exists
     if fingerprint:
@@ -835,7 +830,18 @@ async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_cur
             upsert=True
         )
     
-    await log_audit(user["username"], "MUTE_LEAD", f"Muted lead: {lead['title']} on {lead['target']}", request)
+    await log_audit(user["username"], "MUTE_LEAD", f"Muted/Suppressed lead: {lead['title']} on {lead['target']}", request)
+
+@app.post("/api/leads/{lead_id}/mute")
+async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    lead = await leads_col.find_one({"_id": ObjectId(lead_id)})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+        
+    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": "muted"}})
+    await apply_lead_mute(lead, user, request)
     return {"status": "success"}
 
 @app.get("/api/leads/export")
@@ -886,9 +892,16 @@ async def export_leads(
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.post("/api/leads/{lead_id}/status")
-async def update_lead_status(lead_id: str, status: str = Form(...), user: dict = Depends(get_current_user)):
+async def update_lead_status(lead_id: str, request: Request, status: str = Form(...), user: dict = Depends(get_current_user)):
     check_analyst(user)
     await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": status}})
+    
+    # Auto-mute if status is false_positive or benign
+    if status in ["false_positive", "benign"]:
+        lead = await leads_col.find_one({"_id": ObjectId(lead_id)})
+        if lead:
+            await apply_lead_mute(lead, user, request)
+            
     return {"status": "success"}
 
 @app.post("/api/leads/{lead_id}/notes")
@@ -951,13 +964,13 @@ async def bulk_status_leads(request: Request, user: dict = Depends(get_current_u
     count = await leads_col.count_documents(query)
     await leads_col.update_many(query, {"$set": {"status": new_status}})
 
-    # If muting, also update fingerprints for future suppression
-    if new_status == "muted":
+    # If muting, false_positive, or benign, also update fingerprints for future suppression
+    if new_status in ["muted", "false_positive", "benign"]:
         from app.database import db
         fingerprints_col = db["alert_fingerprints"]
 
         # Get all fingerprints for matching leads
-        cursor = leads_col.find(query, {"fingerprint": 1})
+        cursor = leads_col.find(query, {"fingerprint": 1, "title": 1, "target": 1})
         async for lead in cursor:
             fp = lead.get("fingerprint")
             if fp:
