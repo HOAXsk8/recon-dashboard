@@ -442,13 +442,17 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     # if the user is looking at a subdomain.
     if q != domain_name:
         if domain_data.get("systems"):
-            domain_data["systems"] = [s for s in domain_data["systems"] if s.get("target") == q]
+            # Only show latest and previous scan results for the target
+            target_systems = [s for s in domain_data["systems"] if s.get("target") == q]
+            domain_data["systems"] = list(reversed(target_systems))[:2]
         if domain_data.get("web_applications"):
             domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == q]
     else:
         # If looking at root domain, only show systems/webapps for the root domain itself
         if domain_data.get("systems"):
-            domain_data["systems"] = [s for s in domain_data["systems"] if s.get("target") == domain_name]
+            # Only show latest and previous scan results for the root domain
+            root_systems = [s for s in domain_data["systems"] if s.get("target") == domain_name]
+            domain_data["systems"] = list(reversed(root_systems))[:2]
         if domain_data.get("web_applications"):
             domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == domain_name]
             
@@ -1083,26 +1087,39 @@ async def get_domains(
 @limiter.limit("5/minute")
 async def bulk_update_interval(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
-    
+
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     interval = data.get("interval")
-    
+
     try:
         interval = int(interval)
         if interval < 1:
             raise ValueError()
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid interval. Must be a positive integer (hours).")
-        
+
+    if data.get("apply_to_all"):
+        q = data.get("q")
+        status_val = data.get("status_val")
+        blacklisted = data.get("blacklisted")
+        root_query = get_query_filters(q, status_val, None, None, blacklisted)
+        pipeline = get_flattened_pipeline(root_query, q, status_val)
+        pipeline.append({"$group": {"_id": "$_id"}})
+        cursor = domains_col.aggregate(pipeline)
+        ids = [doc["_id"] for doc in await cursor.to_list(length=None)]
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+
+    if not ids:
+        return {"status": "success", "message": "No domains to update"}
+
     await domains_col.update_many(
         {"_id": {"$in": ids}},
         {"$set": {"scan_interval": interval}}
     )
-    
+
     await log_audit(user["username"], "BULK_UPDATE_INTERVAL", f"Updated scan interval of {len(ids)} domains to {interval} hours", request)
     return {"status": "success"}
-
 @app.post("/api/domains/add")
 async def add_domain(request: Request, domain: str = Form(...), user: dict = Depends(get_current_user)):
     check_analyst(user)
@@ -1449,7 +1466,6 @@ async def bulk_update_status(request: Request, user: dict = Depends(get_current_
     check_analyst(user)
     
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     status_val = data.get("status")
     
     if status_val not in ["pending", "scanned", "on_hold"]:
@@ -1457,6 +1473,21 @@ async def bulk_update_status(request: Request, user: dict = Depends(get_current_
         
     scanned_flag = True if status_val == "scanned" else False
     on_hold_flag = True if status_val == "on_hold" else False
+
+    if data.get("apply_to_all"):
+        q = data.get("q")
+        status_val_filter = data.get("status_val")
+        blacklisted = data.get("blacklisted")
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
+        pipeline.append({"$group": {"_id": "$_id"}})
+        cursor = domains_col.aggregate(pipeline)
+        ids = [doc["_id"] for doc in await cursor.to_list(length=None)]
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+
+    if not ids:
+        return {"status": "success", "message": "No domains to update"}
     
     await domains_col.update_many(
         {"_id": {"$in": ids}},
@@ -1472,8 +1503,22 @@ async def bulk_delete_domains(request: Request, user: dict = Depends(get_current
     check_analyst(user)
         
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     
+    if data.get("apply_to_all"):
+        q = data.get("q")
+        status_val_filter = data.get("status_val")
+        blacklisted = data.get("blacklisted")
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
+        pipeline.append({"$group": {"_id": "$_id"}})
+        cursor = domains_col.aggregate(pipeline)
+        ids = [doc["_id"] for doc in await cursor.to_list(length=None)]
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+
+    if not ids:
+        return {"status": "success", "message": "No domains to delete"}
+
     await domains_col.delete_many({"_id": {"$in": ids}})
     
     await log_audit(user["username"], "BULK_DELETE_DOMAINS", f"Deleted {len(ids)} domains", request)
@@ -1484,8 +1529,22 @@ async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_curr
     check_analyst(user)
         
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     
+    if data.get("apply_to_all"):
+        q = data.get("q")
+        status_val_filter = data.get("status_val")
+        blacklisted = data.get("blacklisted")
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
+        pipeline.append({"$group": {"_id": "$_id"}})
+        cursor = domains_col.aggregate(pipeline)
+        ids = [doc["_id"] for doc in await cursor.to_list(length=None)]
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+
+    if not ids:
+        return {"status": "success", "message": "No domains to blacklist"}
+
     await domains_col.update_many(
         {"_id": {"$in": ids}},
         {"$set": {"blacklisted": True, "scanned": False, "on_hold": False}}

@@ -18,6 +18,11 @@
 
     <!-- Domains Table Section -->
     <div class="bg-white dark:bg-tech-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xl">
+        <div id="global-selection-bar" class="hidden bg-tech-accent/10 border-b border-slate-200 dark:border-slate-800 px-8 py-3 text-sm text-center">
+            <span id="selection-message" class="text-slate-500"></span>
+            <button id="select-all-matching-btn" onclick="activateGlobalSelection()" class="ml-2 text-tech-accent font-black hover:underline uppercase text-xs tracking-widest">Select all matching domains</button>
+            <button id="clear-selection-btn" onclick="clearGlobalSelection()" class="hidden ml-2 text-slate-500 font-bold hover:text-white uppercase text-xs tracking-widest">Clear selection</button>
+        </div>
         <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div class="flex flex-col md:flex-row md:items-center gap-4 flex-grow">
                 <h3 class="text-lg font-bold">Target Domains</h3>
@@ -212,6 +217,8 @@
 const USER_ROLE = '{{ user.role }}';
 let currentPage = 1;
 const limit = 10;
+let totalMatchingCount = 0;
+let isGlobalSelectionActive = false;
 
 async function loadDomains() {
     const q = document.getElementById('domain-search').value;
@@ -224,6 +231,7 @@ async function loadDomains() {
         
         const tbody = document.getElementById('domain-table-body');
         tbody.innerHTML = '';
+        totalMatchingCount = data.total;
         
         data.domains.forEach(domain => {
             const isBlacklisted = domain.blacklisted === true;
@@ -482,19 +490,44 @@ function toggleSelectAll(master) {
 
 function updateSelection() {
     const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    const totalOnPage = document.querySelectorAll('input[name="domain-checkbox"]').length;
     const bar = document.getElementById('bulk-actions-bar');
     const count = document.getElementById('selected-count');
+    const selectionBar = document.getElementById('global-selection-bar');
     
     count.innerText = selected.length;
     
     if (selected.length > 0) {
         bar.classList.remove('translate-y-24', 'opacity-0');
         bar.classList.add('translate-y-0', 'opacity-100');
+
+        if (selected.length === totalOnPage && totalMatchingCount > totalOnPage && !isGlobalSelectionActive) {
+            selectionBar.classList.remove('hidden');
+            document.getElementById('selection-message').textContent = `All ${selected.length} domains on this page are selected.`;
+            document.getElementById('select-all-matching-btn').classList.remove('hidden');
+            document.getElementById('clear-selection-btn').classList.add('hidden');
+        } else if (!isGlobalSelectionActive) {
+            selectionBar.classList.add('hidden');
+        }
     } else {
         bar.classList.add('translate-y-24', 'opacity-0');
         bar.classList.remove('translate-y-0', 'opacity-100');
         document.getElementById('select-all-domains').checked = false;
+        clearGlobalSelection();
     }
+}
+
+function activateGlobalSelection() {
+    isGlobalSelectionActive = true;
+    document.getElementById('selection-message').textContent = `All ${totalMatchingCount} domains matching this filter are selected.`;
+    document.getElementById('select-all-matching-btn').classList.add('hidden');
+    document.getElementById('clear-selection-btn').classList.remove('hidden');
+}
+
+function clearGlobalSelection() {
+    isGlobalSelectionActive = false;
+    document.getElementById('global-selection-bar').classList.add('hidden');
+    document.getElementById('clear-selection-btn').classList.add('hidden');
 }
 
 function clearSelection() {
@@ -504,14 +537,29 @@ function clearSelection() {
 }
 
 async function bulkUpdateStatus(status) {
-    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
-    if (!selected.length) return;
+    let body = { status: status };
+    let confirmMsg = "";
+
+    if (isGlobalSelectionActive) {
+        confirmMsg = `Are you sure you want to update ALL ${totalMatchingCount} matching domains to ${status.toUpperCase()}?`;
+        body.apply_to_all = true;
+        body.q = document.getElementById('domain-search').value;
+        body.status_val = document.getElementById('filter-status').value;
+        body.blacklisted = document.getElementById('filter-blacklisted').value;
+    } else {
+        const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+        if (!selected.length) return;
+        confirmMsg = `Update ${selected.length} domains to ${status.toUpperCase()}?`;
+        body.ids = selected;
+    }
+
+    if (!confirm(confirmMsg)) return;
     
     try {
         const response = await fetch('/api/domains/bulk-update-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selected, status: status })
+            body: JSON.stringify(body)
         });
         const result = await response.json();
         if (result.status === 'success') {
@@ -524,16 +572,29 @@ async function bulkUpdateStatus(status) {
 }
 
 async function bulkDelete() {
-    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
-    if (!selected.length) return;
-    
-    if (!confirm(`Are you sure you want to delete ${selected.length} domains?`)) return;
+    let body = {};
+    let confirmMsg = "";
+
+    if (isGlobalSelectionActive) {
+        confirmMsg = `Are you sure you want to PERMANENTLY DELETE ALL ${totalMatchingCount} matching domains?`;
+        body.apply_to_all = true;
+        body.q = document.getElementById('domain-search').value;
+        body.status_val = document.getElementById('filter-status').value;
+        body.blacklisted = document.getElementById('filter-blacklisted').value;
+    } else {
+        const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+        if (!selected.length) return;
+        confirmMsg = `Are you sure you want to delete ${selected.length} domains?`;
+        body.ids = selected;
+    }
+
+    if (!confirm(confirmMsg)) return;
     
     try {
         const response = await fetch('/api/domains/bulk-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selected })
+            body: JSON.stringify(body)
         });
         const result = await response.json();
         if (result.status === 'success') {
@@ -546,14 +607,29 @@ async function bulkDelete() {
 }
 
 async function bulkBlacklist() {
-    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
-    if (!selected.length) return;
-    
+    let body = {};
+    let confirmMsg = "";
+
+    if (isGlobalSelectionActive) {
+        confirmMsg = `Are you sure you want to blacklist ALL ${totalMatchingCount} matching domains?`;
+        body.apply_to_all = true;
+        body.q = document.getElementById('domain-search').value;
+        body.status_val = document.getElementById('filter-status').value;
+        body.blacklisted = document.getElementById('filter-blacklisted').value;
+    } else {
+        const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+        if (!selected.length) return;
+        confirmMsg = `Blacklist ${selected.length} domains?`;
+        body.ids = selected;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
     try {
         const response = await fetch('/api/domains/bulk-blacklist', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selected })
+            body: JSON.stringify(body)
         });
         const result = await response.json();
         if (result.status === 'success') {
@@ -566,16 +642,30 @@ async function bulkBlacklist() {
 }
 
 async function bulkUpdateInterval() {
-    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
-    if (!selected.length) return;
-    
     const interval = document.getElementById('bulk-interval-input').value;
+    let body = { interval: interval };
+    let confirmMsg = "";
+
+    if (isGlobalSelectionActive) {
+        confirmMsg = `Are you sure you want to update scan interval of ALL ${totalMatchingCount} matching domains to ${interval} hours?`;
+        body.apply_to_all = true;
+        body.q = document.getElementById('domain-search').value;
+        body.status_val = document.getElementById('filter-status').value;
+        body.blacklisted = document.getElementById('filter-blacklisted').value;
+    } else {
+        const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+        if (!selected.length) return;
+        confirmMsg = `Update scan interval of ${selected.length} domains to ${interval} hours?`;
+        body.ids = selected;
+    }
+
+    if (!confirm(confirmMsg)) return;
     
     try {
         const response = await fetch('/api/domains/bulk-update-interval', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selected, interval: interval })
+            body: JSON.stringify(body)
         });
         const result = await response.json();
         if (result.status === 'success') {
