@@ -220,6 +220,18 @@ const limit = 10;
 let totalMatchingCount = 0;
 let isGlobalSelectionActive = false;
 
+function formatLastScan(ts) {
+    if (!ts || ts === 'Never' || ts === 'N/A') return 'Never';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;
+    const hours = d.getHours().toString().padStart(2, '0');
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const day = d.getDate().toString().padStart(2, '0');
+    const year = d.getFullYear();
+    return `${hours}:${minutes} - ${month}/${day}/${year}`;
+}
+
 async function loadDomains() {
     const q = document.getElementById('domain-search').value;
     const statusVal = document.getElementById('filter-status').value;
@@ -241,7 +253,7 @@ async function loadDomains() {
             if (isOnHold) {
                 statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-slate-700 text-slate-400">On Hold</span>';
             } else if (domain.scanned) {
-                statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-tech-success/10 text-tech-success">Scanned</span>';
+                statusBadge = `<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-tech-success/10 text-tech-success">Last Scan: ${formatLastScan(domain.last_scanned)}</span>`;
             } else {
                 statusBadge = '<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-tech-accent/10 text-tech-accent">Pending</span>';
             }
@@ -268,7 +280,7 @@ async function loadDomains() {
                     <span class="text-xs font-bold text-slate-300">${domain.scan_interval}h</span>
                 </td>
                 <td class="px-6 py-4 text-xs font-mono text-slate-400">
-                    ${domain.last_scanned && domain.last_scanned !== 'Never' ? new Date(domain.last_scanned).toLocaleString() : '<span class="text-slate-600 italic">Never</span>'}
+                    ${domain.last_scanned && domain.last_scanned !== 'Never' ? formatLastScan(domain.last_scanned) : '<span class="text-slate-600 italic">Never</span>'}
                 </td>
                 <td class="px-6 py-4 text-xs text-slate-500 font-mono">${domain.added_at}</td>
                 <td class="px-6 py-4">

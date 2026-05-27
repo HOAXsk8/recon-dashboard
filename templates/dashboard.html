@@ -218,6 +218,18 @@
     let currentPortFilter = null;
     let autoOpenDomain = null;
 
+    function formatLastScan(ts) {
+        if (!ts || ts === 'Never' || ts === 'N/A') return 'Never';
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return ts;
+        const hours = d.getHours().toString().padStart(2, '0');
+        const minutes = d.getMinutes().toString().padStart(2, '0');
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const day = d.getDate().toString().padStart(2, '0');
+        const year = d.getFullYear();
+        return `${hours}:${minutes} - ${month}/${day}/${year}`;
+    }
+
     // Map to store finding objects for deletion/viewing to avoid escaping issues in HTML attributes
     window.currentFindingsMap = new Map();
 
@@ -290,7 +302,7 @@
                         <td class="px-6 py-5">
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.scanned ? 'bg-tech-success/10 text-tech-success' : 'bg-slate-800 text-slate-500'}">
                                 <span class="w-1.5 h-1.5 mr-1.5 rounded-full ${item.scanned ? 'bg-tech-success' : 'bg-slate-500'}"></span>
-                                ${item.scanned ? 'Scanned' : 'Pending'}
+                                ${item.scanned ? `Last Scan: ${formatLastScan(item.last_scanned)}` : 'Pending'}
                             </span>
                         </td>
                         <td class="px-6 py-5">
@@ -527,7 +539,7 @@
                             </div>
                             <div>
                                 <p class="text-slate-500 mb-1 uppercase text-[10px]">Operational Status</p>
-                                <p class="text-xl font-bold ${data.scanned ? 'text-tech-success' : 'text-slate-500'}">${data.scanned ? 'SCANNED' : 'PENDING'}</p>
+                                <p class="text-xl font-bold ${data.scanned ? 'text-tech-success' : 'text-slate-500'}">${data.scanned ? `Last Scan: ${formatLastScan(data.last_scanned)}` : 'PENDING'}</p>
                             </div>
                         </div>
                     </div>
