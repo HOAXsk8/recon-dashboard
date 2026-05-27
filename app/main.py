@@ -441,6 +441,14 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     # Filter systems and web_applications to only show data for the specific target (q)
     # if the user is looking at a subdomain.
     if q != domain_name:
+        # Load subdomain-specific summaries if they exist
+        if domain_data.get("subdomain_summaries"):
+            sub_key = q.replace('.', '_DOT_')
+            sub_analysis = domain_data["subdomain_summaries"].get(sub_key)
+            if sub_analysis:
+                domain_data["summary"] = sub_analysis.get("summary")
+                domain_data["exploit_summary"] = sub_analysis.get("exploit_summary")
+
         if domain_data.get("systems"):
             # Only show latest and previous scan results for the target
             target_systems = [s for s in domain_data["systems"] if s.get("target") == q]
