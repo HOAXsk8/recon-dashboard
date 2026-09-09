@@ -20,7 +20,7 @@ def init_admin():
             print("WARNING: ADMIN_INITIAL_PASSWORD not set. Using default: ChangeMe123!")
         
         hashed_password = get_password_hash(password)
-        totp_secret = generate_totp_secret()
+        totp_secret = os.getenv("ADMIN_INITIAL_TOTP_SECRET") or generate_totp_secret()
         
         user_data = {
             "username": username,

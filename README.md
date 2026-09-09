@@ -14,13 +14,7 @@ The tool is designed to move beyond static snapshots, offering a "living" invent
 
 ## Key Features
 
-### 1. Automated Vulnerability Scanning (New!)
-- **Nuclei Integration**: Seamlessly integrated [Nuclei](https://github.com/projectdiscovery/nuclei) for template-based vulnerability scanning.
-- **High-Signal Filtering**: Configured to use high-signal templates (CVEs, exposures, vulnerabilities) to minimize noise and prioritize critical findings.
-- **Weekly Automation**: Automatically updates Nuclei templates every 7 days to ensure protection against the latest threats.
-- **Leads Integration**: Nuclei findings are automatically funneled into the centralized alerting system with detailed reproduction steps and remediation guidance.
-
-### 2. Specialized Discovery Agents
+### 1. Specialized Discovery Agents
 - **JS Miner & URL Validator**:
     - Crawls discovered JavaScript files for secrets, API keys, and hidden internal URLs.
     - **Proactive Validation**: Automatically verifies discovered URLs via HTTP requests; dead links (404s) are filtered out before reaching the dashboard.
@@ -28,19 +22,19 @@ The tool is designed to move beyond static snapshots, offering a "living" invent
 - **Directory & File Hunter**: Recursive directory and file mapping using `ffuf` with intelligent Phase 1 (Directory) and Phase 2 (File) discovery.
 - **Tech Fingerprinter**: Real-time technology stack identification, security header analysis, and AI-synthesized technology profiles.
 
-### 3. Target & Asset Management
+### 2. Target & Asset Management
 - **Unified Inventory**: Root Domains, Subdomains, and IP Addresses.
 - **Intelligent Tracking**: Real-time status (Pending vs. Scanned vs. On Hold).
 - **Bulk Import**: Quickly add targets via text paste or file upload (.txt/.csv).
 - **Interactive UI**: Web Application URLs and discovered "Hidden URLs" are clickable and open in new tabs for efficient verification.
 
-### 4. Advanced Hunting Leads (Alerts)
+### 3. Advanced Hunting Leads (Alerts)
 - **Risk-Based Categorization**: Critical, High, Medium, and Low risk levels.
 - **Smart Deduplication**: Fingerprint-based hashing prevents repeat alerts for the same finding across different scans.
 - **Alert Muting**: Suppress specific findings to keep the focus on new discoveries.
 - **Reporting**: Export findings to Excel for stakeholder communication.
 
-### 5. Security & Administration
+### 4. Security & Administration
 - **MFA Protection**: Secure login with TOTP (Google Authenticator/Authy).
 - **Audit Logging**: Comprehensive logging of all user actions and system events.
 - **Hardened Security**: Robust security headers (CSP, HSTS, X-Frame-Options).
@@ -62,4 +56,4 @@ The tool is designed to move beyond static snapshots, offering a "living" invent
 - **Initial Setup**: Run `python3 init_admin.py` (inside the container) to create your first administrative account.
 
 ## Credits
-Integrating industry-standard tools like **Nmap**, **FFUF**, **Subfinder**, **Nuclei**, and **httpx** into a cohesive, analyst-centric workflow.
+Integrating industry-standard tools like **Nmap**, **FFUF**, **Subfinder**, and **httpx** into a cohesive, analyst-centric workflow.

@@ -16,6 +16,7 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720 # 12 Hours
+DISABLE_2FA = os.getenv("DISABLE_2FA", "false").lower() in ("true", "1", "yes")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

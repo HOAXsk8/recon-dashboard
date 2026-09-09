@@ -192,6 +192,39 @@
     </div>
 </div>
 
+<!-- Modal for Screenshot Lightbox -->
+<div id="screenshot-lightbox-modal" class="fixed inset-0 z-[120] hidden overflow-y-auto bg-slate-950/90 backdrop-blur-md items-center justify-center p-4" onclick="closeScreenshotLightbox(event)">
+    <div class="relative w-full max-w-6xl bg-tech-panel rounded-2xl border border-slate-700 shadow-2xl flex flex-col overflow-hidden animate-fade-in" onclick="event.stopPropagation()">
+        <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/60">
+            <div class="flex items-center space-x-3 truncate">
+                <div class="p-2 bg-tech-accent/10 rounded-lg text-tech-accent">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                </div>
+                <div>
+                    <h3 id="screenshot-lightbox-title" class="text-base font-bold text-white uppercase tracking-wider truncate">Web Viewport</h3>
+                    <p id="screenshot-lightbox-url" class="text-xs font-mono text-slate-400 truncate"></p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <a id="screenshot-lightbox-open-btn" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-tech-accent/20 hover:text-tech-accent text-slate-300 rounded-lg text-xs font-mono flex items-center space-x-1.5 transition-all">
+                    <span>Open Live</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                </a>
+                <a id="screenshot-lightbox-dl-btn" href="#" download class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-mono flex items-center space-x-1.5 transition-all">
+                    <span>Download</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                </a>
+                <button onclick="closeScreenshotLightbox()" class="p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-800">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+        </div>
+        <div class="p-4 bg-slate-950 flex items-center justify-center overflow-auto max-h-[78vh]">
+            <img id="screenshot-lightbox-img" src="" alt="Screenshot" class="max-h-[74vh] w-auto object-contain rounded border border-slate-800 shadow-lg">
+        </div>
+    </div>
+</div>
+
 <style>
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
@@ -646,7 +679,95 @@
                 break;
             case 'webapps':
                 const apps = data.web_applications || [];
-                content.innerHTML = `
+                const archiveData = data.archive_urls || {};
+                const sensitiveArchive = archiveData.sensitive_files || [];
+                const apiArchive = archiveData.api_endpoints || [];
+                const paramArchive = archiveData.interesting_params || [];
+                const docArchive = archiveData.documents || [];
+                const totalArchive = archiveData.total_urls || (sensitiveArchive.length + apiArchive.length + paramArchive.length + docArchive.length);
+
+                window.webappViewMode = window.webappViewMode || 'list';
+
+                // Helper to toggle between list and gallery views
+                window.switchWebappView = function(mode) {
+                    window.webappViewMode = mode;
+                    renderTabContent('webapps');
+                };
+
+                // Helper to filter archive category
+                window.activeArchiveCategory = window.activeArchiveCategory || 'all';
+                window.setArchiveCategory = function(cat) {
+                    window.activeArchiveCategory = cat;
+                    const items = document.querySelectorAll('.archive-row');
+                    items.forEach(row => {
+                        if (cat === 'all' || row.dataset.category === cat) {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                    document.querySelectorAll('.archive-filter-btn').forEach(btn => {
+                        if (btn.dataset.category === cat) {
+                            btn.classList.add('bg-tech-accent', 'text-black');
+                            btn.classList.remove('bg-slate-800', 'text-slate-300');
+                        } else {
+                            btn.classList.remove('bg-tech-accent', 'text-black');
+                            btn.classList.add('bg-slate-800', 'text-slate-300');
+                        }
+                    });
+                };
+
+                // Render Visual Gallery Grid
+                const galleryHtml = `
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${apps.map(app => `
+                            <div class="bg-tech-bg rounded-3xl border border-slate-800 overflow-hidden hover:border-slate-700 transition-all flex flex-col group">
+                                <div class="relative h-44 bg-slate-900 overflow-hidden cursor-pointer" onclick="${app.screenshot ? `openScreenshotLightbox('${app.screenshot}', '${app.url}', '${app.target}')` : ''}">
+                                    ${app.screenshot ? `
+                                        <img src="${app.screenshot}" alt="${app.target}" class="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy">
+                                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                                            <span class="text-xs font-bold text-white flex items-center">
+                                                <svg class="w-4 h-4 mr-1 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path></svg>
+                                                Preview Fullsize
+                                            </span>
+                                        </div>
+                                    ` : `
+                                        <div class="w-full h-full flex flex-col items-center justify-center text-slate-600">
+                                            <svg class="w-8 h-8 mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                            <span class="text-[10px] font-mono uppercase tracking-wider">${app.screenshot_failed ? 'Screenshot N/A' : 'Pending Capture'}</span>
+                                        </div>
+                                    `}
+                                </div>
+                                <div class="p-5 flex-grow flex flex-col justify-between">
+                                    <div>
+                                        <div class="flex items-center justify-between mb-2">
+                                            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold ${app.status < 400 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}">
+                                                HTTP ${app.status || 'Alive'}
+                                            </span>
+                                            <span class="text-[10px] text-slate-500 font-mono">${app.server || ''}</span>
+                                        </div>
+                                        <h4 class="text-white font-bold text-sm truncate mb-1" title="${app.target}">${app.target}</h4>
+                                        <p class="text-xs text-slate-400 truncate mb-3" title="${app.title || ''}">${app.title || 'No Title'}</p>
+                                        <div class="flex flex-wrap gap-1 mb-4">
+                                            ${app.tech_stack?.slice(0, 3).map(t => `<span class="px-1.5 py-0.5 bg-slate-800/80 rounded text-[9px] text-slate-300 font-medium">${t}</span>`).join('') || ''}
+                                            ${(app.tech_stack?.length || 0) > 3 ? `<span class="px-1.5 py-0.5 bg-slate-800/50 rounded text-[9px] text-slate-500 font-bold">+${app.tech_stack.length - 3}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between">
+                                        <a href="${app.url}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-tech-accent hover:underline flex items-center">
+                                            <span>Visit App</span>
+                                            <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                                        </a>
+                                        <span class="text-[10px] text-slate-500">${app.sensitive_files?.length || 0} Files</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('') || '<div class="col-span-full py-16 text-center text-slate-500">No web applications identified.</div>'}
+                    </div>
+                `;
+
+                // Render Detailed Card View
+                const listHtml = `
                     <div class="space-y-8">
                         ${apps.map(app => {
                             const compStack = app.comprehensive_tech_stack;
@@ -656,28 +777,10 @@
                                     <div class="bg-slate-900/50 p-6 rounded-2xl border border-tech-accent/20 mb-6">
                                         <h5 class="text-[10px] font-black text-tech-accent uppercase tracking-[0.2em] mb-4">AI-Synthesized Profile</h5>
                                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                            <div>
-                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Frontend</h6>
-                                                <p class="text-xs text-slate-200">${compStack.frontend || 'N/A'}</p>
-                                            </div>
-                                            <div>
-                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Backend</h6>
-                                                <p class="text-xs text-slate-200">${compStack.backend || 'N/A'}</p>
-                                            </div>
-                                            <div>
-                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Database</h6>
-                                                <p class="text-xs text-slate-200">${compStack.database || 'N/A'}</p>
-                                            </div>
-                                            <div>
-                                                <h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Infrastructure</h6>
-                                                <p class="text-xs text-slate-200">${compStack.infrastructure || 'N/A'}</p>
-                                            </div>
-                                        </div>
-                                        <div class="mt-4 pt-4 border-t border-slate-800">
-                                            <p class="text-[11px] text-slate-400 italic leading-relaxed">${compStack.summary || ''}</p>
-                                            <div class="flex flex-wrap gap-1.5 mt-3">
-                                                ${compStack.libraries?.map(l => `<span class="px-1.5 py-0.5 bg-tech-accent/5 border border-tech-accent/10 rounded text-[9px] text-tech-accent/70">${l}</span>`).join('') || ''}
-                                            </div>
+                                            <div><h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Frontend</h6><p class="text-xs text-slate-200">${compStack.frontend || 'N/A'}</p></div>
+                                            <div><h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Backend</h6><p class="text-xs text-slate-200">${compStack.backend || 'N/A'}</p></div>
+                                            <div><h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Database</h6><p class="text-xs text-slate-200">${compStack.database || 'N/A'}</p></div>
+                                            <div><h6 class="text-[9px] font-bold text-slate-500 uppercase mb-1">Infrastructure</h6><p class="text-xs text-slate-200">${compStack.infrastructure || 'N/A'}</p></div>
                                         </div>
                                     </div>
                                 `;
@@ -685,14 +788,43 @@
 
                             return `
                             <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800">
-                                <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-800 pb-6">
-                                    <div>
-                                        <h4 class="text-white font-bold mb-1">${app.target}</h4>
-                                        <a href="${app.url}" target="_blank" class="text-xs font-mono text-tech-accent hover:underline">${app.url}</a>
-                                        <p class="text-xs text-slate-500 mt-1">${app.title || ''}</p>
+                                <div class="flex flex-col md:flex-row gap-6 items-start pb-6 mb-6 border-b border-slate-800">
+                                    <!-- Screenshot Thumbnail -->
+                                    <div class="w-full md:w-56 flex-shrink-0">
+                                        ${app.screenshot ? `
+                                            <div onclick="openScreenshotLightbox('${app.screenshot}', '${app.url}', '${app.target}')" class="group relative rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-900 cursor-pointer shadow-lg hover:border-tech-accent transition-all">
+                                                <img src="${app.screenshot}" alt="${app.target}" class="w-full h-32 object-cover object-top group-hover:scale-105 transition-transform duration-300" loading="lazy">
+                                                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2.5">
+                                                    <span class="text-[10px] font-bold text-white flex items-center">
+                                                        <svg class="w-3.5 h-3.5 mr-1 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path></svg>
+                                                        Click to Enlarge
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ` : `
+                                            <div class="w-full h-32 rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 flex flex-col items-center justify-center text-slate-600">
+                                                <svg class="w-6 h-6 mb-1 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                                <span class="text-[10px] font-mono uppercase tracking-wider">${app.screenshot_failed ? 'Screenshot N/A' : 'Pending Capture'}</span>
+                                            </div>
+                                        `}
                                     </div>
-                                    <div class="flex flex-wrap gap-2">
-                                        ${app.tech_stack?.map(t => `<span class="px-2 py-0.5 bg-slate-800 rounded text-[10px] text-slate-400 font-bold uppercase">${t}</span>`).join('') || 'No tech stack identified'}
+
+                                    <!-- Application Info & Tech Stack -->
+                                    <div class="flex-grow min-w-0">
+                                        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-2">
+                                            <div class="flex items-center space-x-2">
+                                                <h4 class="text-white font-bold text-lg">${app.target}</h4>
+                                                <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-mono font-bold">
+                                                    HTTP ${app.status || '200'}
+                                                </span>
+                                            </div>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                ${app.tech_stack?.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700/60 rounded text-[10px] text-slate-300 font-bold uppercase">${t}</span>`).join('') || ''}
+                                            </div>
+                                        </div>
+                                        <a href="${app.url}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-tech-accent hover:underline break-all block mb-1">${app.url}</a>
+                                        <p class="text-xs text-slate-400 mb-2">${app.title || 'No page title extracted'}</p>
+                                        ${app.server ? `<p class="text-[11px] text-slate-500 font-mono">Server Banner: <span class="text-slate-300">${app.server}</span></p>` : ''}
                                     </div>
                                 </div>
                                 
@@ -719,12 +851,10 @@
                                     <div>
                                         <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
                                             <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Discovered Files / Dirs</h4>
-                                            <div class="flex items-center space-x-4">
-                                                <div class="flex items-center space-x-2">
-                                                    <input type="number" id="status-select-sensitive_files" placeholder="Status Code" class="w-16 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 focus:ring-1 focus:ring-tech-accent outline-none">
-                                                    <button onclick="selectByStatus('sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase tracking-tighter">Select</button>
-                                                    <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-tighter">Delete All</button>
-                                                </div>
+                                            <div class="flex items-center space-x-2">
+                                                <input type="number" id="status-select-sensitive_files" placeholder="Status" class="w-14 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 text-white outline-none">
+                                                <button onclick="selectByStatus('sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase">Select</button>
+                                                <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase">Delete All</button>
                                             </div>
                                         </div>
                                         <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
@@ -763,7 +893,7 @@
                                                                 <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
                                                                 <div class="text-xs font-mono text-tech-danger break-all">${f.value}</div>
                                                             </div>
-                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all">
                                                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                             </button>
                                                         </div>`;
@@ -782,7 +912,7 @@
                                                                 <div class="text-[10px] text-slate-500 mb-1">${f.source.split('/').pop()}</div>
                                                                 <a href="${f.value.startsWith('http') ? f.value : (f.value.startsWith('//') ? 'https:' + f.value : (f.value.startsWith('/') ? app.url + f.value : app.url + '/' + f.value))}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 break-all hover:text-tech-accent transition-colors">${f.value}</a>
                                                             </div>
-                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                            <button onclick="deleteFinding('${data._id}', '${app.target}', 'js_findings', '${fid}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all">
                                                                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                             </button>
                                                         </div>`;
@@ -794,13 +924,6 @@
                                     <div>
                                         <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
                                             <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">403 Bypass Findings</h4>
-                                            <div class="flex items-center space-x-4">
-                                                <div class="flex items-center space-x-2">
-                                                    <input type="number" id="status-select-403_bypasses" placeholder="Status Code" class="w-16 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 focus:ring-1 focus:ring-tech-accent outline-none">
-                                                    <button onclick="selectByStatus('403_bypasses', document.getElementById('status-select-403_bypasses').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase tracking-tighter">Select</button>
-                                                    <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', '403_bypasses', document.getElementById('status-select-403_bypasses').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-tighter">Delete All</button>
-                                                </div>
-                                            </div>
                                         </div>
                                         <div class="bg-slate-900/30 p-4 rounded-2xl border border-slate-800/50 h-full">
                                             <h5 class="text-xs font-bold text-tech-success uppercase mb-3">Successful Access</h5>
@@ -819,7 +942,7 @@
                                                                    <div class="text-[10px] px-2 py-1 bg-slate-900 rounded inline-block text-slate-400">Response Code: <span class="text-tech-success font-black">${b.status}</span></div>
                                                                    <div class="flex items-center space-x-3">
                                                                        ${b.content ? `<button onclick="openBypassContent('${fid}')" class="text-[10px] text-tech-accent hover:underline uppercase font-bold">View Response</button>` : ''}
-                                                                       <button onclick="deleteFinding('${data._id}', '${app.target}', '403_bypasses', '${fid}')" class="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                                       <button onclick="deleteFinding('${data._id}', '${app.target}', '403_bypasses', '${fid}')" class="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all">
                                                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                                        </button>
                                                                    </div>
@@ -827,47 +950,396 @@
                                                             </div>
                                                         </div>
                                                     </div>`;
-                                                }).join('') || '<div class="flex flex-col items-center justify-center h-40 text-slate-600 opacity-50"><svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><p class="text-xs italic tracking-widest uppercase">No bypasses identified</p></div>'}
+                                                }).join('') || '<div class="flex flex-col items-center justify-center h-40 text-slate-600 opacity-50"><p class="text-xs italic tracking-widest uppercase">No bypasses identified</p></div>'}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            `;
+                            </div>`;
                         }).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No web applications identified for this target.</div>'}
                     </div>
                 `;
+
+                // Render Passive Historical Archive Section
+                const archiveSectionHtml = `
+                    <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800 mt-12">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-white flex items-center">
+                                    <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    Passive Historical Archive URLs (${totalArchive})
+                                </h3>
+                                <p class="text-xs text-slate-400 mt-1">Passively indexed endpoints from AlienVault OTX, URLScan.io, and the Wayback Machine (Zero Target Traffic).</p>
+                            </div>
+                            <div class="flex items-center space-x-3">
+                                <a href="/api/domains/${data._id}/archive-urls/export" download class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700">
+                                    <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                    <span>Export URLs (.txt)</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Archive Category Tabs -->
+                        <div class="flex flex-wrap gap-2 mb-6">
+                            <button onclick="setArchiveCategory('all')" data-category="all" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'all' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                All Archives (${totalArchive})
+                            </button>
+                            <button onclick="setArchiveCategory('sensitive')" data-category="sensitive" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'sensitive' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'} ${sensitiveArchive.length > 0 ? 'ring-1 ring-red-500/50' : ''}">
+                                ⚠️ Sensitive & Backups (${sensitiveArchive.length})
+                            </button>
+                            <button onclick="setArchiveCategory('api')" data-category="api" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'api' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                ⚡ API Endpoints (${apiArchive.length})
+                            </button>
+                            <button onclick="setArchiveCategory('params')" data-category="params" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'params' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                🔍 Parameters (${paramArchive.length})
+                            </button>
+                            <button onclick="setArchiveCategory('docs')" data-category="docs" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'docs' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                📄 Documents (${docArchive.length})
+                            </button>
+                        </div>
+
+                        <!-- Archive Table -->
+                        <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead class="text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                    <tr>
+                                        <th class="pb-3">URL / Endpoint</th>
+                                        <th class="pb-3">Category</th>
+                                        <th class="pb-3 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800/60">
+                                    ${sensitiveArchive.map(item => `
+                                        <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="sensitive">
+                                            <td class="py-2.5 font-mono text-xs text-red-400 truncate max-w-xl">
+                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
+                                            </td>
+                                            <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400 border border-red-500/30">${item.detected_keyword || 'Backup / Config'}</span></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${item.url}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                        </tr>
+                                    `).join('')}
+
+                                    ${apiArchive.map(item => `
+                                        <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="api">
+                                            <td class="py-2.5 font-mono text-xs text-sky-400 truncate max-w-xl">
+                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
+                                            </td>
+                                            <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">API Endpoint</span></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${item.url}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                        </tr>
+                                    `).join('')}
+
+                                    ${paramArchive.map(item => `
+                                        <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="params">
+                                            <td class="py-2.5 font-mono text-xs text-amber-300 truncate max-w-xl">
+                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
+                                            </td>
+                                            <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Query Param</span></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${item.url}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                        </tr>
+                                    `).join('')}
+
+                                    ${docArchive.map(item => `
+                                        <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="docs">
+                                            <td class="py-2.5 font-mono text-xs text-slate-300 truncate max-w-xl">
+                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
+                                            </td>
+                                            <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">Document</span></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${item.url}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                        </tr>
+                                    `).join('')}
+
+                                    ${(archiveData.other_endpoints || []).map(u => `
+                                        <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="other">
+                                            <td class="py-2.5 font-mono text-xs text-slate-400 truncate max-w-xl">
+                                                <a href="${u}" target="_blank" rel="noopener noreferrer" class="hover:underline">${u}</a>
+                                            </td>
+                                            <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-slate-500">Historical URL</span></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${u}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                        </tr>
+                                    `).join('')}
+
+                                    ${totalArchive === 0 ? '<tr><td colspan="3" class="py-12 text-center text-slate-600 text-xs">No historical archive endpoints indexed yet.</td></tr>' : ''}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+
+                // Main tab assembly with view toggle header
+                content.innerHTML = `
+                    <div class="space-y-6">
+                        <!-- Top Toolbar with View Mode Toggle -->
+                        <div class="flex items-center justify-between bg-tech-bg p-4 rounded-2xl border border-slate-800">
+                            <div class="flex items-center space-x-3">
+                                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Alive Web Applications (${apps.length})</span>
+                            </div>
+                            <div class="flex items-center space-x-2 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                                <button onclick="switchWebappView('list')" class="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${window.webappViewMode === 'list' ? 'bg-tech-accent text-black shadow' : 'text-slate-400 hover:text-white'}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                                    <span>Detailed List</span>
+                                </button>
+                                <button onclick="switchWebappView('gallery')" class="px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${window.webappViewMode === 'gallery' ? 'bg-tech-accent text-black shadow' : 'text-slate-400 hover:text-white'}">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                    <span>Visual Gallery</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Active View Content -->
+                        ${window.webappViewMode === 'gallery' ? galleryHtml : listHtml}
+
+                        <!-- Passive Historical Archive URLs Section -->
+                        ${archiveSectionHtml}
+                    </div>
+                `;
+                break;
                 break;
             case 'osint':
+                const osint = data.osint || {};
+                const mailSec = osint.mail_security || {};
+                const corpId = osint.corporate_identity || {};
+                const cloudAssets = osint.cloud_assets || [];
+                const emails = corpId.discovered_emails || [];
+                const social = osint.social_links || {};
+                const vendors = mailSec.security_vendors || [];
+                const verifiedServices = mailSec.verified_services || [];
+                const leaks = osint.leaked_credentials || [];
+
+                // Spoofing risk styling
+                let riskBadgeClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+                let riskText = "PROTECTED";
+                if (mailSec.spoofing_risk === "Critical") {
+                    riskBadgeClass = "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse";
+                    riskText = "CRITICAL - DIRECTLY SPOOFABLE";
+                } else if (mailSec.spoofing_risk === "High") {
+                    riskBadgeClass = "bg-amber-500/20 text-amber-400 border-amber-500/40";
+                    riskText = "HIGH RISK - SPOOFABLE (p=none)";
+                } else if (mailSec.spoofing_risk === "Medium") {
+                    riskBadgeClass = "bg-yellow-500/10 text-yellow-400 border-yellow-500/30";
+                    riskText = "MEDIUM - QUARANTINE";
+                }
+
                 content.innerHTML = `
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="space-y-8">
+                        <!-- Top OSINT Metric Cards -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div class="bg-tech-bg p-5 rounded-2xl border border-slate-800">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Email Spoofing Risk</span>
+                                <span class="inline-block px-2.5 py-1 rounded-full text-xs font-black border ${riskBadgeClass}">
+                                    ${riskText}
+                                </span>
+                                <p class="text-[11px] text-slate-400 mt-2">DMARC Policy: <strong class="text-white uppercase">${mailSec.dmarc_policy || 'None'}</strong></p>
+                            </div>
+                            <div class="bg-tech-bg p-5 rounded-2xl border border-slate-800">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Mail Infrastructure</span>
+                                <p class="text-base font-bold text-white truncate">${mailSec.mail_provider || 'Not Enumerated'}</p>
+                                <p class="text-[11px] text-slate-400 mt-2">${vendors.length} Security Vendor${vendors.length !== 1 ? 's' : ''} Detected</p>
+                            </div>
+                            <div class="bg-tech-bg p-5 rounded-2xl border border-slate-800">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Discovered Emails</span>
+                                <p class="text-2xl font-bold text-tech-accent">${emails.length}</p>
+                                <p class="text-[11px] text-slate-400 mt-1">Pattern: <code class="text-tech-accent text-[11px]">${corpId.email_pattern || 'Unknown'}</code></p>
+                            </div>
+                            <div class="bg-tech-bg p-5 rounded-2xl border border-slate-800">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Cloud / Social Footprint</span>
+                                <div class="flex items-center space-x-4 mt-2">
+                                    <div>
+                                        <span class="text-lg font-bold text-white">${Object.keys(social).length}</span>
+                                        <span class="text-[10px] text-slate-500 uppercase block">Socials</span>
+                                    </div>
+                                    <div class="border-l border-slate-700 pl-4">
+                                        <span class="text-lg font-bold text-white">${cloudAssets.length}</span>
+                                        <span class="text-[10px] text-slate-500 uppercase block">Buckets</span>
+                                    </div>
+                                    <div class="border-l border-slate-700 pl-4">
+                                        <span class="text-lg font-bold text-white">${verifiedServices.length}</span>
+                                        <span class="text-[10px] text-slate-500 uppercase block">SaaS</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mail Security & Spoofing Posture Card -->
                         <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
-                            <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 text-tech-danger">Leaked Credentials</h3>
+                            <div class="flex flex-col md:flex-row md:items-center justify-between pb-4 mb-4 border-b border-slate-800 gap-4">
+                                <div>
+                                    <h3 class="text-base font-bold text-white flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                        Mail Security Posture & Phishing Defense (SPF / DMARC)
+                                    </h3>
+                                    <p class="text-xs text-slate-400 mt-1">${mailSec.summary || 'DNS mail records analyzed.'}</p>
+                                </div>
+                                <span class="px-3 py-1 rounded-full text-xs font-bold border ${riskBadgeClass}">
+                                    ${mailSec.spoofable ? '⚠️ Vulnerable to Spoofing' : '🛡️ Spoofing Protected'}
+                                </span>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="space-y-4">
+                                    <div>
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">SPF Configuration</span>
+                                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                                            <div class="flex justify-between items-center mb-1">
+                                                <span class="text-xs font-bold text-white">SPF Status:</span>
+                                                <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">${mailSec.spf_status || 'None'}</span>
+                                            </div>
+                                            <code class="text-[11px] font-mono text-slate-400 break-all">${mailSec.spf_record || 'No SPF TXT record published'}</code>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">DMARC Configuration</span>
+                                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                                            <div class="flex justify-between items-center mb-1">
+                                                <span class="text-xs font-bold text-white">Policy: <code class="text-tech-accent uppercase">${mailSec.dmarc_policy || 'None'}</code></span>
+                                                ${mailSec.dmarc_rua ? `<span class="text-[10px] text-slate-400 truncate max-w-[200px]" title="${mailSec.dmarc_rua}">RUA: ${mailSec.dmarc_rua}</span>` : ''}
+                                            </div>
+                                            <code class="text-[11px] font-mono text-slate-400 break-all">${mailSec.dmarc_record || 'No DMARC record found at _dmarc.' + data.domain}</code>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Email Infrastructure & Security Vendors</span>
+                                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 min-h-[90px]">
+                                            <div class="flex flex-wrap gap-2">
+                                                ${vendors.map(v => `<span class="px-2.5 py-1 bg-slate-800 text-sky-400 border border-slate-700 rounded-lg text-xs font-bold flex items-center">
+                                                    <span class="w-1.5 h-1.5 rounded-full bg-sky-400 mr-2"></span>${v}
+                                                </span>`).join('') || '<span class="text-xs text-slate-600 italic">No third-party email security vendors identified.</span>'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Mail Exchange (MX) Gateways</span>
+                                        <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                                            <ul class="text-xs text-slate-300 font-mono space-y-1">
+                                                ${mailSec.mx_records?.map(mx => `<li class="truncate">• ${mx}</li>`).join('') || '<li class="text-slate-600 italic font-sans">No MX records returned.</li>'}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Enterprise Cloud & SaaS Verification Tokens -->
+                        ${verifiedServices.length > 0 ? `
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-base font-bold text-white mb-3 flex items-center">
+                                    <svg class="w-5 h-5 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                    DNS Verified Cloud & SaaS Services
+                                </h3>
+                                <div class="flex flex-wrap gap-2">
+                                    ${verifiedServices.map(s => `
+                                        <span class="px-3 py-1.5 bg-purple-500/10 border border-purple-500/30 text-purple-300 rounded-xl text-xs font-bold flex items-center">
+                                            <svg class="w-3.5 h-3.5 mr-1.5 text-purple-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+                                            ${s}
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Two-Column Grid: Corporate Emails & Social/Cloud Assets -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- Discovered Corporate Emails -->
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+                                    <h3 class="text-base font-bold text-white flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"></path></svg>
+                                        Corporate Contact Surface (${emails.length})
+                                    </h3>
+                                    <span class="text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                        Pattern: ${corpId.email_pattern || 'Unknown'}
+                                    </span>
+                                </div>
+
+                                <div class="overflow-x-auto max-h-[360px] overflow-y-auto">
+                                    <table class="w-full text-left text-sm">
+                                        <thead class="text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                            <tr>
+                                                <th class="pb-2">Email Address</th>
+                                                <th class="pb-2">Role / Department</th>
+                                                <th class="pb-2">Source</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-800/60">
+                                            ${emails.map(e => `
+                                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                                    <td class="py-2.5 font-mono text-xs text-tech-accent">${e.email}</td>
+                                                    <td class="py-2.5 text-xs text-slate-300">${e.role || 'Staff'}</td>
+                                                    <td class="py-2.5 text-[11px] text-slate-500">${e.source || 'Crawler'}</td>
+                                                </tr>
+                                            `).join('') || '<tr><td colspan="3" class="py-12 text-center text-slate-600 text-xs">No corporate emails harvested yet.</td></tr>'}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Social Footprint & Cloud Storage Assets -->
+                            <div class="space-y-6">
+                                <!-- Social Channels -->
+                                <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                    <h3 class="text-base font-bold text-white mb-4 pb-2 border-b border-slate-800 flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                                        Social & Brand Channels
+                                    </h3>
+                                    <div class="space-y-2.5 max-h-[160px] overflow-y-auto">
+                                        ${Object.entries(social).map(([platform, link]) => `
+                                            <div class="flex items-center justify-between p-2.5 bg-slate-900/60 rounded-xl border border-slate-800/70 hover:border-slate-700 transition-colors">
+                                                <span class="text-xs font-bold uppercase text-slate-400 flex items-center">
+                                                    <span class="w-2 h-2 rounded-full bg-indigo-500 mr-2"></span>${platform}
+                                                </span>
+                                                <a href="${link}" target="_blank" class="text-xs text-tech-accent hover:underline truncate max-w-[240px]">${link}</a>
+                                            </div>
+                                        `).join('') || '<p class="text-center py-6 text-slate-600 text-xs">No public social handles detected on web surfaces.</p>'}
+                                    </div>
+                                </div>
+
+                                <!-- Cloud Storage Assets -->
+                                <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                    <h3 class="text-base font-bold text-white mb-4 pb-2 border-b border-slate-800 flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path></svg>
+                                        Associated Cloud Storage Buckets
+                                    </h3>
+                                    <div class="space-y-2.5 max-h-[160px] overflow-y-auto">
+                                        ${cloudAssets.map(c => `
+                                            <div class="flex items-center justify-between p-2.5 bg-slate-900/60 rounded-xl border border-slate-800/70">
+                                                <div>
+                                                    <span class="text-xs font-bold text-white">${c.name}</span>
+                                                    <span class="text-[10px] text-slate-500 block">${c.provider}</span>
+                                                </div>
+                                                <span class="text-[10px] font-bold px-2 py-0.5 rounded ${c.risk === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse' : 'bg-slate-800 text-slate-400'}">
+                                                    ${c.status}
+                                                </span>
+                                            </div>
+                                        `).join('') || '<p class="text-center py-6 text-slate-600 text-xs">No public or exposed cloud storage buckets detected.</p>'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Leaked Credentials Table -->
+                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                            <h3 class="text-base font-bold mb-4 border-b border-slate-800 pb-2 text-tech-danger flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                Leaked Credentials & Breach Records (${leaks.length})
+                            </h3>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-left text-sm">
-                                    <thead class="text-slate-500 uppercase text-xs">
-                                        <tr><th class="pb-3">Email</th><th class="pb-3">Source</th><th class="pb-3">Hash</th></tr>
+                                    <thead class="text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                                        <tr><th class="pb-2">Compromised Email</th><th class="pb-2">Breach Source</th><th class="pb-2">Hash / Status</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-800">
-                                        ${data.osint?.leaked_credentials?.map(l => `<tr><td class="py-3 text-slate-300">${l.email}</td><td class="py-3 text-slate-500">${l.source}</td><td class="py-3 font-mono text-[10px] text-slate-600">${l.hash?.substring(0, 16)}...</td></tr>`).join('') || '<tr><td colspan="3" class="py-10 text-center text-slate-600">No credential leaks found.</td></tr>'}
+                                        ${leaks.map(l => `<tr><td class="py-3 text-slate-300 font-mono text-xs">${l.email}</td><td class="py-3 text-slate-400 text-xs">${l.source}</td><td class="py-3 font-mono text-[10px] text-slate-600">${l.hash ? l.hash.substring(0, 16) + '...' : 'Compromised'}</td></tr>`).join('') || '<tr><td colspan="3" class="py-10 text-center text-slate-600 text-xs">No credential leaks or known breach records recorded for this target domain.</td></tr>'}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
-                        <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
-                            <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Social Footprint</h3>
-                            <div class="space-y-4">
-                                ${Object.entries(data.osint?.social_links || {}).map(([platform, link]) => `
-                                    <div class="flex items-center justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50">
-                                        <span class="text-xs font-bold uppercase text-slate-500">${platform}</span>
-                                        <a href="${link}" target="_blank" class="text-xs text-tech-accent hover:underline">${link}</a>
-                                    </div>
-                                `).join('') || '<p class="text-center py-10 text-slate-600">No social profiles identified.</p>'}
-                            </div>
-                        </div>
                     </div>
                 `;
                 break;
+
             case 'whois':
                 content.innerHTML = `
                     <div class="space-y-8">
@@ -1209,5 +1681,39 @@
     function closeBypassContent() {
         document.getElementById('bypass-content-modal').classList.add('hidden');
     }
+
+    function openScreenshotLightbox(src, url, target) {
+        const modal = document.getElementById('screenshot-lightbox-modal');
+        const img = document.getElementById('screenshot-lightbox-img');
+        const title = document.getElementById('screenshot-lightbox-title');
+        const urlEl = document.getElementById('screenshot-lightbox-url');
+        const openBtn = document.getElementById('screenshot-lightbox-open-btn');
+        const dlBtn = document.getElementById('screenshot-lightbox-dl-btn');
+
+        img.src = src;
+        title.textContent = target || 'Web Application Capture';
+        urlEl.textContent = url || target;
+        openBtn.href = url || `https://${target}`;
+        dlBtn.href = src;
+        dlBtn.download = `${target || 'screenshot'}.png`;
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeScreenshotLightbox(event) {
+        const modal = document.getElementById('screenshot-lightbox-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeScreenshotLightbox();
+            closeBypassContent();
+        }
+    });
 </script>
 {% endblock %}

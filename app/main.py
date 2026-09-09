@@ -27,7 +27,8 @@ from app.security import (
     validate_password,
     SECRET_KEY,
     ALGORITHM,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    DISABLE_2FA
 )
 from jose import jwt, JWTError
 
@@ -38,6 +39,12 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["disable_2fa"] = DISABLE_2FA
+
+# Mount Screenshots directory
+SCREENSHOTS_DIR = os.environ.get("SCREENSHOTS_DIR", "/app/screenshots")
+os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+app.mount("/screenshots", StaticFiles(directory=SCREENSHOTS_DIR), name="screenshots")
 
 # Security Middleware for Headers
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -319,6 +326,7 @@ async def log_audit(username: str, action: str, details: str, request: Request):
 # --- Routes ---
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/login", response_class=HTMLResponse)
 async def root(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if user:
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
@@ -326,7 +334,7 @@ async def root(request: Request, user: Optional[dict] = Depends(get_current_user
 
 @app.post("/login")
 @limiter.limit("5/minute")
-async def login(request: Request, username: str = Form(...), password: str = Form(...), totp_code: str = Form(...)):
+async def login(request: Request, username: str = Form(...), password: str = Form(...), totp_code: Optional[str] = Form(None)):
     user = await users_col.find_one({"username": username})
     
     if not user:
@@ -357,9 +365,10 @@ async def login(request: Request, username: str = Form(...), password: str = For
         await log_audit(username, "login_failed", f"Invalid password (Attempt {failed_attempts})", request)
         return templates.TemplateResponse(request, "login.html", {"error": "Invalid credentials"})
     
-    if not verify_totp(user["totp_secret"], totp_code):
-        await log_audit(username, "login_failed", "Invalid TOTP code", request)
-        return templates.TemplateResponse(request, "login.html", {"error": "Invalid TOTP code"})
+    if not DISABLE_2FA:
+        if not totp_code or not verify_totp(user.get("totp_secret", ""), totp_code):
+            await log_audit(username, "login_failed", "Invalid TOTP code", request)
+            return templates.TemplateResponse(request, "login.html", {"error": "Invalid TOTP code"})
     
     # Success: Reset attempts and lockout
     await users_col.update_one({"username": username}, {"$set": {"failed_attempts": 0, "lockout_until": None}})
@@ -629,6 +638,53 @@ async def export_subdomains(
         'Content-Disposition': f'attachment; filename="target_inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     }
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+@app.get("/api/domains/{domain_id}/archive-urls/export")
+async def export_archive_urls(
+    domain_id: str,
+    category: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    try:
+        domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID")
+        
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    
+    archive_urls = domain_doc.get("archive_urls", {})
+    domain = domain_doc.get("domain", "domain")
+    
+    urls_to_export = []
+    if category == "sensitive_files":
+        urls_to_export = [item.get("url") for item in archive_urls.get("sensitive_files", []) if item.get("url")]
+    elif category == "api_endpoints":
+        urls_to_export = [item.get("url") for item in archive_urls.get("api_endpoints", []) if item.get("url")]
+    elif category == "interesting_params":
+        urls_to_export = [item.get("url") for item in archive_urls.get("interesting_params", []) if item.get("url")]
+    elif category == "documents":
+        urls_to_export = [item.get("url") for item in archive_urls.get("documents", []) if item.get("url")]
+    else:
+        for k in ["sensitive_files", "api_endpoints", "interesting_params", "documents"]:
+            for item in archive_urls.get(k, []):
+                if isinstance(item, dict) and item.get("url"):
+                    urls_to_export.append(item.get("url"))
+        for u in archive_urls.get("other_endpoints", []):
+            if isinstance(u, str):
+                urls_to_export.append(u)
+    
+    content_str = "\n".join(sorted(list(set(urls_to_export))))
+    cat_label = f"_{category}" if category else "_all"
+    filename = f"{domain}_archive_urls{cat_label}.txt"
+    return StreamingResponse(
+        io.StringIO(content_str),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.get("/api/ip-lookup")
 async def ip_lookup(ip: str, user: dict = Depends(get_current_user)):
@@ -1149,7 +1205,32 @@ async def add_domain(request: Request, domain: str = Form(...), user: dict = Dep
         "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     })
     
-    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain}", request)
+    # Automatically queue initial discovery, OSINT, and archive URL scan tasks so they begin scanning immediately
+    await tasks_col.insert_many([
+        {
+            "root_domain": domain,
+            "target": domain,
+            "task_type": "discovery",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        },
+        {
+            "root_domain": domain,
+            "target": domain,
+            "task_type": "osint",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        },
+        {
+            "root_domain": domain,
+            "target": domain,
+            "task_type": "archive_urls",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        }
+    ])
+    
+    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain} and queued discovery, OSINT & archive scans", request)
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-add")
@@ -1231,6 +1312,30 @@ async def bulk_add_domains(
                 "notes": "",
                 "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
             })
+            if not scanned_val and not on_hold_val:
+                await tasks_col.insert_many([
+                    {
+                        "root_domain": domain,
+                        "target": domain,
+                        "task_type": "discovery",
+                        "status": "pending",
+                        "created_at": datetime.utcnow()
+                    },
+                    {
+                        "root_domain": domain,
+                        "target": domain,
+                        "task_type": "osint",
+                        "status": "pending",
+                        "created_at": datetime.utcnow()
+                    },
+                    {
+                        "root_domain": domain,
+                        "target": domain,
+                        "task_type": "archive_urls",
+                        "status": "pending",
+                        "created_at": datetime.utcnow()
+                    }
+                ])
             added_count += 1
         else:
             skipped_count += 1
@@ -1385,34 +1490,39 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
     
     root_domain = domain_doc["domain"]
     
-    # 1. Reset scanned flag and on_hold flag
+    # 1. Reset scanned flag, on_hold flag, osint_complete, and archive_hunter_complete
     await domains_col.update_one(
         {"_id": ObjectId(domain_id)},
-        {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+        {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
     )
     
-    # 2. Clear old tasks for this domain to allow re-entry
-    await tasks_col.delete_many({
-        "root_domain": root_domain,
-        "task_type": {"$in": ["discovery", "verification", "scan", "tech_fingerprint", "directory_hunt", "js_mine", "bypass_403"]},
-        "status": {"$in": ["completed", "failed"]}
-    })
+    # 2. Clear ALL old/stuck tasks for this domain to allow a clean re-entry
+    await tasks_col.delete_many({"root_domain": root_domain})
     
-    # 3. Create a fresh discovery task for the root domain
-    # This is what triggers the whole pipeline
-    exists = await tasks_col.find_one({
-        "root_domain": root_domain,
-        "target": root_domain,
-        "task_type": "discovery"
-    })
-    if not exists:
-        await tasks_col.insert_one({
+    # 3. Create fresh discovery, OSINT, and archive URL tasks for the root domain
+    await tasks_col.insert_many([
+        {
             "root_domain": root_domain,
             "target": root_domain,
             "task_type": "discovery",
             "status": "pending",
             "created_at": datetime.utcnow()
-        })
+        },
+        {
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "osint",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        },
+        {
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "archive_urls",
+            "status": "pending",
+            "created_at": datetime.utcnow()
+        }
+    ])
     
     await log_audit(user["username"], "SCAN_NOW", f"Triggered immediate scan for domain: {root_domain}", request)
     return {"status": "success"}
@@ -1438,30 +1548,36 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
         # 1. Reset flags
         await domains_col.update_one(
             {"_id": d_id},
-            {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+            {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
         )
         
-        # 2. Clear old tasks
-        await tasks_col.delete_many({
-            "root_domain": root_domain,
-            "task_type": {"$in": ["discovery", "verification", "scan", "tech_fingerprint", "directory_hunt", "js_mine", "bypass_403"]},
-            "status": {"$in": ["completed", "failed"]}
-        })
+        # 2. Clear ALL old/stuck tasks
+        await tasks_col.delete_many({"root_domain": root_domain})
         
-        # 3. Create fresh discovery task
-        exists = await tasks_col.find_one({
-            "root_domain": root_domain,
-            "target": root_domain,
-            "task_type": "discovery"
-        })
-        if not exists:
-            await tasks_col.insert_one({
+        # 3. Create fresh discovery, OSINT, and archive tasks
+        await tasks_col.insert_many([
+            {
                 "root_domain": root_domain,
                 "target": root_domain,
                 "task_type": "discovery",
                 "status": "pending",
                 "created_at": datetime.utcnow()
-            })
+            },
+            {
+                "root_domain": root_domain,
+                "target": root_domain,
+                "task_type": "osint",
+                "status": "pending",
+                "created_at": datetime.utcnow()
+            },
+            {
+                "root_domain": root_domain,
+                "target": root_domain,
+                "task_type": "archive_urls",
+                "status": "pending",
+                "created_at": datetime.utcnow()
+            }
+        ])
             
     await log_audit(user["username"], "BULK_SCAN_NOW", f"Triggered immediate scan for {len(ids)} domains", request)
     return {"status": "success"}

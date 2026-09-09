@@ -185,25 +185,6 @@ class PortScannerAgent(BaseAgent):
                                 "created_at": datetime.datetime.utcnow()
                             })
                             logger.info(f"Queued tech fingerprint for {target}:{svc['port']}")
-
-                        # Also trigger nuclei scanning
-                        exists_nuclei = await self.tasks_col.find_one({
-                            "root_domain": root_domain,
-                            "target": target,
-                            "port": svc['port'],
-                            "task_type": "nuclei_scan"
-                        })
-                        if not exists_nuclei:
-                            await self.tasks_col.insert_one({
-                                "root_domain": root_domain,
-                                "target": target,
-                                "protocol": proto,
-                                "port": svc['port'],
-                                "task_type": "nuclei_scan",
-                                "status": "pending",
-                                "created_at": datetime.datetime.utcnow()
-                            })
-                            logger.info(f"Queued NUCLEI scan for {target}:{svc['port']}")
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

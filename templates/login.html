@@ -30,10 +30,12 @@
                     <label for="password" class="block text-sm font-medium">Password</label>
                     <input id="password" name="password" type="password" required class="mt-1 block w-full px-4 py-3 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-tech-accent focus:border-transparent transition-all outline-none" placeholder="••••••••">
                 </div>
+                {% if not disable_2fa %}
                 <div>
                     <label for="totp_code" class="block text-sm font-medium">TOTP Code</label>
                     <input id="totp_code" name="totp_code" type="text" required class="mt-1 block w-full px-4 py-3 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-tech-accent focus:border-transparent transition-all outline-none" placeholder="123456" maxlength="6">
                 </div>
+                {% endif %}
             </div>
 
             <button type="submit" class="w-full py-4 px-6 bg-tech-accent hover:bg-tech-accent/90 text-tech-bg font-bold rounded-xl shadow-lg shadow-tech-accent/20 transition-all transform active:scale-[0.98]">

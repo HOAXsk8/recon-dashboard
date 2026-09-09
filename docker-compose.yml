@@ -14,15 +14,20 @@ services:
 
   dashboard:
     build: .
+    image: recon-dashboard:latest
     container_name: recon-dashboard
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - ADMIN_INITIAL_PASSWORD=${ADMIN_INITIAL_PASSWORD}
+      - ADMIN_INITIAL_TOTP_SECRET=${ADMIN_INITIAL_TOTP_SECRET}
+      - DISABLE_2FA=${DISABLE_2FA:-true}
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
       - ./tools:/app/tools
+      - ./screenshots:/app/screenshots
     restart: always
     network_mode: "host"
     depends_on:
@@ -44,12 +49,14 @@ services:
       - dashboard
 
   subdomain-discovery:
-    build: .
+    image: recon-dashboard:latest
     container_name: subdomain-discovery
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/subdomain_discovery.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -57,12 +64,14 @@ services:
       - dashboard
 
   alive-check:
-    build: .
+    image: recon-dashboard:latest
     container_name: alive-check
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/alive_check.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -70,12 +79,14 @@ services:
       - dashboard
 
   port-scanner:
-    build: .
+    image: recon-dashboard:latest
     container_name: port-scanner
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/port_scanner.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -83,12 +94,60 @@ services:
       - dashboard
 
   whois-lookup:
-    build: .
+    image: recon-dashboard:latest
     container_name: whois-lookup
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/whois_agent.py"]
+    volumes:
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  osint-agent:
+    image: recon-dashboard:latest
+    container_name: osint-agent
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/osint_agent.py"]
+    volumes:
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  screenshot-agent:
+    image: recon-dashboard:latest
+    container_name: screenshot-agent
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/screenshot_agent.py"]
+    volumes:
+      - ./tools:/app/tools
+      - ./screenshots:/app/screenshots
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  archive-hunter:
+    image: recon-dashboard:latest
+    container_name: archive-hunter
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/archive_hunter.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -96,7 +155,7 @@ services:
       - dashboard
 
   directory-hunter:
-    build: .
+    image: recon-dashboard:latest
     container_name: directory-hunter
     environment:
       - MONGO_HOST=localhost
@@ -113,12 +172,14 @@ services:
       - dashboard
 
   tech-fingerprinter:
-    build: .
+    image: recon-dashboard:latest
     container_name: tech-fingerprinter
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/tech_fingerprinter.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -126,12 +187,14 @@ services:
       - dashboard
 
   loop-orchestrator:
-    build: .
+    image: recon-dashboard:latest
     container_name: loop-orchestrator
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/loop_orchestrator.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -139,7 +202,7 @@ services:
       - dashboard
 
   js-miner:
-    build: .
+    image: recon-dashboard:latest
     container_name: js-miner
     environment:
       - MONGO_HOST=localhost
@@ -156,29 +219,12 @@ services:
       - dashboard
 
   bypass-403:
-    build: .
+    image: recon-dashboard:latest
     container_name: bypass-403
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/bypass_403.py"]
-    volumes:
-      - ./app:/app/app
-      - ./templates:/app/templates
-      - ./tools:/app/tools
-    restart: always
-    network_mode: "host"
-    depends_on:
-      - db
-      - dashboard
-
-  nuclei-scanner:
-    build: .
-    container_name: nuclei-scanner
-    environment:
-      - MONGO_HOST=localhost
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/nuclei_scanner.py"]
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates

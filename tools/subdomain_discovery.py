@@ -34,34 +34,46 @@ class SubdomainDiscoveryAgent(BaseAgent):
 
     async def run_ffuf(self, domain):
         logger.info(f"Running ffuf on {domain}")
-        # Added -ac for auto-calibration and -t 50 to keep it somewhat controlled
+        # Bounded execution: -timeout 2, -maxtime 60 prevents hanging on slow network/DNS
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{domain}",
-            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "50"
+            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "50",
+            "-timeout", "2", "-maxtime", "60"
         ]
-        stdout, stderr = await self.run_command(cmd)
-        found = []
-        for line in stdout.splitlines():
-            sub = line.strip()
-            if sub:
-                found.append(f"{sub}.{domain}")
-        return found
+        try:
+            stdout, stderr = await self.run_command(cmd, timeout=75)
+            found = []
+            for line in stdout.splitlines():
+                sub = line.strip()
+                if sub and not sub.startswith("Encountered an error") and " " not in sub:
+                    found.append(f"{sub}.{domain}")
+            return found
+        except Exception as e:
+            logger.warning(f"ffuf active discovery skipped or timed out for {domain}: {e}")
+            return []
 
     async def process_tasks(self):
-        # ... (same as before)
         # 1. Check for new domains that need discovery
         new_domains = await self.domains_col.find({"scanned": False, "blacklisted": {"$ne": True}}).to_list(length=10)
         for d in new_domains:
+            if d.get("on_hold", False):
+                continue
             root_domain = d["domain"]
-            exists = await self.tasks_col.find_one({"root_domain": root_domain, "target": root_domain, "task_type": "discovery"})
-            if not exists:
-                await self.tasks_col.insert_one({
-                    "root_domain": root_domain,
-                    "target": root_domain,
-                    "task_type": "discovery",
-                    "status": "pending",
-                    "created_at": datetime.datetime.utcnow()
-                })
+            active_count = await self.tasks_col.count_documents({
+                "root_domain": root_domain,
+                "status": {"$in": ["pending", "processing"]}
+            })
+            if active_count == 0:
+                total_tasks = await self.tasks_col.count_documents({"root_domain": root_domain})
+                if total_tasks == 0:
+                    await self.tasks_col.insert_one({
+                        "root_domain": root_domain,
+                        "target": root_domain,
+                        "task_type": "discovery",
+                        "status": "pending",
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    logger.info(f"Queued initial discovery scan for new domain: {root_domain}")
 
         # 2. Process pending discovery tasks
         task = await self.tasks_col.find_one_and_update(
@@ -77,15 +89,18 @@ class SubdomainDiscoveryAgent(BaseAgent):
         root_domain = task["root_domain"]
         
         try:
-            # Passive is usually safe from wildcards
+            # Passive is fast and reliable
             passive = await self.run_subfinder(target)
             
-            # Active: Only run ffuf if no wildcard is detected
+            # Active: Run bounded ffuf only if no wildcard is detected
             active = []
             if not await self.has_wildcard_dns(target):
                 active = await self.run_ffuf(target)
             
             all_found = set(passive + active)
+            # Always ensure the root domain itself is included for verification & port scanning
+            all_found.add(target)
+            all_found.add(root_domain)
 
             for sub in all_found:
                 # Add to verification queue
@@ -109,7 +124,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
             )
             await self.check_completion(root_domain)
 
-            logger.info(f"Completed discovery for {target}")
+            logger.info(f"Completed discovery for {target} (Found {len(all_found)} targets)")
 
         except Exception as e:
             logger.error(f"Error in discovery for {target}: {e}")

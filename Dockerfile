@@ -8,31 +8,22 @@ RUN apt update && apt install -y --no-install-recommends \
     ffuf \
     unzip \
     whois \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
-# Install subfinder
-RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
-    && unzip subfinder_2.6.6_linux_amd64.zip \
-    && mv subfinder /usr/local/bin/ \
-    && rm subfinder_2.6.6_linux_amd64.zip
+# Install subfinder and httpx with dynamic architecture detection
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_${ARCH}.zip && \
+    unzip -o subfinder_2.6.6_linux_${ARCH}.zip && \
+    mv subfinder /usr/local/bin/ && \
+    rm subfinder_2.6.6_linux_${ARCH}.zip && \
+    wget https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_linux_${ARCH}.zip && \
+    unzip -o httpx_1.6.0_linux_${ARCH}.zip && \
+    mv httpx /usr/local/bin/pd-httpx && \
+    rm httpx_1.6.0_linux_${ARCH}.zip
 
-# Install httpx
-RUN wget https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_linux_amd64.zip \
-    && unzip httpx_1.6.0_linux_amd64.zip \
-    && mv httpx /usr/local/bin/pd-httpx \
-    && rm httpx_1.6.0_linux_amd64.zip
-
-# Install nuclei
-RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_amd64.zip \
-    && unzip -o nuclei_3.3.0_linux_amd64.zip \
-    && mv nuclei /usr/local/bin/ \
-    && rm nuclei_3.3.0_linux_amd64.zip
-
-# Initialize nuclei templates
-RUN nuclei -update-templates
-
-# Setup wordlists
-RUN mkdir -p /app/wordlists && \
+# Setup wordlists and screenshots dir
+RUN mkdir -p /app/wordlists /app/screenshots && \
     wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt \
     -O /app/wordlists/subdomains-top5000.txt && \
     wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-directories-lowercase.txt \

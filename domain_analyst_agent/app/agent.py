@@ -28,7 +28,7 @@ Reconnaissance data includes:
 
 Based on this data, you must provide:
 1. **Analysis Summary**: A high-level overview of the target's external attack surface. Highlight interesting technologies, clusters of assets, or any obvious misconfigurations.
-2. **Exploitation Suggestions**: Actionable steps for a penetration tester. This should include specific tools to use (e.g., nmap, nuclei, ffuf), specific ports to investigate, and potential vulnerabilities based on identified software versions. Use Markdown for formatting.
+2. **Exploitation Suggestions**: Actionable steps for a penetration tester. This should include specific tools to use (e.g., nmap, ffuf), specific ports to investigate, and potential vulnerabilities based on identified software versions. Use Markdown for formatting.
 
 Be professional, concise, and technical.
 """
