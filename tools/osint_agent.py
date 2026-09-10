@@ -488,24 +488,26 @@ class OsintAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Process tasks explicitly queued in tasks_col
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "osint", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}}
-        )
+        task = await self.get_next_task("osint")
 
         if task:
             root_domain = task["root_domain"]
-            domain_doc = await self.domains_col.find_one({"domain": root_domain})
+            domain_doc = await self.domains_col.find_one({
+                "domain": root_domain,
+                "blacklisted": {"$ne": True},
+                "on_hold": {"$ne": True}
+            })
             if domain_doc:
                 await self.process_domain_osint(domain_doc)
             else:
-                await self.tasks_col.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "Domain not found"}})
+                await self.tasks_col.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "Domain not found or inactive"}})
             return
 
         # 2. Check for domains where osint_complete is not True
         pending_domain = await self.domains_col.find_one({
             "osint_complete": {"$ne": True},
-            "blacklisted": {"$ne": True}
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True}
         })
 
         if pending_domain:

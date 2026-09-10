@@ -5,65 +5,280 @@
 {% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
 
 {% block content %}
-<div class="w-full space-y-12">
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+<div class="w-full space-y-8">
+    <!-- Header & Controls -->
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-2 border-b border-slate-800/80">
         <div>
-            <h1 class="text-3xl font-black tracking-tight text-white">TOOLS <span class="text-tech-accent">MONITORING</span></h1>
-            <p class="text-slate-400 mt-1 font-medium">Real-time status of background reconnaissance agents.</p>
+            <div class="flex items-center space-x-3">
+                <h1 class="text-3xl font-black tracking-tight text-white">TOOLS <span class="text-tech-accent">MONITORING</span></h1>
+                <span id="tools-count-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">0 ENGINES</span>
+            </div>
+            <p class="text-slate-400 mt-1 font-medium text-sm">Real-time status of background reconnaissance engines. Click any tool to run it directly on a domain.</p>
         </div>
-        <div class="flex items-center space-x-3">
+        
+        <div class="flex flex-wrap items-center gap-3">
+            <!-- View Mode Switcher -->
+            <div class="inline-flex p-1 bg-slate-900/90 border border-slate-800 rounded-xl shadow-inner">
+                <button id="view-tile-btn" onclick="setViewMode('tile')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-tech-bg bg-tech-accent shadow-sm" title="Tile View">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    <span>Tiles</span>
+                </button>
+                <button id="view-list-btn" onclick="setViewMode('list')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-white" title="List View">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                    <span>List</span>
+                </button>
+            </div>
+
+            <!-- Global Scanning Controls -->
             <button id="pause-btn" onclick="togglePause()" class="px-4 py-2 bg-tech-danger hover:opacity-90 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-danger hidden">
                 <svg id="pause-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span id="pause-text">Pause Scanning</span>
             </button>
-            <button onclick="fetchTools()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
+            
+            <button id="continue-btn" onclick="continueScanning()" class="px-4 py-2 bg-tech-accent hover:opacity-90 text-tech-bg rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-accent shadow-lg shadow-tech-accent/20" title="Continue scanning from where it stopped or trigger next scan pass">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="continue-text">Continue Scanning</span>
+            </button>
+            
+            <button onclick="fetchTools()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700 shadow-md">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span>Refresh Status</span>
             </button>
         </div>
     </div>
 
-    <!-- Tools Sections -->
-    <div class="space-y-12">
-        <!-- Scripts Section -->
-        <div>
-            <div class="flex items-center space-x-3 mb-6">
-                <div class="h-px flex-grow bg-slate-800"></div>
-                <h2 class="text-xs font-black uppercase tracking-[0.4em] text-slate-500 flex items-center space-x-2">
-                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    <span>Operation Scripts</span>
-                </h2>
-                <div class="h-px flex-grow bg-slate-800"></div>
+    <!-- Active Engines Section -->
+    <div class="space-y-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="w-2 h-2 rounded-full bg-tech-accent animate-pulse"></span>
+                <h2 class="text-xs font-black uppercase tracking-[0.3em] text-slate-400">Reconnaissance Engines (Alphabetical)</h2>
             </div>
-            <div id="scripts-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <!-- Skeletons -->
-                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 animate-pulse col-span-full h-24"></div>
-            </div>
+            <span class="text-xs font-mono text-slate-500">Sorted A → Z</span>
         </div>
 
-        <!-- AI Agents Section -->
-        <div>
-            <div class="flex items-center space-x-3 mb-4">
-                <div class="h-px flex-grow bg-slate-800"></div>
-                <h2 class="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 flex items-center space-x-2">
-                    <svg class="w-3 h-3 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                    <span>Autonomous AI Agents</span>
-                </h2>
-                <div class="h-px flex-grow bg-slate-800"></div>
-            </div>
-            <div id="ai-agents-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <div class="col-span-full text-center py-6 text-slate-600 font-mono text-[9px] uppercase tracking-widest border border-dashed border-slate-800 rounded-2xl">
-                    Deploying AI Cognitive Modules...
-                </div>
+        <!-- Engines Container (Swappable between Tile Grid and List Table) -->
+        <div id="engines-container">
+            <!-- Loading Skeleton -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse h-48"></div>
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse h-48"></div>
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse h-48"></div>
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse h-48"></div>
             </div>
         </div>
     </div>
 </div>
 
-<script>
-    let currentTools = [];
+<!-- ========================================================================= -->
+<!-- TARGETED TOOL EXECUTION MODAL                                             -->
+<!-- ========================================================================= -->
+<div id="tool-run-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-all duration-200">
+    <div class="bg-tech-panel border border-slate-700/80 rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl space-y-6 relative max-h-[90vh] overflow-y-auto">
+        <!-- Close Button -->
+        <button onclick="closeRunModal()" class="absolute top-6 right-6 text-slate-500 hover:text-white transition-colors p-1.5 rounded-lg bg-slate-900 border border-slate-800">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
 
+        <!-- Modal Tool Header -->
+        <div class="flex items-start space-x-4 pr-10">
+            <div id="modal-tool-icon" class="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-tech-accent border border-slate-800 shadow-inner shrink-0">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <h3 id="modal-tool-name" class="text-lg font-black text-white uppercase tracking-tight">Tool Name</h3>
+                    <span id="modal-tool-status" class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-tech-success/20 text-tech-success border border-tech-success/30">Running</span>
+                </div>
+                <p id="modal-tool-key" class="text-xs font-mono text-slate-500 uppercase tracking-widest mt-0.5">tool_key</p>
+                <p id="modal-tool-desc" class="text-xs text-slate-400 mt-2 leading-relaxed">Tool description...</p>
+            </div>
+        </div>
+
+        <!-- Alert / Feedback Banner -->
+        <div id="modal-alert-banner" class="hidden p-3.5 rounded-xl text-xs font-mono border"></div>
+
+        <!-- Domain Selection Form -->
+        <div class="space-y-4 pt-2 border-t border-slate-800/80">
+            <div>
+                <label class="block text-xs font-black uppercase tracking-widest text-slate-300 mb-1.5">
+                    1. Select Target Domain from Workspace
+                </label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <input 
+                        type="text" 
+                        id="modal-domain-search" 
+                        oninput="handleDomainSearchInput(this.value)" 
+                        placeholder="Search domains (e.g. virginmedia.com)..." 
+                        autocomplete="off"
+                        class="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent transition-colors font-mono"
+                    />
+                    <button id="modal-search-clear" onclick="clearDomainSearch()" class="hidden absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-white">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+
+                <!-- Quick Domain Chips -->
+                <div class="mt-2.5">
+                    <div class="text-[10px] font-mono uppercase text-slate-500 tracking-wider mb-1.5">Quick Select:</div>
+                    <div id="modal-quick-chips" class="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                        <span class="text-xs text-slate-600 font-mono">Loading active domains...</span>
+                    </div>
+                </div>
+
+                <!-- Live Search Results Dropdown -->
+                <div id="modal-search-results" class="hidden mt-2 bg-slate-900 border border-slate-800 rounded-xl max-h-48 overflow-y-auto divide-y divide-slate-800/50 shadow-2xl">
+                </div>
+            </div>
+
+            <!-- Selected Target Details Box -->
+            <div id="modal-selected-target-box" class="hidden p-4 rounded-xl bg-slate-900/80 border border-tech-accent/40 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-[10px] font-mono uppercase tracking-widest text-tech-accent font-bold">Selected Target</span>
+                        <div id="selected-domain-title" class="text-sm font-black text-white font-mono mt-0.5">domain.com</div>
+                    </div>
+                    <span id="selected-domain-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">Root Scope</span>
+                </div>
+
+                <!-- Sub-target Selector (if target has subdomains / web apps) -->
+                <div id="modal-subtarget-wrapper" class="hidden space-y-1">
+                    <label class="block text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                        Target Specific Host / URL (Optional):
+                    </label>
+                    <select id="modal-subtarget-select" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-tech-accent">
+                    </select>
+                </div>
+            </div>
+
+            <!-- Priority Option: Add to top of queue -->
+            <div class="p-4 rounded-xl bg-slate-900/50 border border-slate-800/80 hover:border-slate-700 transition-colors">
+                <label class="flex items-start space-x-3 cursor-pointer">
+                    <div class="flex items-center h-5">
+                        <input 
+                            type="checkbox" 
+                            id="modal-top-of-queue-checkbox" 
+                            class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-tech-accent focus:ring-tech-accent focus:ring-offset-slate-900"
+                        />
+                    </div>
+                    <div class="space-y-0.5">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-black uppercase tracking-wider text-white">Add to top of queue</span>
+                            <span class="px-2 py-0.2 rounded-full text-[9px] font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">HIGH PRIORITY</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            Immediately sets top priority (<code class="text-amber-400">priority: 10</code>) and backdates timestamp so this worker job executes before pending FIFO queue items.
+                        </p>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
+            <button onclick="closeRunModal()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-colors border border-slate-800">
+                Cancel
+            </button>
+            <button id="modal-run-btn" onclick="executeToolRun()" disabled class="px-5 py-2.5 bg-tech-accent hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-tech-bg rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center space-x-2 border border-tech-accent shadow-lg shadow-tech-accent/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="modal-run-btn-text">Run Tool</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Global State ---
+    let currentTools = [];
+    let currentViewMode = localStorage.getItem('tools_view_mode') || 'tile';
+    let activeModalTool = null;
+    let availableDomains = [];
+    let selectedDomainObj = null;
+    let domainSearchTimeout = null;
+
+    // Tool Metadata and Descriptions
+    const TOOL_METADATA = {
+        "alive_check": {
+            desc: "Probes HTTP/HTTPS services across subdomains to verify alive hosts and response codes.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+        },
+        "archive_hunter": {
+            desc: "Mines Wayback Machine, Common Crawl, and AlienVault OTX for historical URLs and hidden endpoints.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+        },
+        "bypass_403": {
+            desc: "Fuzzes HTTP headers, path permutations, and methods to bypass 401/403 Forbidden restrictions.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>'
+        },
+        "directory_hunter": {
+            desc: "High-speed directory, file, and sensitive resource discovery using ffuf with smart length filtering.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>'
+        },
+        "js_miner": {
+            desc: "Parses client-side JavaScript assets to extract hidden API routes, secrets, and sensitive tokens.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>'
+        },
+        "lb_detector": {
+            desc: "Detects DNS load balancing, HTTP reverse proxy clusters, and server distribution setups.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>'
+        },
+        "loop_orchestrator": {
+            desc: "Continuous autonomous scanning orchestrator managing the reconnaissance pipeline lifecycle.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>'
+        },
+        "osint_collector": {
+            desc: "Collects public OSINT intelligence, emails, external hosts, and infrastructure footprinting data.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>'
+        },
+        "port_scanner": {
+            desc: "Executes targeted port scanning and service banner detection using optimized Nmap probes.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>'
+        },
+        "screenshot_agent": {
+            desc: "Captures visual full-page screenshots of responsive web services and administrative portals.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>'
+        },
+        "subdomain_discovery": {
+            desc: "Enumerates passive and active subdomains for root domain scopes using subfinder sources.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>'
+        },
+        "tech_fingerprinter": {
+            desc: "Fingerprints web application technologies, frameworks, servers, and security headers via pd-httpx and whatweb.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>'
+        },
+        "waf_detector": {
+            desc: "Identifies Web Application Firewalls (Cloudflare, Akamai, AWS WAF, Imperva) and inspection rules.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>'
+        },
+        "whois_lookup": {
+            desc: "Retrieves registrar ownership, registrant organization, and authoritative nameserver records.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>'
+        }
+    };
+
+    // --- View Mode Controls ---
+    function setViewMode(mode) {
+        currentViewMode = mode;
+        localStorage.setItem('tools_view_mode', mode);
+        
+        const tileBtn = document.getElementById('view-tile-btn');
+        const listBtn = document.getElementById('view-list-btn');
+        
+        if (mode === 'tile') {
+            tileBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-tech-bg bg-tech-accent shadow-sm";
+            listBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-white";
+        } else {
+            listBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-tech-bg bg-tech-accent shadow-sm";
+            tileBtn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-white";
+        }
+        
+        renderTools(currentTools);
+    }
+
+    // --- Settings & Scanning Status ---
     async function fetchSettings() {
         try {
             const resp = await fetch('/api/settings');
@@ -105,36 +320,83 @@
         }
     }
 
+    async function continueScanning() {
+        const btn = document.getElementById('continue-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg><span>Resuming...</span>`;
+        try {
+            const resp = await fetch('/api/settings/continue-scanning', { method: 'POST' });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                updatePauseUI(false);
+                fetchTools();
+                alert(result.message || 'Scanning continued successfully.');
+            } else {
+                alert('Error: ' + (result.detail || 'Failed to continue scanning'));
+            }
+        } catch (e) {
+            console.error('Continue Scan Error:', e);
+            alert('Error continuing scan: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+
+    // --- Tools Fetching & Rendering ---
     async function fetchTools() {
         try {
             const resp = await fetch('/api/tools');
             if (!resp.ok) throw new Error('Failed to fetch tools');
-            currentTools = await resp.json();
+            const data = await resp.json();
+            
+            // Sort Alphabetically by display name (A -> Z)
+            data.sort((a, b) => {
+                const nameA = (a.name || a.key || '').toLowerCase();
+                const nameB = (b.name || b.key || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
+            currentTools = data;
+            document.getElementById('tools-count-badge').innerText = `${currentTools.length} ENGINES`;
             renderTools(currentTools);
         } catch (e) {
             console.error('Fetch Error:', e);
         }
     }
 
+    function getToolIcon(key) {
+        if (TOOL_METADATA[key] && TOOL_METADATA[key].icon) {
+            return TOOL_METADATA[key].icon;
+        }
+        return '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>';
+    }
+
     function renderTools(tools) {
-        const aiContainer = document.getElementById('ai-agents-container');
-        const scriptsContainer = document.getElementById('scripts-container');
+        const container = document.getElementById('engines-container');
 
         if (tools.length === 0) {
-            const emptyMsg = `
-                <div class="col-span-full p-10 text-center bg-tech-panel rounded-2xl border border-slate-800 text-slate-500 font-mono text-xs uppercase">
-                    No active units registered in the field.
+            container.innerHTML = `
+                <div class="p-12 text-center bg-tech-panel rounded-2xl border border-slate-800 text-slate-500 font-mono text-xs uppercase">
+                    No active engines registered in the field.
                 </div>
             `;
-            aiContainer.innerHTML = emptyMsg;
-            scriptsContainer.innerHTML = emptyMsg;
             return;
         }
 
-        const aiTools = tools.filter(t => t.type === 'ai_agent');
-        const scriptTools = tools.filter(t => t.type !== 'ai_agent');
+        if (currentViewMode === 'tile') {
+            renderTileView(tools, container);
+        } else {
+            renderListView(tools, container);
+        }
+    }
 
-        function generateToolCard(t) {
+    // 1. TILE VIEW (Grid of Cards)
+    function renderTileView(tools, container) {
+        let html = '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">';
+        
+        tools.forEach(t => {
             let statusColor = 'bg-slate-500';
             let statusText = t.status || 'Stopped';
             let pulseClass = '';
@@ -148,67 +410,436 @@
                 statusColor = 'bg-tech-danger';
             }
 
-            const icon = t.type === 'ai_agent' 
-                ? '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>'
-                : '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>';
+            const icon = getToolIcon(t.key);
+            const toolDesc = TOOL_METADATA[t.key] ? TOOL_METADATA[t.key].desc : 'Background reconnaissance worker.';
 
-            return `
-                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 transition-all relative overflow-hidden group hover:border-tech-accent/50">
+            html += `
+                <div onclick="openRunModal('${t.key}')" class="bg-tech-panel p-6 rounded-2xl border border-slate-800 hover:border-tech-accent/60 transition-all relative overflow-hidden group cursor-pointer shadow-lg hover:shadow-tech-accent/5 flex flex-col justify-between">
                     <div class="absolute top-0 left-0 w-1.5 h-full ${statusColor}"></div>
-                    <div class="flex items-center justify-between mb-6">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-tech-accent border border-slate-800 shadow-inner group-hover:bg-tech-accent/10 transition-colors">
-                                ${icon}
-                            </div>
-                            <div>
-                                <h3 class="text-base font-black text-white tracking-tight leading-tight uppercase">${t.name}</h3>
-                                <p class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-1">${t.key}</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center space-x-2 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800 shadow-lg">
-                            <div class="w-2 h-2 rounded-full ${statusColor} ${pulseClass}"></div>
-                            <span class="text-[10px] font-black uppercase tracking-tighter ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
-                        </div>
-                    </div>
                     
-                    <div class="space-y-3">
-                        <div class="flex justify-between items-center text-xs bg-slate-900/30 p-3 rounded-lg border border-slate-800/30">
-                            <span class="text-slate-500 uppercase font-bold tracking-widest text-[9px]">Last Pulse</span>
-                            <span class="text-slate-300 font-mono font-bold">${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleTimeString() : 'LOST'}</span>
-                        </div>
-                        <div class="flex justify-between items-center text-xs bg-slate-900/30 p-3 rounded-lg border border-slate-800/30">
-                            <span class="text-slate-500 uppercase font-bold tracking-widest text-[9px]">Agent PID</span>
-                            <span class="text-slate-300 font-mono font-bold">${t.pid || 'N/A'}</span>
-                        </div>
-                        <div class="pt-2 flex items-center justify-between px-0.5">
-                            <span class="text-[10px] text-slate-600 font-mono uppercase tracking-[0.3em] font-bold">${t.type === 'ai_agent' ? 'Cognitive Processor' : 'Logic Controller'}</span>
-                            <div class="flex space-x-1">
-                                <div class="w-1 h-1 rounded-full bg-slate-700"></div>
-                                <div class="w-1 h-1 rounded-full bg-slate-700"></div>
-                                <div class="w-1 h-1 rounded-full bg-slate-700"></div>
+                    <div>
+                        <!-- Header -->
+                        <div class="flex items-start justify-between mb-4">
+                            <div class="flex items-center space-x-3.5">
+                                <div class="w-11 h-11 bg-slate-900 rounded-xl flex items-center justify-center text-tech-accent border border-slate-800 shadow-inner group-hover:bg-tech-accent/10 group-hover:border-tech-accent/30 transition-colors shrink-0">
+                                    ${icon}
+                                </div>
+                                <div>
+                                    <h3 class="text-sm font-black text-white tracking-tight uppercase leading-tight group-hover:text-tech-accent transition-colors">${t.name}</h3>
+                                    <p class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-0.5">${t.key}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-1.5 bg-slate-900/80 px-2.5 py-1 rounded-full border border-slate-800 shadow-sm shrink-0">
+                                <div class="w-1.5 h-1.5 rounded-full ${statusColor} ${pulseClass}"></div>
+                                <span class="text-[9px] font-black uppercase tracking-tighter ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
                             </div>
                         </div>
+
+                        <!-- Tool Description -->
+                        <p class="text-xs text-slate-400 line-clamp-2 leading-relaxed mb-4">${toolDesc}</p>
+                    </div>
+
+                    <!-- Meta Details & Action -->
+                    <div class="space-y-3 pt-3 border-t border-slate-800/60">
+                        <div class="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                            <div class="bg-slate-900/40 p-2 rounded-lg border border-slate-800/30">
+                                <span class="text-slate-500 block uppercase font-bold text-[8px]">PID</span>
+                                <span class="text-slate-300 font-bold">${t.pid || 'N/A'}</span>
+                            </div>
+                            <div class="bg-slate-900/40 p-2 rounded-lg border border-slate-800/30">
+                                <span class="text-slate-500 block uppercase font-bold text-[8px]">Last Pulse</span>
+                                <span class="text-slate-300 font-bold">${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleTimeString() : 'LOST'}</span>
+                            </div>
+                        </div>
+
+                        <button onclick="event.stopPropagation(); openRunModal('${t.key}')" class="w-full py-2 bg-slate-900 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 border border-slate-800 group-hover:border-tech-accent/40">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span>Run on Domain</span>
+                        </button>
                     </div>
                 </div>
             `;
-        }
+        });
 
-        aiContainer.innerHTML = aiTools.length > 0 
-            ? aiTools.map(generateToolCard).join('') 
-            : '<div class="col-span-full text-center py-10 text-slate-600 font-mono text-[10px] uppercase tracking-widest border border-dashed border-slate-800 rounded-3xl">No AI agents online.</div>';
-        
-        scriptsContainer.innerHTML = scriptTools.length > 0 
-            ? scriptTools.map(generateToolCard).join('') 
-            : '<div class="col-span-full text-center py-10 text-slate-600 font-mono text-[10px] uppercase tracking-widest border border-dashed border-slate-800 rounded-3xl">No scripts deployed.</div>';
+        html += '</div>';
+        container.innerHTML = html;
     }
 
+    // 2. LIST VIEW (Tabular layout)
+    function renderListView(tools, container) {
+        let html = `
+            <div class="bg-tech-panel rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-slate-900/90 text-slate-400 font-mono uppercase text-[10px] tracking-wider border-b border-slate-800">
+                            <tr>
+                                <th class="py-3.5 px-5">Engine / Tool</th>
+                                <th class="py-3.5 px-4">Status</th>
+                                <th class="py-3.5 px-4">Type</th>
+                                <th class="py-3.5 px-4">Process PID</th>
+                                <th class="py-3.5 px-4">Last Pulse</th>
+                                <th class="py-3.5 px-5 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 font-mono">
+        `;
+
+        tools.forEach(t => {
+            let statusColor = 'bg-slate-500';
+            let statusText = t.status || 'Stopped';
+            let pulseClass = '';
+
+            if (statusText === 'Running') {
+                statusColor = 'bg-tech-success';
+                pulseClass = 'animate-pulse';
+            } else if (statusText === 'Idle') {
+                statusColor = 'bg-orange-500';
+            } else if (statusText === 'Stopped') {
+                statusColor = 'bg-tech-danger';
+            }
+
+            const icon = getToolIcon(t.key);
+
+            html += `
+                <tr onclick="openRunModal('${t.key}')" class="hover:bg-slate-900/60 transition-colors cursor-pointer group">
+                    <td class="py-3 px-5">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-9 h-9 bg-slate-900 rounded-lg flex items-center justify-center text-tech-accent border border-slate-800 shrink-0 group-hover:border-tech-accent/40">
+                                ${icon}
+                            </div>
+                            <div>
+                                <div class="font-bold text-white uppercase text-xs group-hover:text-tech-accent transition-colors">${t.name}</div>
+                                <div class="text-[10px] text-slate-500">${t.key}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="py-3 px-4">
+                        <div class="inline-flex items-center space-x-1.5 bg-slate-900/80 px-2.5 py-1 rounded-full border border-slate-800">
+                            <div class="w-1.5 h-1.5 rounded-full ${statusColor} ${pulseClass}"></div>
+                            <span class="text-[9px] font-black uppercase ${statusText === 'Running' ? 'text-tech-success' : (statusText === 'Idle' ? 'text-orange-500' : 'text-tech-danger')}">${statusText}</span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-4 text-slate-400 uppercase text-[10px] tracking-wider">
+                        ${t.type === 'ai_agent' ? 'AI Agent' : 'Worker'}
+                    </td>
+                    <td class="py-3 px-4 text-slate-300 font-bold">
+                        ${t.pid || 'N/A'}
+                    </td>
+                    <td class="py-3 px-4 text-slate-400">
+                        ${t.last_heartbeat ? new Date(t.last_heartbeat).toLocaleTimeString() : 'LOST'}
+                    </td>
+                    <td class="py-3 px-5 text-right">
+                        <button onclick="event.stopPropagation(); openRunModal('${t.key}')" class="px-3 py-1.5 bg-slate-900 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center space-x-1 border border-slate-800 group-hover:border-tech-accent/40">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span>Run</span>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        container.innerHTML = html;
+    }
+
+    // --- Modal Logic & Targeted Execution ---
+    async function openRunModal(toolKey) {
+        const tool = currentTools.find(t => t.key === toolKey);
+        if (!tool) return;
+
+        activeModalTool = tool;
+        selectedDomainObj = null;
+
+        // Populate Modal Info
+        document.getElementById('modal-tool-name').innerText = tool.name;
+        document.getElementById('modal-tool-key').innerText = tool.key;
+        document.getElementById('modal-tool-icon').innerHTML = getToolIcon(tool.key);
+        
+        const desc = TOOL_METADATA[tool.key] ? TOOL_METADATA[tool.key].desc : 'Runs reconnaissance logic on target.';
+        document.getElementById('modal-tool-desc').innerText = desc;
+
+        const statusBadge = document.getElementById('modal-tool-status');
+        statusBadge.innerText = tool.status || 'Stopped';
+        if (tool.status === 'Running') {
+            statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-tech-success/20 text-tech-success border border-tech-success/30';
+        } else if (tool.status === 'Idle') {
+            statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-500/20 text-orange-400 border border-orange-500/30';
+        } else {
+            statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-tech-danger/20 text-tech-danger border border-tech-danger/30';
+        }
+
+        // Reset inputs
+        document.getElementById('modal-domain-search').value = '';
+        document.getElementById('modal-search-clear').classList.add('hidden');
+        document.getElementById('modal-search-results').classList.add('hidden');
+        document.getElementById('modal-selected-target-box').classList.add('hidden');
+        document.getElementById('modal-top-of-queue-checkbox').checked = false;
+        document.getElementById('modal-run-btn').disabled = true;
+        document.getElementById('modal-run-btn-text').innerText = `Run ${tool.name}`;
+        hideModalAlert();
+
+        // Show Modal
+        document.getElementById('tool-run-modal').classList.remove('hidden');
+
+        // Pre-fetch domains for quick select chips
+        await loadAvailableDomains();
+    }
+
+    function closeRunModal() {
+        document.getElementById('tool-run-modal').classList.add('hidden');
+        activeModalTool = null;
+        selectedDomainObj = null;
+    }
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('tool-run-modal').classList.contains('hidden')) {
+            closeRunModal();
+        }
+    });
+
+    async function loadAvailableDomains(query = '') {
+        try {
+            const url = query ? `/api/domains/search-simple?q=${encodeURIComponent(query)}` : '/api/domains/search-simple';
+            const resp = await fetch(url);
+            const data = await resp.json();
+            availableDomains = data.results || [];
+            
+            if (data.root_domains && data.root_domains.length > 0) {
+                renderQuickChips(data.root_domains);
+            } else if (!query) {
+                renderQuickChips(availableDomains);
+            }
+            
+            if (query) {
+                renderSearchResults(availableDomains);
+            }
+        } catch (e) {
+            console.error('Error fetching simple domains:', e);
+        }
+    }
+
+    function renderQuickChips(domains) {
+        const chipsContainer = document.getElementById('modal-quick-chips');
+        if (!domains || domains.length === 0) {
+            chipsContainer.innerHTML = '<span class="text-xs text-slate-600 font-mono">No active domains found in database.</span>';
+            return;
+        }
+
+        let chipsHtml = '';
+        domains.slice(0, 8).forEach(d => {
+            const domName = d.domain || d.target;
+            const domId = d.id;
+            chipsHtml += `
+                <button 
+                    type="button" 
+                    onclick="selectQuickChip('${domId}', '${domName}')"
+                    class="px-2.5 py-1 rounded-lg text-xs font-mono bg-slate-900 hover:bg-tech-accent hover:text-tech-bg text-slate-300 border border-slate-800 transition-colors"
+                >
+                    ${domName}
+                </button>
+            `;
+        });
+        chipsContainer.innerHTML = chipsHtml;
+    }
+
+    function selectQuickChip(domId, domName) {
+        document.getElementById('modal-domain-search').value = domName;
+        document.getElementById('modal-search-clear').classList.remove('hidden');
+        loadAvailableDomains(domName);
+    }
+
+    function handleDomainSearchInput(val) {
+        const clearBtn = document.getElementById('modal-search-clear');
+        if (val.trim()) {
+            clearBtn.classList.remove('hidden');
+        } else {
+            clearBtn.classList.add('hidden');
+            document.getElementById('modal-search-results').classList.add('hidden');
+            return;
+        }
+
+        clearTimeout(domainSearchTimeout);
+        domainSearchTimeout = setTimeout(() => {
+            loadAvailableDomains(val.trim());
+        }, 150);
+    }
+
+    function clearDomainSearch() {
+        const input = document.getElementById('modal-domain-search');
+        input.value = '';
+        document.getElementById('modal-search-clear').classList.add('hidden');
+        document.getElementById('modal-search-results').classList.add('hidden');
+        loadAvailableDomains();
+    }
+
+    function renderSearchResults(items) {
+        const resultsBox = document.getElementById('modal-search-results');
+        if (!items || items.length === 0) {
+            resultsBox.innerHTML = '<div class="p-3.5 text-xs text-slate-500 font-mono text-center">No matching domains or subdomains found.</div>';
+            resultsBox.classList.remove('hidden');
+            return;
+        }
+
+        let html = '';
+        items.forEach((item, idx) => {
+            let badge = '';
+            let icon = '';
+            
+            if (item.is_subdomain) {
+                icon = '<svg class="w-3.5 h-3.5 text-sky-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>';
+                badge = '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">SUBDOMAIN</span>';
+            } else if (item.single_domain_only) {
+                icon = '<svg class="w-3.5 h-3.5 text-orange-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>';
+                badge = '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">SINGLE SCOPE</span>';
+            } else {
+                icon = '<svg class="w-3.5 h-3.5 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>';
+                badge = '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/30">ROOT DOMAIN</span>';
+            }
+
+            const parentInfo = item.is_subdomain ? `<span class="text-[10px] font-mono text-slate-500 ml-2">(${item.root_domain})</span>` : '';
+
+            html += `
+                <div 
+                    onclick="selectTargetItem(${idx})" 
+                    class="p-2.5 hover:bg-slate-800/80 transition-colors cursor-pointer flex items-center justify-between group"
+                >
+                    <div class="flex items-center space-x-2.5 truncate mr-3">
+                        ${icon}
+                        <span class="text-xs font-mono font-bold text-white group-hover:text-tech-accent transition-colors truncate">${item.target}</span>
+                        ${parentInfo}
+                    </div>
+                    ${badge}
+                </div>
+            `;
+        });
+
+        resultsBox.innerHTML = html;
+        resultsBox.classList.remove('hidden');
+    }
+
+    function selectTargetItem(idx) {
+        const item = availableDomains[idx];
+        if (!item) return;
+
+        selectedDomainObj = item;
+
+        // Hide search dropdown
+        document.getElementById('modal-search-results').classList.add('hidden');
+        document.getElementById('modal-domain-search').value = item.target;
+
+        // Update selected target box
+        document.getElementById('selected-domain-title').innerText = item.target;
+        
+        const badge = document.getElementById('selected-domain-badge');
+        if (item.is_subdomain) {
+            badge.innerText = `Subdomain of ${item.root_domain}`;
+            badge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/20 text-sky-400 border border-sky-500/30 font-bold';
+        } else if (item.single_domain_only) {
+            badge.innerText = 'Single Target Only';
+            badge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-orange-500/20 text-orange-400 border border-orange-500/30 font-bold';
+        } else {
+            badge.innerText = `Root Scope (${item.subdomains_count || 0} Subs)`;
+            badge.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700 font-bold';
+        }
+
+        // Subtarget selector
+        const subtargetWrapper = document.getElementById('modal-subtarget-wrapper');
+        const subtargetSelect = document.getElementById('modal-subtarget-select');
+        
+        let selectHtml = `<option value="${item.target}">${item.target} ${item.is_subdomain ? '(Selected Subdomain)' : '(Root Domain)'}</option>`;
+        if (item.is_subdomain && item.root_domain !== item.target) {
+            selectHtml += `<option value="${item.root_domain}">Root Domain (${item.root_domain})</option>`;
+        }
+        subtargetSelect.innerHTML = selectHtml;
+        subtargetWrapper.classList.remove('hidden');
+
+        document.getElementById('modal-selected-target-box').classList.remove('hidden');
+        document.getElementById('modal-run-btn').disabled = false;
+        hideModalAlert();
+    }
+
+    async function executeToolRun() {
+        if (!activeModalTool || !selectedDomainObj) return;
+
+        const runBtn = document.getElementById('modal-run-btn');
+        const runText = document.getElementById('modal-run-btn-text');
+        const originalText = runText.innerText;
+        
+        runBtn.disabled = true;
+        runText.innerText = 'Queuing Job...';
+
+        const subtargetSelect = document.getElementById('modal-subtarget-select');
+        const targetVal = (subtargetSelect && subtargetSelect.value) ? subtargetSelect.value : (selectedDomainObj.target || selectedDomainObj.domain);
+        const topOfQueue = document.getElementById('modal-top-of-queue-checkbox').checked;
+
+        try {
+            const payload = {
+                domain_id: selectedDomainObj.id,
+                target: targetVal,
+                top_of_queue: topOfQueue
+            };
+
+            const resp = await fetch(`/api/tools/${activeModalTool.key}/run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await resp.json();
+
+            if (resp.ok && result.status === 'success') {
+                showModalAlert(
+                    `✓ ${result.message}`,
+                    'bg-tech-success/15 text-tech-success border-tech-success/30'
+                );
+                // Refresh status after a brief delay
+                setTimeout(() => {
+                    fetchTools();
+                }, 1500);
+            } else {
+                showModalAlert(
+                    `✗ ${result.detail || result.message || 'Failed to dispatch tool execution'}`,
+                    'bg-tech-danger/15 text-tech-danger border-tech-danger/30'
+                );
+            }
+        } catch (e) {
+            console.error('Execute Tool Error:', e);
+            showModalAlert(`✗ Network error: ${e.message}`, 'bg-tech-danger/15 text-tech-danger border-tech-danger/30');
+        } finally {
+            runBtn.disabled = false;
+            runText.innerText = originalText;
+        }
+    }
+
+    function showModalAlert(msg, classes) {
+        const banner = document.getElementById('modal-alert-banner');
+        banner.innerText = msg;
+        banner.className = `p-3.5 rounded-xl text-xs font-mono border ${classes}`;
+        banner.classList.remove('hidden');
+    }
+
+    function hideModalAlert() {
+        const banner = document.getElementById('modal-alert-banner');
+        banner.classList.add('hidden');
+    }
+
+    // --- Init ---
     document.addEventListener('DOMContentLoaded', () => {
+        // Set initial view mode button states
+        setViewMode(currentViewMode);
         fetchTools();
         fetchSettings();
     });
+
     setInterval(() => {
         fetchTools();
         fetchSettings();
-    }, 10000); 
+    }, 10000);
 </script>
 {% endblock %}

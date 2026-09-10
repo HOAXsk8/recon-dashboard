@@ -120,11 +120,7 @@ class PortScannerAgent(BaseAgent):
         return changed_ports
 
     async def process_tasks(self):
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "scan", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        task = await self.get_next_task("scan")
 
         if not task:
             return

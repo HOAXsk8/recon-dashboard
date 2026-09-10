@@ -3,18 +3,94 @@ import datetime
 import logging
 import json
 import os
+import re
 from base_agent import BaseAgent, logger
+
+IGNORE_PLUGINS = {
+    "country", "ip", "title", "uncommonheaders", "strict-transport-security",
+    "x-frame-options", "x-xss-protection", "x-content-type-options", "frame",
+    "html5", "script", "cookies", "redirectlocation", "email", "allow",
+    "meta-author", "open-graph-protocol", "content-security-policy",
+    "access-control-allow-origin", "metagenerator", "x-ua-compatible",
+    "passwordfield", "httponly", "x-powered-by", "httpserver", "hsts",
+    "via", "x-backend-server", "x-forwarded-for"
+}
+
+def parse_tech_entry(entry):
+    """
+    Parses a technology string like 'WordPress:7.2', 'nginx/1.24', or 'PHP 8.1'.
+    Returns (base_key_lower, display_name, version_str_or_None).
+    """
+    if not entry or not isinstance(entry, str):
+        return None, None, None
+    entry = entry.strip()
+    if not entry:
+        return None, None, None
+    
+    match = re.match(r"^([^:/\[]+)(?:[:/ ]v?([0-9]+(?:\.[0-9a-zA-Z_-]+)*))?", entry)
+    if match:
+        name = match.group(1).strip()
+        version = match.group(2).strip() if match.group(2) else None
+        return name.lower(), name, version
+    return entry.lower(), entry, None
+
+def merge_and_deduplicate_tech(*tech_sources):
+    """
+    Merge technology items from multiple sources (httpx list, whatweb plugins, server banner, db).
+    Items can be strings (e.g. 'WordPress:7.2') or tuples (name, version).
+    Deduplicates strictly by canonical lowercase base name, keeping the richest version and best casing.
+    Excludes non-technology pseudo-plugins.
+    """
+    tech_map = {}
+    for source in tech_sources:
+        if not source:
+            continue
+        for item in source:
+            if not item:
+                continue
+            if isinstance(item, tuple):
+                name, version = item
+                if not name or not isinstance(name, str):
+                    continue
+                base_key = name.lower().strip()
+                display_name = name.strip()
+            elif isinstance(item, str):
+                base_key, display_name, version = parse_tech_entry(item)
+            else:
+                continue
+            
+            if not base_key or base_key in IGNORE_PLUGINS:
+                continue
+            
+            if base_key not in tech_map:
+                tech_map[base_key] = {"display_name": display_name, "version": version}
+            else:
+                curr = tech_map[base_key]
+                # If incoming version is provided, prefer it if we don't have one or if it's more specific
+                if version:
+                    if not curr.get("version") or len(str(version)) > len(str(curr.get("version", ""))):
+                        curr["version"] = version
+                # Prefer title/uppercase casing (e.g. Nginx over nginx)
+                if not curr["display_name"][0].isupper() and display_name[0].isupper():
+                    curr["display_name"] = display_name
+
+    result = []
+    for key in sorted(tech_map.keys()):
+        d = tech_map[key]
+        disp = d["display_name"]
+        ver = d.get("version")
+        if ver:
+            result.append(f"{disp}:{ver}")
+        else:
+            result.append(disp)
+    return result
 
 class TechFingerprinterAgent(BaseAgent):
     def __init__(self):
-        super().__init__("tech_fingerprinter", "Technology Fingerprinter", type="ai_agent")
+        super().__init__("tech_fingerprinter", "Technology Fingerprinter", type="script")
 
     async def run_httpx(self, url):
         logger.info(f"Running httpx fingerprinting on {url}")
-        
-        # Use pd-httpx (Go binary) with tech detection and JSON output
-        # -td: tech detect, -title: get page title, -server: get server header
-        # -sc: status code, -sh: show headers (we'll parse them for security headers)
         cmd = [
             "pd-httpx", "-u", url, "-td", "-title", "-server", "-sc", "-json", "-silent"
         ]
@@ -26,15 +102,29 @@ class TechFingerprinterAgent(BaseAgent):
             logger.error(f"httpx error for {url}: {e}")
         return None
 
+    async def run_whatweb(self, url):
+        logger.info(f"Running whatweb fingerprinting on {url}")
+        cmd = [
+            "whatweb", "--log-json=-", "-q", "-a", "1", url
+        ]
+        try:
+            stdout, stderr = await self.run_command(cmd, timeout=60)
+            if stdout:
+                data = json.loads(stdout)
+                if isinstance(data, list) and len(data) > 0:
+                    return data[0]
+                elif isinstance(data, dict):
+                    return data
+        except Exception as e:
+            logger.error(f"whatweb error for {url}: {e}")
+        return None
+
     def extract_security_headers(self, raw_headers):
         """Parse raw headers from httpx output to find security headers."""
         headers = {}
-        # httpx JSON output usually has a 'header' field which is a dict or string
-        # If it's a string, we might need to parse it. Let's assume it's a dict for now based on standard httpx output.
         if not raw_headers:
             return headers
 
-        # Common security headers to look for
         security_list = {
             "Strict-Transport-Security": "hsts",
             "Content-Security-Policy": "csp",
@@ -44,16 +134,13 @@ class TechFingerprinterAgent(BaseAgent):
             "Referrer-Policy": "referrer_policy"
         }
 
-        # Normalize keys to lowercase for matching
         normalized_headers = {k.lower(): v for k, v in raw_headers.items()}
-        
         for h_name, key in security_list.items():
             val = normalized_headers.get(h_name.lower())
             if val:
                 headers[key] = val
             else:
-                headers[key] = None # Explicitly mark as missing
-        
+                headers[key] = None
         return headers
 
     async def create_tech_alert(self, root_domain, target, old_tech, new_tech, url):
@@ -65,7 +152,6 @@ class TechFingerprinterAgent(BaseAgent):
             return
 
         title = f"Tech Stack Change: {target}"
-        
         changes = []
         if added:
             changes.append(f"Added: {', '.join(added)}")
@@ -100,11 +186,7 @@ class TechFingerprinterAgent(BaseAgent):
         await self.create_alert(title, description, target, "high", details, exploitation)
 
     async def process_tasks(self):
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "tech_fingerprint", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        task = await self.get_next_task("tech_fingerprint")
 
         if not task:
             return
@@ -121,110 +203,185 @@ class TechFingerprinterAgent(BaseAgent):
             url = f"{protocol}://{target}:{port}"
 
         try:
-            data = await self.run_httpx(url)
-            
-            if data:
-                tech_stack = data.get("tech", [])
-                if data.get("server"):
-                    tech_stack.append(data["server"])
-                
-                # Deduplicate and clean
-                tech_stack = list(set([t.strip() for t in tech_stack if t.strip()]))
-                
-                # Extract security headers
-                raw_headers = data.get("headers", {})
-                security_headers = self.extract_security_headers(raw_headers)
-                
-                # Update web_applications in the domains collection
-                domain_doc = await self.domains_col.find_one({"domain": root_domain})
-                if domain_doc:
-                    web_apps = domain_doc.get("web_applications", [])
-                    app_found = False
-                    for app in web_apps:
-                        if app.get("target") == target:
-                            # Check for tech stack changes
-                            old_tech = app.get("tech_stack", [])
-                            tech_changed = set(old_tech) != set(tech_stack)
-                            
-                            if tech_changed:
-                                # Only alert if we had a previous tech stack (not the first scan)
-                                if old_tech:
-                                    await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
-                                
-                                # Force a re-run of directory hunt because the web app changed
-                                await self.tasks_col.delete_many({
-                                    "root_domain": root_domain,
-                                    "target": target,
-                                    "port": port,
-                                    "task_type": "directory_hunt"
-                                })
-                                await self.tasks_col.insert_one({
-                                    "root_domain": root_domain,
-                                    "target": target,
-                                    "protocol": protocol,
-                                    "port": port,
-                                    "task_type": "directory_hunt",
-                                    "status": "pending",
-                                    "created_at": datetime.datetime.utcnow()
-                                })
-                                logger.info(f"Forced NEW directory hunt for {target}:{port} due to tech stack change.")
-                            
-                            # Check for header regressions
-                            old_headers = app.get("security_headers", {})
-                            await self.create_header_alert(target, old_headers, security_headers, url)
+            httpx_data = await self.run_httpx(url)
+            whatweb_data = await self.run_whatweb(url)
 
-                            # Update security headers
-                            app["tech_stack"] = tech_stack
-                            app["security_headers"] = security_headers
-                            app["title"] = data.get("title", "")
-                            app_found = True
-                            
-                            # Queue JS Scrape for this target
-                            exists_js = await self.tasks_col.find_one({
+            if not httpx_data and not whatweb_data:
+                logger.warning(f"No fingerprint data obtained for {url}")
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
+                )
+                await self.check_completion(root_domain)
+                return
+
+            # Extract data from httpx
+            httpx_tech = []
+            server_banner = None
+            security_headers = {}
+            title = ""
+            status_code = 200
+
+            if httpx_data:
+                httpx_tech = httpx_data.get("tech", [])
+                server_banner = httpx_data.get("webserver") or httpx_data.get("server")
+                raw_headers = httpx_data.get("headers", {})
+                security_headers = self.extract_security_headers(raw_headers)
+                title = httpx_data.get("title", "")
+                status_code = httpx_data.get("status_code", 200)
+
+            # Extract data from whatweb
+            whatweb_tech_tuples = []
+            whatweb_plugins_data = {}
+            whatweb_status = None
+
+            if whatweb_data:
+                whatweb_status = whatweb_data.get("http_status")
+                if not status_code and whatweb_status:
+                    status_code = whatweb_status
+                
+                plugins = whatweb_data.get("plugins", {})
+                whatweb_plugins_data = plugins
+
+                # Fallback title if missing
+                if not title and "Title" in plugins and plugins["Title"].get("string"):
+                    title = plugins["Title"]["string"][0]
+                
+                # Fallback server if missing
+                if not server_banner and "HTTPServer" in plugins and plugins["HTTPServer"].get("string"):
+                    server_banner = plugins["HTTPServer"]["string"][0]
+
+                for p_name, p_info in plugins.items():
+                    if p_name.lower() in IGNORE_PLUGINS:
+                        continue
+                    ver = None
+                    if isinstance(p_info, dict):
+                        if p_info.get("version") and len(p_info["version"]) > 0:
+                            ver = str(p_info["version"][0])
+                        elif p_info.get("string") and len(p_info["string"]) > 0:
+                            s_val = str(p_info["string"][0])
+                            match = re.search(r"v?([0-9]+(?:\.[0-9a-zA-Z_-]+)+)", s_val)
+                            if match:
+                                ver = match.group(1)
+                    whatweb_tech_tuples.append((p_name, ver))
+
+            # Update web_applications in the domains collection
+            domain_doc = await self.domains_col.find_one({"domain": root_domain})
+            if domain_doc:
+                web_apps = domain_doc.get("web_applications", [])
+                app_found = False
+                for app in web_apps:
+                    if app.get("target") == target:
+                        old_tech = app.get("tech_stack", [])
+                        
+                        # Merge and deduplicate across all sources
+                        tech_stack = merge_and_deduplicate_tech(
+                            old_tech,
+                            httpx_tech,
+                            whatweb_tech_tuples,
+                            [server_banner] if server_banner else []
+                        )
+                        
+                        tech_changed = set(old_tech) != set(tech_stack)
+                        if tech_changed and old_tech:
+                            await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
+                            # Force a re-run of directory hunt because the web app changed
+                            await self.tasks_col.delete_many({
                                 "root_domain": root_domain,
                                 "target": target,
-                                "task_type": "js_scrape"
+                                "port": port,
+                                "task_type": "directory_hunt"
                             })
-                            if not exists_js:
-                                await self.tasks_col.insert_one({
-                                    "root_domain": root_domain,
-                                    "target": target,
-                                    "url": url,
-                                    "task_type": "js_scrape",
-                                    "status": "pending",
-                                    "created_at": datetime.datetime.utcnow()
-                                })
-                                logger.info(f"Queued JS SCRAPE for {url}")
-                            break
-                    
-                    if not app_found:
-                        # New application discovery - no alert on first scan
-                        web_apps.append({
-                            "target": target,
-                            "url": url,
-                            "tech_stack": tech_stack,
-                            "security_headers": security_headers,
-                            "title": data.get("title", ""),
-                            "sensitive_files": []
-                        })
+                            await self.tasks_col.insert_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "protocol": protocol,
+                                "port": port,
+                                "task_type": "directory_hunt",
+                                "status": "pending",
+                                "created_at": datetime.datetime.utcnow()
+                            })
+                            logger.info(f"Forced NEW directory hunt for {target}:{port} due to tech stack change.")
                         
-                        # Queue JS Scrape for NEW target
-                        await self.tasks_col.insert_one({
+                        # Check for header regressions
+                        old_headers = app.get("security_headers", {})
+                        if security_headers:
+                            await self.create_header_alert(target, old_headers, security_headers, url)
+                            app["security_headers"] = security_headers
+
+                        # Update fields
+                        app["tech_stack"] = tech_stack
+                        if title:
+                            app["title"] = title
+                        if server_banner:
+                            app["server"] = server_banner
+                        if status_code:
+                            app["status"] = status_code
+                        if whatweb_data:
+                            app["whatweb"] = {
+                                "status": whatweb_status,
+                                "plugins": whatweb_plugins_data
+                            }
+                        app_found = True
+                        
+                        # Queue JS Scrape for this target
+                        exists_js = await self.tasks_col.find_one({
                             "root_domain": root_domain,
                             "target": target,
-                            "url": url,
-                            "task_type": "js_scrape",
-                            "status": "pending",
-                            "created_at": datetime.datetime.utcnow()
+                            "task_type": "js_scrape"
                         })
-                        logger.info(f"Queued JS SCRAPE for NEW app: {url}")
-                    
-                    await self.domains_col.update_one(
-                        {"domain": root_domain},
-                        {"$set": {"web_applications": web_apps}}
+                        if not exists_js:
+                            await self.tasks_col.insert_one({
+                                "root_domain": root_domain,
+                                "target": target,
+                                "url": url,
+                                "task_type": "js_scrape",
+                                "status": "pending",
+                                "created_at": datetime.datetime.utcnow()
+                            })
+                            logger.info(f"Queued JS SCRAPE for {url}")
+                        break
+                
+                if not app_found:
+                    tech_stack = merge_and_deduplicate_tech(
+                        httpx_tech,
+                        whatweb_tech_tuples,
+                        [server_banner] if server_banner else []
                     )
-                    logger.info(f"Updated tech stack for {url}: {tech_stack}")
-            
+                    new_app = {
+                        "target": target,
+                        "url": url,
+                        "tech_stack": tech_stack,
+                        "security_headers": security_headers,
+                        "title": title,
+                        "status": status_code,
+                        "server": server_banner or "",
+                        "sensitive_files": []
+                    }
+                    if whatweb_data:
+                        new_app["whatweb"] = {
+                            "status": whatweb_status,
+                            "plugins": whatweb_plugins_data
+                        }
+                    web_apps.append(new_app)
+                    
+                    # Queue JS Scrape for NEW target
+                    await self.tasks_col.insert_one({
+                        "root_domain": root_domain,
+                        "target": target,
+                        "url": url,
+                        "task_type": "js_scrape",
+                        "status": "pending",
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    logger.info(f"Queued JS SCRAPE for NEW app: {url}")
+                
+                await self.domains_col.update_one(
+                    {"domain": root_domain},
+                    {"$set": {"web_applications": web_apps}}
+                )
+                logger.info(f"Updated tech stack for {url}: {tech_stack}")
+        
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}

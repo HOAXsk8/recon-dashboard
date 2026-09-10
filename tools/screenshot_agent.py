@@ -111,15 +111,16 @@ class ScreenshotAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Process tasks explicitly queued in tasks_col
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "screenshot", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}}
-        )
+        task = await self.get_next_task("screenshot")
 
         if task:
             root_domain = task["root_domain"]
             target = task.get("target", root_domain)
-            doc = await self.domains_col.find_one({"domain": root_domain})
+            doc = await self.domains_col.find_one({
+                "domain": root_domain,
+                "blacklisted": {"$ne": True},
+                "on_hold": {"$ne": True}
+            })
             if doc:
                 await self.process_domain_webapps(doc)
             await self.tasks_col.update_one(

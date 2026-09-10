@@ -146,11 +146,7 @@ class JavascriptMinerAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Handle JS Scraping (finding links in HTML)
-        scrape_task = await self.tasks_col.find_one_and_update(
-            {"task_type": "js_scrape", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        scrape_task = await self.get_next_task("js_scrape")
 
         if scrape_task:
             target = scrape_task["target"]
@@ -176,10 +172,10 @@ class JavascriptMinerAgent(BaseAgent):
                                 # Fallback (shouldn't happen with scrape_js_links logic)
                                 link_base = url
                                 link_path = link
+                                link_host = target
 
-                            # Only process if it's on the same domain or a subdomain
-                            # (Avoid scraping external JS like Google Analytics etc. unless specifically wanted)
-                            if root_domain in link:
+                            # Strictly only process if the JS host is within the target root_domain scope
+                            if self.is_in_scope(link_host, root_domain):
                                 exists = await self.tasks_col.find_one({
                                     "root_domain": root_domain,
                                     "target": target,
@@ -211,12 +207,8 @@ class JavascriptMinerAgent(BaseAgent):
                 )
             return # Process one task per loop
 
-        # 2. Handle JS Mining (analyzing file content) - Original logic
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "js_mine", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        # 2. Handle JS Mining (analyzing file content)
+        task = await self.get_next_task("js_mine")
 
         if not task:
             return
@@ -233,19 +225,21 @@ class JavascriptMinerAgent(BaseAgent):
             if content:
                 secrets, raw_urls = self.mine_content(content, full_url)
                 
-                # Validate URLs found in JS
+                # STRICT SCOPE FILTER: Only validate URLs that belong to the root_domain
+                # Do NOT send HTTP requests to third-party or external domains found in JS
+                in_scope_urls = [u for u in raw_urls if self.is_in_scope(u, root_domain)]
+                
+                # Validate in-scope URLs found in JS
                 urls = []
                 async with httpx.AsyncClient(verify=False, timeout=10.0, follow_redirects=True) as client:
-                    # To avoid overwhelming, we could use a semaphore, but for small sets gather is fine.
-                    # Limit concurrency to 5
                     sem = asyncio.Semaphore(5)
                     async def sem_validate(u):
                         async with sem:
                             return await self.validate_url(client, u)
                     
-                    validation_tasks = [sem_validate(u) for u in raw_urls]
+                    validation_tasks = [sem_validate(u) for u in in_scope_urls]
                     results = await asyncio.gather(*validation_tasks)
-                    for u, is_valid in zip(raw_urls, results):
+                    for u, is_valid in zip(in_scope_urls, results):
                         if is_valid:
                             urls.append(u)
                 

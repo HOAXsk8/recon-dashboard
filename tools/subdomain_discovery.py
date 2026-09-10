@@ -54,7 +54,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Check for new domains that need discovery
-        new_domains = await self.domains_col.find({"scanned": False, "blacklisted": {"$ne": True}}).to_list(length=10)
+        new_domains = await self.domains_col.find({"scanned": False, "blacklisted": {"$ne": True}, "single_domain_only": {"$ne": True}}).to_list(length=10)
         for d in new_domains:
             if d.get("on_hold", False):
                 continue
@@ -76,17 +76,20 @@ class SubdomainDiscoveryAgent(BaseAgent):
                     logger.info(f"Queued initial discovery scan for new domain: {root_domain}")
 
         # 2. Process pending discovery tasks
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "discovery", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        task = await self.get_next_task("discovery")
 
         if not task:
             return
 
         target = task["target"]
         root_domain = task["root_domain"]
+        
+        # Double check if domain is single_domain_only
+        d_doc = await self.domains_col.find_one({"domain": root_domain})
+        if d_doc and d_doc.get("single_domain_only"):
+            logger.info(f"Subdomain Discovery: Cancelling discovery task for single-target domain {root_domain}.")
+            await self.tasks_col.update_one({"_id": task["_id"]}, {"$set": {"status": "cancelled", "error": "Single target only"}})
+            return
         
         try:
             # Passive is fast and reliable
@@ -97,10 +100,18 @@ class SubdomainDiscoveryAgent(BaseAgent):
             if not await self.has_wildcard_dns(target):
                 active = await self.run_ffuf(target)
             
-            all_found = set(passive + active)
-            # Always ensure the root domain itself is included for verification & port scanning
-            all_found.add(target)
-            all_found.add(root_domain)
+            raw_found = set(passive + active)
+            raw_found.add(target)
+            raw_found.add(root_domain)
+
+            # Strict scope enforcement: only include targets that strictly belong to root_domain
+            all_found = set()
+            for sub in raw_found:
+                cleaned_sub = sub.strip().lower().rstrip(".")
+                if self.is_in_scope(cleaned_sub, root_domain):
+                    all_found.add(cleaned_sub)
+                else:
+                    logger.warning(f"Discarding out-of-scope subdomain discovery result: {sub} for {root_domain}")
 
             for sub in all_found:
                 # Add to verification queue
@@ -124,7 +135,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
             )
             await self.check_completion(root_domain)
 
-            logger.info(f"Completed discovery for {target} (Found {len(all_found)} targets)")
+            logger.info(f"Completed discovery for {target} (Found {len(all_found)} in-scope targets)")
 
         except Exception as e:
             logger.error(f"Error in discovery for {target}: {e}")

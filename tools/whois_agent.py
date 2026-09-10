@@ -39,7 +39,11 @@ class WhoisAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Process Root Domains
-        root_domains = await self.domains_col.find({"whois_complete": {"$ne": True}}).to_list(length=5)
+        root_domains = await self.domains_col.find({
+            "whois_complete": {"$ne": True},
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True}
+        }).to_list(length=5)
         for doc in root_domains:
             domain = doc["domain"]
             raw_whois = await self.run_whois(domain)
@@ -64,6 +68,8 @@ class WhoisAgent(BaseAgent):
         # This is more resource intensive, we'll do one root domain's subdomains at a time
         # We look for documents that have subdomains where at least one has whois_complete != True
         doc_with_pending_subs = await self.domains_col.find_one({
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True},
             "infrastructure.subdomains": {
                 "$elemMatch": {"whois_complete": {"$ne": True}}
             }

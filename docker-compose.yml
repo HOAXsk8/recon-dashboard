@@ -218,6 +218,7 @@ services:
       - db
       - dashboard
 
+
   bypass-403:
     image: recon-dashboard:latest
     container_name: bypass-403
@@ -228,6 +229,36 @@ services:
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  waf-detector:
+    image: recon-dashboard:latest
+    container_name: waf-detector
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/waf_detector.py"]
+    volumes:
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  lb-detector:
+    image: recon-dashboard:latest
+    container_name: lb-detector
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+    command: ["python", "tools/lb_detector.py"]
+    volumes:
       - ./tools:/app/tools
     restart: always
     network_mode: "host"

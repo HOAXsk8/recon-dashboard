@@ -119,9 +119,16 @@
                     <div id="modal-risk-indicator" class="w-4 h-4 rounded-full"></div>
                     <h2 id="modal-lead-title" class="text-2xl font-bold text-white">Lead Details</h2>
                 </div>
-                <button onclick="closeLeadModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
+                <div class="flex items-center space-x-3">
+                    <a id="modal-inspect-btn" href="#" target="_blank" class="px-3 py-1.5 bg-tech-accent/15 text-tech-accent hover:bg-tech-accent hover:text-tech-bg border border-tech-accent/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5" title="Inspect Target Domain">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                        <span>Inspect Target Domain</span>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                    </a>
+                    <button onclick="closeLeadModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
             </div>
             
             <div class="p-8 space-y-8">
@@ -129,7 +136,7 @@
                     <div class="space-y-4">
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Target Asset</h4>
-                            <p id="modal-target" class="text-lg font-mono text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent(this.textContent)"></p>
+                            <a id="modal-target" href="#" target="_blank" class="text-lg font-mono text-tech-accent hover:underline inline-flex items-center space-x-1.5" title="Inspect Target Domain in Dashboard"></a>
                         </div>
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Detection Time</h4>
@@ -190,6 +197,8 @@
         </div>
     </div>
 </div>
+
+
 
 <script>
     let currentLeads = [];
@@ -337,16 +346,19 @@
                             <span class="text-xs text-slate-500 line-clamp-1">${lead.description}</span>
                         </div>
                     </td>
-                    <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); window.location.href='/dashboard?q=' + encodeURIComponent('${lead.target}')">${lead.target}</td>
+                    <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); window.open('/dashboard?inspect=' + encodeURIComponent('${lead.target}') + '&q=' + encodeURIComponent('${lead.target}'), '_blank')">${lead.target}</td>
                     <td class="px-6 py-5 text-xs text-slate-500">${new Date(lead.timestamp).toLocaleString()}</td>
-                    <td class="px-8 py-5 text-right flex justify-end space-x-2">
-                        <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all" title="View Details">
+                    <td class="px-8 py-5 text-right flex justify-end space-x-1.5">
+                        <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="View Alert Details">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                         </button>
-                        <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all" title="Add Notes">
+                        <a href="/dashboard?inspect=${encodeURIComponent(lead.target)}&q=${encodeURIComponent(lead.target)}" target="_blank" onclick="event.stopPropagation()" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all inline-flex items-center justify-center" title="Inspect Target Domain">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                        </a>
+                        <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="Add Notes">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                         </button>
-                        <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white rounded-lg transition-all" title="Mute/Suppress Finding">
+                        <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white text-slate-400 rounded-lg transition-all" title="Mute/Suppress Finding">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
                         </button>
                     </td>
@@ -509,8 +521,13 @@
         if (!lead) return;
         
         activeLeadId = leadId;
+        const inspectUrl = `/dashboard?inspect=${encodeURIComponent(lead.target)}&q=${encodeURIComponent(lead.target)}`;
         document.getElementById('modal-lead-title').textContent = lead.title;
-        document.getElementById('modal-target').textContent = lead.target;
+        const targetLink = document.getElementById('modal-target');
+        targetLink.textContent = lead.target;
+        targetLink.href = inspectUrl;
+        const inspectBtn = document.getElementById('modal-inspect-btn');
+        if (inspectBtn) inspectBtn.href = inspectUrl;
         document.getElementById('modal-time').textContent = new Date(lead.timestamp).toLocaleString();
         // Configure marked to open links in new tab
         const renderer = {
@@ -654,7 +671,12 @@
         }
         fetchTools();
     });
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLeadModal(); });
+    window.addEventListener('keydown', (e) => { 
+        if (e.key === 'Escape') {
+            closeLeadModal(); 
+            closeNotesModal();
+        }
+    });
 </script>
 
 <style>

@@ -12,3 +12,5 @@ email-validator
 pandas
 openpyxl
 httpx
+dnspython
+wafw00f

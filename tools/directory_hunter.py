@@ -5,6 +5,10 @@ import json
 import os
 import base64
 import hashlib
+import secrets
+import urllib.parse
+from collections import Counter
+import httpx
 from base_agent import BaseAgent, logger
 
 DIR_WORDLIST = "/app/wordlists/common-dirs.txt"
@@ -15,7 +19,70 @@ class DirectoryHunterAgent(BaseAgent):
         super().__init__("directory_hunter", "Directory & File Hunter")
         self.alert_hashes_col = self.db["alert_hashes"]
 
-    async def run_ffuf_recursive(self, base_url):
+    async def probe_soft_404_lengths(self, base_url: str):
+        """
+        Probe random non-existent paths to detect baseline catch-all / custom-404 response sizes.
+        Returns a set of sizes (in bytes) representing soft-404 or custom redirect pages.
+        """
+        soft_404_lengths = set()
+        test_tokens = [
+            f"rnd_soft404_{secrets.token_hex(6)}",
+            f"test_probe_{secrets.token_hex(6)}.html"
+        ]
+
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True) as client:
+                for token in test_tokens:
+                    probe_url = f"{base_url.rstrip('/')}/{token}"
+                    resp = await client.get(probe_url)
+                    body_len = len(resp.content)
+                    if body_len > 0:
+                        soft_404_lengths.add(body_len)
+                        logger.info(f"Soft-404 probe on {base_url}: detected baseline length {body_len} (Status {resp.status_code})")
+        except Exception as e:
+            logger.debug(f"Soft-404 probe exception on {base_url}: {e}")
+
+        return soft_404_lengths
+
+    @staticmethod
+    def filter_duplicate_lengths(items, baseline_lengths=None, threshold=3):
+        """
+        Exclude responses with identical lengths that indicate catch-all / soft-404 pages.
+        - Any length appearing >= threshold times across the items is excluded.
+        - Any length in baseline_lengths is excluded.
+        - For 200 status codes with identical non-zero length, threshold is 2 (excluding custom 200 redirects).
+        """
+        if not items:
+            return []
+
+        baseline_lengths = set(baseline_lengths or [])
+
+        # Count frequencies of lengths (> 0 bytes)
+        length_counts = Counter(item.get("length", 0) for item in items if item.get("length", 0) > 0)
+        status_200_len_counts = Counter(
+            item.get("length", 0) for item in items 
+            if item.get("status") == 200 and item.get("length", 0) > 0
+        )
+
+        catch_all_lengths = set(baseline_lengths)
+        for length, count in length_counts.items():
+            if count >= threshold:
+                catch_all_lengths.add(length)
+
+        for length, count in status_200_len_counts.items():
+            if count >= 2:
+                catch_all_lengths.add(length)
+
+        if catch_all_lengths:
+            suppressed_count = sum(1 for item in items if item.get("length", 0) in catch_all_lengths)
+            logger.info(
+                f"Soft-404 Length Filter: Excluded {suppressed_count} false positive item(s) "
+                f"matching duplicate lengths: {sorted(list(catch_all_lengths))[:10]}"
+            )
+
+        return [item for item in items if item.get("length", 0) not in catch_all_lengths]
+
+    async def run_ffuf_recursive(self, base_url, task_id=None):
         logger.info(f"Phase 1: Recursive directory mapping on {base_url}")
         
         discovered_dirs = set([""]) # Start with root
@@ -26,13 +93,17 @@ class DirectoryHunterAgent(BaseAgent):
             logger.warning(f"Wordlist {dir_wl} not found, skipping directory mapping.")
             return results, discovered_dirs
 
+        # Pre-flight probe for soft-404 baseline lengths
+        baseline_lengths = await self.probe_soft_404_lengths(base_url)
+
         # Phase 1: Map directory structure recursively
-        # -recursion handles the depth automatically
         cmd = [
             "ffuf", "-w", dir_wl, "-u", f"{base_url}/FUZZ",
             "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac",
             "-recursion", "-recursion-depth", "2", "-t", "40"
         ]
+        if baseline_lengths:
+            cmd.extend(["-fs", ",".join(str(l) for l in baseline_lengths)])
         
         try:
             stdout, _ = await self.run_command(cmd, timeout=600)
@@ -40,36 +111,57 @@ class DirectoryHunterAgent(BaseAgent):
                 for line in stdout.splitlines():
                     try:
                         data = json.loads(line.strip())
-                        # ffuf output can be one object or multiple
                         res_list = data['results'] if 'results' in data else [data]
                         for r in res_list:
-                            # Extract full path relative to base_url
                             full_url = r['url']
                             rel_path = full_url.replace(base_url, "").lstrip("/")
-                            
                             results.append({
                                 "path": rel_path, 
                                 "status": r['status'],
                                 "length": r.get('length', 0),
                                 "words": r.get('words', 0)
                             })
-                            
-                            # If it looks like a directory, add to our list for Phase 2
-                            # ffuf recursion already determines what is a directory
-                            # We'll just collect everything found in Phase 1 as a candidate directory
-                            discovered_dirs.add(rel_path)
                     except: continue
         except Exception as e:
             logger.error(f"Recursive directory hunt error: {e}")
 
-        logger.info(f"Discovered {len(discovered_dirs)} total directories/paths. Starting Phase 2: File discovery.")
+        # Filter duplicate lengths from Phase 1 before choosing candidate directories for Phase 2
+        filtered_p1 = self.filter_duplicate_lengths(results, baseline_lengths=baseline_lengths, threshold=3)
+        for r in filtered_p1:
+            discovered_dirs.add(r["path"])
+
+        logger.info(f"Discovered {len(discovered_dirs)} total directories/paths (after length filter). Starting Phase 2: File discovery.")
         
-        # Phase 2: File discovery on every discovered directory
+        # Phase 2: File discovery on prioritized directories to avoid exponential wildcard traps
         file_wl = FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else "wordlists/common-files.txt"
         if not os.path.exists(file_wl):
-            return results, discovered_dirs
+            return filtered_p1, discovered_dirs
 
-        for d_path in list(discovered_dirs):
+        # Prioritize root + top candidate directories (up to 12 max)
+        priority_keywords = ["admin", "api", "login", "auth", "config", "backup", "v1", "v2", "upload", "portal", "test", "dev"]
+        selected_dirs = [""]  # Always include root
+        for d in sorted(discovered_dirs, key=lambda x: (len(x.split("/")), x)):
+            d_clean = d.strip("/")
+            if not d_clean:
+                continue
+            if "/" not in d_clean or any(kw in d_clean.lower() for kw in priority_keywords):
+                if d_clean not in selected_dirs:
+                    selected_dirs.append(d_clean)
+            if len(selected_dirs) >= 12:
+                break
+
+        logger.info(f"Phase 2: Scanning {len(selected_dirs)} prioritized directories for files on {base_url}.")
+
+        for d_path in selected_dirs:
+            if task_id:
+                try:
+                    await self.tasks_col.update_one(
+                        {"_id": task_id},
+                        {"$set": {"last_activity": datetime.datetime.utcnow()}}
+                    )
+                except Exception:
+                    pass
+
             target_url = f"{base_url}/{d_path}".rstrip("/")
             logger.info(f"Scanning for files in: {target_url}")
             
@@ -77,10 +169,11 @@ class DirectoryHunterAgent(BaseAgent):
                 "ffuf", "-w", file_wl, "-u", f"{target_url}/FUZZ",
                 "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-t", "40"
             ]
+            if baseline_lengths:
+                cmd_file.extend(["-fs", ",".join(str(l) for l in baseline_lengths)])
             
             try:
-                # Shorter timeout per folder
-                stdout_f, _ = await self.run_command(cmd_file, timeout=300)
+                stdout_f, _ = await self.run_command(cmd_file, timeout=45)
                 if stdout_f:
                     for line in stdout_f.splitlines():
                         try:
@@ -108,34 +201,31 @@ class DirectoryHunterAgent(BaseAgent):
                 "words": r.get('words', 0)
             }
             
-        return [{"path": k, **v} for k, v in unique_results.items()], discovered_dirs
+        all_items = [{"path": k, **v} for k, v in unique_results.items()]
+        # Final pass: exclude duplicate response lengths across all results
+        final_filtered = self.filter_duplicate_lengths(all_items, baseline_lengths=baseline_lengths, threshold=3)
+        return final_filtered, discovered_dirs
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
-        # Alerts are now filtered by fingerprint in process_tasks.
-        
         full_discovery_url = f"{url}/{item['path']}".replace("//", "/").replace(":/", "://")
         
         title = f"Sensitive Discovery: {item['path']}"
         risk = "medium"
         
         # Escalate risk for sensitive patterns
-        sensitive_patterns = [" .env", "config", "backup", ".git", ".sql", "admin", "login", "password", "secret", "private"]
+        sensitive_patterns = [".env", "config", "backup", ".git", ".sql", "admin", "login", "password", "secret", "private"]
         if any(p in item['path'].lower() for p in sensitive_patterns):
             risk = "high"
         
-        description = f"New web path found: {item['path']} ({item['status']})"
-        details = f"A new directory/file was discovered at {full_discovery_url} with status code {item['status']}."
+        description = f"New web path found: {item['path']} ({item['status']}, {item.get('length', 0)}B)"
+        details = f"A new directory/file was discovered at {full_discovery_url} with status code {item['status']} (length: {item.get('length', 0)} bytes)."
         exploitation = f"### Exploitation Guidance\n\n1. **Verify Exposure**: Navigate to [{full_discovery_url}]({full_discovery_url}) to see what data is exposed.\n2. **Check Content**: If it's a directory, check for directory listing. If it's a file, check for sensitive configuration, credentials, or source code.\n3. **Context**: This was found on {target} as part of the {root_domain} infrastructure."
 
         await self.create_alert(title, description, target, risk, details, exploitation)
 
     async def process_tasks(self):
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "directory_hunt", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
-            sort=[("created_at", 1)]
-        )
+        task = await self.get_next_task("directory_hunt")
 
         if not task:
             return
@@ -152,20 +242,8 @@ class DirectoryHunterAgent(BaseAgent):
             url = f"{protocol}://{target}:{port}"
 
         try:
-            found_items, _ = await self.run_ffuf_recursive(url)
+            found_items, _ = await self.run_ffuf_recursive(url, task_id=task["_id"])
             
-            # Identify catch-all patterns (False Positives)
-            # We group by (status, length, words) fingerprint
-            fingerprints = {}
-            for item in found_items:
-                fp = (item['status'], item.get('length', 0), item.get('words', 0))
-                fingerprints[fp] = fingerprints.get(fp, 0) + 1
-            
-            # Threshold: if more than 5 identical responses (size/words), it's likely a catch-all
-            catch_all_fps = {fp for fp, count in fingerprints.items() if count > 5}
-            if catch_all_fps:
-                logger.info(f"Identified {len(catch_all_fps)} catch-all patterns for {target}. Suppressing {sum(count for fp, count in fingerprints.items() if fp in catch_all_fps)} alerts.")
-
             # Update web_applications in the domains collection
             domain_doc = await self.domains_col.find_one({"domain": root_domain})
             if domain_doc:
@@ -174,115 +252,120 @@ class DirectoryHunterAgent(BaseAgent):
                 for app in web_apps:
                     if app.get("target") == target:
                         # Update existing app
-                        existing_files = {f["path"]: f["status"] for f in app.get("sensitive_files", [])}
+                        existing_files = {f["path"]: f for f in app.get("sensitive_files", [])}
                         
                         for item in found_items:
-                            if item["path"] not in existing_files:
-                                # Check if this item is part of a catch-all pattern
-                                item_fp = (item['status'], item.get('length', 0), item.get('words', 0))
-                                if item_fp not in catch_all_fps:
-                                    # This is a new discovery and NOT a catch-all! Create an alert.
-                                    await self.create_alert_for_item(root_domain, target, item, url)
-                                else:
-                                    logger.debug(f"Suppressing alert for catch-all path: {item['path']}")
-                                
-                                existing_files[item["path"]] = item["status"]
+                            path = item["path"]
+                            if path not in existing_files:
+                                # New discovery! Create an alert
+                                await self.create_alert_for_item(root_domain, target, item, url)
                                 
                                 # Trigger JS mining for .js files
-                                if item["path"].lower().endswith(".js"):
+                                if path.lower().endswith(".js"):
                                     exists_js = await self.tasks_col.find_one({
                                         "root_domain": root_domain,
                                         "target": target,
-                                        "path": item["path"],
+                                        "path": path,
                                         "task_type": "js_mine"
                                     })
                                     if not exists_js:
                                         await self.tasks_col.insert_one({
                                             "root_domain": root_domain,
                                             "target": target,
-                                            "path": item["path"],
+                                            "path": path,
                                             "base_url": url,
                                             "task_type": "js_mine",
                                             "status": "pending",
                                             "created_at": datetime.datetime.utcnow()
                                         })
-                                        logger.info(f"Queued JS MINE task for {url}/{item['path']}")
+                                        logger.info(f"Queued JS MINE task for {url}/{path}")
                                 
                                 # Trigger 403 bypass for forbidden paths
                                 if item["status"] == 403:
                                     exists_bypass = await self.tasks_col.find_one({
                                         "root_domain": root_domain,
                                         "target": target,
-                                        "path": item["path"],
+                                        "path": path,
                                         "task_type": "bypass_403"
                                     })
                                     if not exists_bypass:
                                         await self.tasks_col.insert_one({
                                             "root_domain": root_domain,
                                             "target": target,
-                                            "path": item["path"],
+                                            "path": path,
                                             "base_url": url,
                                             "task_type": "bypass_403",
                                             "status": "pending",
                                             "created_at": datetime.datetime.utcnow()
                                         })
-                                        logger.info(f"Queued 403 BYPASS task for {url}/{item['path']}")
+                                        logger.info(f"Queued 403 BYPASS task for {url}/{path}")
+                            
+                            # Preserve length in stored record
+                            existing_files[path] = {
+                                "path": path,
+                                "status": item["status"],
+                                "length": item.get("length", 0)
+                            }
                         
-                        app["sensitive_files"] = [{"path": k, "status": v} for k, v in existing_files.items()]
+                        app["sensitive_files"] = list(existing_files.values())
                         app_found = True
                         break
                 
                 if not app_found:
                     # Create new app entry
                     for item in found_items:
-                        item_fp = (item['status'], item.get('length', 0), item.get('words', 0))
-                        if item_fp not in catch_all_fps:
-                            await self.create_alert_for_item(root_domain, target, item, url)
+                        path = item["path"]
+                        await self.create_alert_for_item(root_domain, target, item, url)
                         
-                        # Trigger JS mining for .js files
-                        if item["path"].lower().endswith(".js"):
+                        if path.lower().endswith(".js"):
                             exists_js = await self.tasks_col.find_one({
                                 "root_domain": root_domain,
                                 "target": target,
-                                "path": item["path"],
+                                "path": path,
                                 "task_type": "js_mine"
                             })
                             if not exists_js:
                                 await self.tasks_col.insert_one({
                                     "root_domain": root_domain,
                                     "target": target,
-                                    "path": item["path"],
+                                    "path": path,
                                     "base_url": url,
                                     "task_type": "js_mine",
                                     "status": "pending",
                                     "created_at": datetime.datetime.utcnow()
                                 })
-                                logger.info(f"Queued JS MINE task for {url}/{item['path']}")
+                                logger.info(f"Queued JS MINE task for {url}/{path}")
 
-                        # Trigger 403 bypass for forbidden paths
                         if item["status"] == 403:
                             exists_bypass = await self.tasks_col.find_one({
                                 "root_domain": root_domain,
                                 "target": target,
-                                "path": item["path"],
+                                "path": path,
                                 "task_type": "bypass_403"
                             })
                             if not exists_bypass:
                                 await self.tasks_col.insert_one({
                                     "root_domain": root_domain,
                                     "target": target,
-                                    "path": item["path"],
+                                    "path": path,
                                     "base_url": url,
                                     "task_type": "bypass_403",
                                     "status": "pending",
                                     "created_at": datetime.datetime.utcnow()
                                 })
-                                logger.info(f"Queued 403 BYPASS task for {url}/{item['path']}")
+                                logger.info(f"Queued 403 BYPASS task for {url}/{path}")
                         
                     web_apps.append({
                         "target": target,
                         "url": url,
-                        "sensitive_files": found_items,
+                        "sensitive_files": [
+                            {
+                                "path": item["path"],
+                                "status": item["status"],
+                                "length": item.get("length", 0)
+                            }
+                            for item in found_items
+                        ],
                         "tech_stack": [],
                         "security_headers": {}
                     })
@@ -296,7 +379,7 @@ class DirectoryHunterAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
-            logger.info(f"Completed directory hunt for {url}. Found {len(found_items)} items.")
+            logger.info(f"Completed directory hunt for {url}. Found {len(found_items)} items (after soft-404 length filtering).")
 
             # Check if this was the last task for the root domain
             await self.check_completion(root_domain)

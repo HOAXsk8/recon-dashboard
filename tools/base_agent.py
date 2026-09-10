@@ -35,6 +35,116 @@ class BaseAgent:
         self.pause_event = asyncio.Event()
         self.pause_event.set() # Default to running
 
+    @staticmethod
+    def is_in_scope(target: str, root_domain: str, single_domain_only: bool = False) -> bool:
+        """
+        Validate that target is strictly within the scope of root_domain.
+        If single_domain_only is True, target must strictly equal root_domain.
+        Otherwise, target must be root_domain itself or a subdomain (*.root_domain).
+        Strips protocols, credentials, ports, and paths if present.
+        """
+        if not target or not root_domain:
+            return False
+        
+        target = str(target).strip().lower()
+        root_domain = str(root_domain).strip().lower().rstrip(".")
+        
+        # Handle URLs
+        if "://" in target:
+            try:
+                parsed = urllib.parse.urlparse(target)
+                target = parsed.hostname or target
+            except Exception:
+                pass
+        
+        # Strip path or query if remaining
+        if "/" in target:
+            target = target.split("/")[0]
+        if "?" in target:
+            target = target.split("?")[0]
+        
+        # Strip port if present (e.g. host:8080)
+        if ":" in target:
+            target = target.split(":")[0]
+            
+        target = target.strip().rstrip(".")
+        
+        if single_domain_only:
+            return target == root_domain
+
+        # Exact match or subdomain
+        return target == root_domain or target.endswith(f".{root_domain}")
+
+    async def is_domain_active(self, root_domain: str) -> bool:
+        """Check if root_domain exists in domains_col and is not blacklisted or on hold."""
+        if not root_domain:
+            return False
+        root_domain = str(root_domain).strip().lower()
+        doc = await self.domains_col.find_one({
+            "domain": root_domain,
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True}
+        })
+        return doc is not None
+
+    async def get_next_task(self, task_type: str):
+        """
+        Fetch the next valid, in-scope pending task for task_type.
+        Automatically discards and cancels tasks for deleted/inactive domains
+        or out-of-scope targets.
+        """
+        while True:
+            task = await self.tasks_col.find_one_and_update(
+                {"task_type": task_type, "status": "pending"},
+                {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
+                sort=[("priority", -1), ("created_at", 1)]
+            )
+            if not task:
+                return None
+
+            root_domain = task.get("root_domain")
+            target = task.get("target")
+
+            # 1. Check if the root domain is currently active in the workspace
+            domain_doc = await self.domains_col.find_one({
+                "domain": root_domain,
+                "blacklisted": {"$ne": True},
+                "on_hold": {"$ne": True}
+            })
+            if not domain_doc:
+                logger.warning(f"[{self.agent_name}] Discarding task {task.get('_id')} for inactive/deleted domain: {root_domain}")
+                await self.tasks_col.delete_many({
+                    "root_domain": root_domain,
+                    "status": "pending"
+                })
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "cancelled", "error": "Root domain not active or out of scope", "completed_at": datetime.datetime.utcnow()}}
+                )
+                continue
+
+            is_single = domain_doc.get("single_domain_only", False)
+
+            # 2. If domain is single_domain_only, discard any discovery tasks
+            if is_single and task_type == "discovery":
+                logger.info(f"[{self.agent_name}] Cancelling discovery task {task.get('_id')} because {root_domain} is a single target.")
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "cancelled", "error": "Single target domain", "completed_at": datetime.datetime.utcnow()}}
+                )
+                continue
+
+            # 3. Check if the target is within the scope of root_domain
+            if target and not self.is_in_scope(target, root_domain, single_domain_only=is_single):
+                logger.warning(f"[{self.agent_name}] Discarding task {task.get('_id')} with out-of-scope target: {target} (Root: {root_domain}, Single: {is_single})")
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "cancelled", "error": f"Target {target} out of scope for {root_domain}", "completed_at": datetime.datetime.utcnow()}}
+                )
+                continue
+
+            return task
+
     async def check_global_pause(self):
         """Check if scanning is globally paused."""
         try:

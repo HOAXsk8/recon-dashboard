@@ -133,7 +133,8 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "blacklisted": 1,
                 "on_hold": 1,
                 "added_at": 1,
-                "scan_interval": 1
+                "scan_interval": 1,
+                "single_domain_only": 1
             }
         },
         {"$unwind": "$targets"},
@@ -144,6 +145,7 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "is_root": {"$ifNull": ["$targets.is_root", False]},
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
+                "single_domain_only": {"$ifNull": ["$single_domain_only", False]},
                 "scan_interval": {"$ifNull": ["$scan_interval", 24]},
                 "subdomain_count": 1,
                 "recon_date": {"$ifNull": ["$targets.added_at", "$added_at"]},
@@ -411,9 +413,15 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     # 1. Try exact domain match
     domain_data = await domains_col.find_one({"domain": q})
     
-    # 2. Try exact subdomain match if no direct domain match
+    # 2. Try exact subdomain match across all collections/arrays
     if not domain_data:
         domain_data = await domains_col.find_one({"infrastructure.subdomains.name": q})
+    if not domain_data:
+        domain_data = await domains_col.find_one({"systems.target": q})
+    if not domain_data:
+        domain_data = await domains_col.find_one({"web_applications.target": q})
+    if not domain_data:
+        domain_data = await domains_col.find_one({"subdomains.subdomain": q})
     
     # 3. Fallback to partial match on domain
     if not domain_data:
@@ -427,21 +435,39 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     # Get stats for this domain
     domain_name = domain_data["domain"]
     
-    # Collect all possible targets for this domain (subdomains and IPs)
-    targets = [domain_name]
-    if domain_data.get("infrastructure") and domain_data["infrastructure"].get("subdomains"):
-        for sub in domain_data["infrastructure"]["subdomains"]:
-            if sub.get("name"): targets.append(sub["name"])
-            if sub.get("ip"): targets.append(sub["ip"])
-    
-    # Limit targets list size to avoid MongoDB query limits if necessary, 
-    # but for now we'll try $in.
-    # Statuses: ['false_positive', 'in_progress', 'new', 'true_positive']
-    stats = {
-        "open_alerts": await leads_col.count_documents({"target": {"$in": targets}, "status": {"$in": ["new", "in_progress"]}}),
-        "true_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "true_positive"}),
-        "false_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "false_positive"})
-    }
+    # Collect targets for stats calculation
+    if q and q.lower().strip() != domain_name.lower().strip():
+        # Scoped specifically to the subdomain being viewed
+        sub_ips = [
+            sub["ip"] for sub in (domain_data.get("infrastructure", {}).get("subdomains") or [])
+            if sub.get("name", "").lower() == q.lower().strip() and sub.get("ip")
+        ]
+        target_cond = [
+            {"target": {"$regex": f"^{re.escape(q.strip())}(?::\\d+)?$", "$options": "i"}},
+            {"target": {"$regex": f"^https?://{re.escape(q.strip())}(?::\\d+)?(?:/.*)?$", "$options": "i"}}
+        ]
+        if sub_ips:
+            target_cond.append({"target": {"$in": sub_ips}})
+        target_filter = {"$or": target_cond}
+        
+        stats = {
+            "open_alerts": await leads_col.count_documents({"$and": [target_filter, {"status": {"$in": ["new", "in_progress"]}}]}),
+            "true_positives": await leads_col.count_documents({"$and": [target_filter, {"status": "true_positive"}]}),
+            "false_positives": await leads_col.count_documents({"$and": [target_filter, {"status": "false_positive"}]})
+        }
+    else:
+        # Collect all possible targets for this domain (subdomains and IPs)
+        targets = [domain_name]
+        if domain_data.get("infrastructure") and domain_data["infrastructure"].get("subdomains"):
+            for sub in domain_data["infrastructure"]["subdomains"]:
+                if sub.get("name"): targets.append(sub["name"])
+                if sub.get("ip"): targets.append(sub["ip"])
+        
+        stats = {
+            "open_alerts": await leads_col.count_documents({"target": {"$in": targets}, "status": {"$in": ["new", "in_progress"]}}),
+            "true_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "true_positive"}),
+            "false_positives": await leads_col.count_documents({"target": {"$in": targets}, "status": "false_positive"})
+        }
     
     domain_data["_id"] = str(domain_data["_id"])
     domain_data["target_query"] = q
@@ -643,6 +669,7 @@ async def export_subdomains(
 async def export_archive_urls(
     domain_id: str,
     category: Optional[str] = None,
+    target: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -660,14 +687,16 @@ async def export_archive_urls(
     domain = domain_doc.get("domain", "domain")
     
     urls_to_export = []
-    if category == "sensitive_files":
+    if category in ["sensitive", "sensitive_files"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("sensitive_files", []) if item.get("url")]
-    elif category == "api_endpoints":
+    elif category in ["api", "api_endpoints"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("api_endpoints", []) if item.get("url")]
-    elif category == "interesting_params":
+    elif category in ["params", "interesting_params"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("interesting_params", []) if item.get("url")]
-    elif category == "documents":
+    elif category in ["docs", "documents"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("documents", []) if item.get("url")]
+    elif category in ["other", "other_endpoints"]:
+        urls_to_export = [u if isinstance(u, str) else u.get("url") for u in archive_urls.get("other_endpoints", []) if u]
     else:
         for k in ["sensitive_files", "api_endpoints", "interesting_params", "documents"]:
             for item in archive_urls.get(k, []):
@@ -676,10 +705,27 @@ async def export_archive_urls(
         for u in archive_urls.get("other_endpoints", []):
             if isinstance(u, str):
                 urls_to_export.append(u)
+            elif isinstance(u, dict) and u.get("url"):
+                urls_to_export.append(u.get("url"))
     
+    if target:
+        target_clean = target.lower().strip()
+        filtered = []
+        for u in urls_to_export:
+            try:
+                u_parsed = urllib.parse.urlparse(u if (u.startswith("http://") or u.startswith("https://")) else f"http://{u}")
+                if (u_parsed.hostname or "").lower() == target_clean:
+                    filtered.append(u)
+            except Exception:
+                pass
+        urls_to_export = filtered
+        file_prefix = target_clean
+    else:
+        file_prefix = domain
+
     content_str = "\n".join(sorted(list(set(urls_to_export))))
     cat_label = f"_{category}" if category else "_all"
-    filename = f"{domain}_archive_urls{cat_label}.txt"
+    filename = f"{file_prefix}_archive_urls{cat_label}.txt"
     return StreamingResponse(
         io.StringIO(content_str),
         media_type="text/plain",
@@ -1142,6 +1188,7 @@ async def get_domains(
             "added_at": d.get("recon_date", "N/A"),
             "last_scanned": last_scanned,
             "is_root": d.get("is_root", False),
+            "single_domain_only": d.get("single_domain_only", False),
             "scan_interval": d.get("scan_interval", 24) # Default to 24 if not set
         })
     
@@ -1185,7 +1232,12 @@ async def bulk_update_interval(request: Request, user: dict = Depends(get_curren
     await log_audit(user["username"], "BULK_UPDATE_INTERVAL", f"Updated scan interval of {len(ids)} domains to {interval} hours", request)
     return {"status": "success"}
 @app.post("/api/domains/add")
-async def add_domain(request: Request, domain: str = Form(...), user: dict = Depends(get_current_user)):
+async def add_domain(
+    request: Request,
+    domain: str = Form(...),
+    single_domain_only: bool = Form(False),
+    user: dict = Depends(get_current_user)
+):
     check_analyst(user)
     
     # Basic domain validation
@@ -1201,36 +1253,28 @@ async def add_domain(request: Request, domain: str = Form(...), user: dict = Dep
         "domain": domain,
         "scanned": False,
         "blacklisted": False,
+        "single_domain_only": bool(single_domain_only),
         "notes": "",
         "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     })
     
-    # Automatically queue initial discovery, OSINT, and archive URL scan tasks so they begin scanning immediately
-    await tasks_col.insert_many([
-        {
-            "root_domain": domain,
-            "target": domain,
-            "task_type": "discovery",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        },
-        {
-            "root_domain": domain,
-            "target": domain,
-            "task_type": "osint",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        },
-        {
-            "root_domain": domain,
-            "target": domain,
-            "task_type": "archive_urls",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        }
-    ])
+    # Queue initial tasks
+    initial_tasks = [
+        {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+    ]
+    if single_domain_only:
+        # Single target: skip discovery, queue direct port scan
+        initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+    else:
+        # Full scope: queue discovery
+        initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+
+    await tasks_col.insert_many(initial_tasks)
     
-    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain} and queued discovery, OSINT & archive scans", request)
+    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain} (single_domain_only={single_domain_only})", request)
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-add")
@@ -1238,6 +1282,7 @@ async def bulk_add_domains(
     request: Request,
     bulk_domains: Optional[str] = Form(None),
     status: str = Form("pending"),
+    single_domain_only: bool = Form(False),
     file: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user)
 ):
@@ -1309,33 +1354,22 @@ async def bulk_add_domains(
                 "scanned": scanned_val,
                 "on_hold": on_hold_val,
                 "blacklisted": False,
+                "single_domain_only": bool(single_domain_only),
                 "notes": "",
                 "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
             })
             if not scanned_val and not on_hold_val:
-                await tasks_col.insert_many([
-                    {
-                        "root_domain": domain,
-                        "target": domain,
-                        "task_type": "discovery",
-                        "status": "pending",
-                        "created_at": datetime.utcnow()
-                    },
-                    {
-                        "root_domain": domain,
-                        "target": domain,
-                        "task_type": "osint",
-                        "status": "pending",
-                        "created_at": datetime.utcnow()
-                    },
-                    {
-                        "root_domain": domain,
-                        "target": domain,
-                        "task_type": "archive_urls",
-                        "status": "pending",
-                        "created_at": datetime.utcnow()
-                    }
-                ])
+                tasks_to_insert = [
+                    {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+                    {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+                    {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+                    {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+                ]
+                if single_domain_only:
+                    tasks_to_insert.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+                else:
+                    tasks_to_insert.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+                await tasks_col.insert_many(tasks_to_insert)
             added_count += 1
         else:
             skipped_count += 1
@@ -1371,9 +1405,12 @@ async def delete_domain(domain_id: str, request: Request, user: dict = Depends(g
     if not domain_doc:
         raise HTTPException(status_code=404, detail="Domain not found")
     
+    domain_name = domain_doc['domain']
     await domains_col.delete_one({"_id": ObjectId(domain_id)})
+    await tasks_col.delete_many({"root_domain": domain_name})
+    await leads_col.delete_many({"target": {"$regex": re.escape(domain_name)}})
     
-    await log_audit(user["username"], "DELETE_DOMAIN", f"Deleted domain: {domain_doc['domain']}", request)
+    await log_audit(user["username"], "DELETE_DOMAIN", f"Deleted domain: {domain_name}", request)
     return {"status": "success"}
 
 @app.post("/api/domains/{domain_id}/webapps/delete-finding")
@@ -1431,13 +1468,63 @@ async def bulk_delete_webapp_findings(
     category = data.get("category")
     findings = data.get("findings")
     status_code = data.get("status_code")
+    length = data.get("length")
+    prune_duplicates = data.get("prune_duplicates", False)
     
     if not all([target, category]):
         raise HTTPException(status_code=400, detail="Missing required fields (target or category)")
-    
+
+    # 1. Automated pruning of duplicate response lengths / soft-404 false positives
+    if prune_duplicates:
+        domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+        if not domain_doc:
+            raise HTTPException(status_code=404, detail="Domain not found")
+        web_apps = domain_doc.get("web_applications", [])
+        modified_count = 0
+        for app in web_apps:
+            if app.get("target") == target:
+                items = app.get(category, [])
+                from collections import Counter
+                # Group by non-zero length
+                lens = Counter(it.get("length") for it in items if it.get("length") is not None and it.get("length") > 0)
+                dupe_lens = {l for l, c in lens.items() if c >= 2}
+
+                # Also handle legacy items where length is None but target has hundreds of identical status 200/redirects
+                status_counts = Counter(it.get("status") for it in items if it.get("length") is None)
+                dupe_statuses = {s for s, c in status_counts.items() if c > 10 and s in [200, 301, 302]}
+
+                kept = []
+                for it in items:
+                    it_len = it.get("length")
+                    it_status = it.get("status")
+                    if it_len is not None and it_len in dupe_lens:
+                        modified_count += 1
+                    elif it_len is None and it_status in dupe_statuses:
+                        modified_count += 1
+                    else:
+                        kept.append(it)
+
+                app[category] = kept
+                await domains_col.update_one(
+                    {"_id": ObjectId(domain_id), "web_applications.target": target},
+                    {"$set": {f"web_applications.$.{category}": kept}}
+                )
+                await log_audit(user["username"], "PRUNE_DUPE_FINDINGS", f"Pruned {modified_count} duplicate length findings in {category} for {target} (Domain ID: {domain_id})", request)
+                return {"status": "success", "count": modified_count}
+
+        return {"status": "success", "count": 0}
+
     pull_filter = None
     
-    if status_code is not None:
+    if length is not None:
+        try:
+            ln = int(length)
+            pull_filter = {"length": ln}
+            if status_code is not None:
+                pull_filter["status"] = int(status_code)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid length format")
+    elif status_code is not None:
         try:
             sc = int(status_code)
             pull_filter = {"status": sc}
@@ -1489,6 +1576,7 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
         raise HTTPException(status_code=404, detail="Domain not found")
     
     root_domain = domain_doc["domain"]
+    is_single = domain_doc.get("single_domain_only", False)
     
     # 1. Reset scanned flag, on_hold flag, osint_complete, and archive_hunter_complete
     await domains_col.update_one(
@@ -1499,32 +1587,53 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
     # 2. Clear ALL old/stuck tasks for this domain to allow a clean re-entry
     await tasks_col.delete_many({"root_domain": root_domain})
     
-    # 3. Create fresh discovery, OSINT, and archive URL tasks for the root domain
+    # 3. Create fresh tasks based on domain scope
+    fresh_tasks = [
+        {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+    ]
+    if is_single:
+        fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+    else:
+        fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+        
+    await tasks_col.insert_many(fresh_tasks)
+    
+    await log_audit(user["username"], "SCAN_NOW", f"Triggered immediate scan for domain: {root_domain} (single={is_single})", request)
+    return {"status": "success"}
+
+@app.post("/api/domains/{domain_id}/scan-single")
+async def scan_single_domain(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Trigger an immediate scan strictly for this single domain (no subdomain discovery)."""
+    check_analyst(user)
+    
+    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    
+    root_domain = domain_doc["domain"]
+    
+    # 1. Reset scan status flags
+    await domains_col.update_one(
+        {"_id": ObjectId(domain_id)},
+        {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
+    )
+    
+    # 2. Clear old tasks for this domain
+    await tasks_col.delete_many({"root_domain": root_domain})
+    
+    # 3. Immediately queue ONLY single-domain tasks (scan, osint, archive_urls, waf_detect, lb_detect)
     await tasks_col.insert_many([
-        {
-            "root_domain": root_domain,
-            "target": root_domain,
-            "task_type": "discovery",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        },
-        {
-            "root_domain": root_domain,
-            "target": root_domain,
-            "task_type": "osint",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        },
-        {
-            "root_domain": root_domain,
-            "target": root_domain,
-            "task_type": "archive_urls",
-            "status": "pending",
-            "created_at": datetime.utcnow()
-        }
+        {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
     ])
     
-    await log_audit(user["username"], "SCAN_NOW", f"Triggered immediate scan for domain: {root_domain}", request)
+    await log_audit(user["username"], "SCAN_SINGLE_DOMAIN", f"Triggered single-target scan for {root_domain} (subdomain discovery bypassed)", request)
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-scan-now")
@@ -1544,6 +1653,7 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
             continue
             
         root_domain = domain_doc["domain"]
+        is_single = domain_doc.get("single_domain_only", False)
         
         # 1. Reset flags
         await domains_col.update_one(
@@ -1554,30 +1664,19 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
         # 2. Clear ALL old/stuck tasks
         await tasks_col.delete_many({"root_domain": root_domain})
         
-        # 3. Create fresh discovery, OSINT, and archive tasks
-        await tasks_col.insert_many([
-            {
-                "root_domain": root_domain,
-                "target": root_domain,
-                "task_type": "discovery",
-                "status": "pending",
-                "created_at": datetime.utcnow()
-            },
-            {
-                "root_domain": root_domain,
-                "target": root_domain,
-                "task_type": "osint",
-                "status": "pending",
-                "created_at": datetime.utcnow()
-            },
-            {
-                "root_domain": root_domain,
-                "target": root_domain,
-                "task_type": "archive_urls",
-                "status": "pending",
-                "created_at": datetime.utcnow()
-            }
-        ])
+        # 3. Create fresh tasks based on scope
+        tasks_to_insert = [
+            {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+        ]
+        if is_single:
+            tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+        else:
+            tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+            
+        await tasks_col.insert_many(tasks_to_insert)
             
     await log_audit(user["username"], "BULK_SCAN_NOW", f"Triggered immediate scan for {len(ids)} domains", request)
     return {"status": "success"}
@@ -1643,7 +1742,14 @@ async def bulk_delete_domains(request: Request, user: dict = Depends(get_current
     if not ids:
         return {"status": "success", "message": "No domains to delete"}
 
+    docs = await domains_col.find({"_id": {"$in": ids}}, {"domain": 1}).to_list(length=None)
+    domain_names = [d["domain"] for d in docs if "domain" in d]
+
     await domains_col.delete_many({"_id": {"$in": ids}})
+    if domain_names:
+        await tasks_col.delete_many({"root_domain": {"$in": domain_names}})
+        for dname in domain_names:
+            await leads_col.delete_many({"target": {"$regex": re.escape(dname)}})
     
     await log_audit(user["username"], "BULK_DELETE_DOMAINS", f"Deleted {len(ids)} domains", request)
     return {"status": "success"}
@@ -1787,7 +1893,353 @@ async def get_tools(user: dict = Depends(get_current_user)):
             
         t["status"] = status
         results.append(t)
+    results.sort(key=lambda x: (x.get("name") or x.get("key") or "").lower())
     return results
+
+@app.get("/api/domains/search-simple")
+async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {"blacklisted": {"$ne": True}}
+    search_term = (q or "").strip().lower()
+    
+    if search_term:
+        escaped_q = re.escape(search_term)
+        query["$or"] = [
+            {"domain": {"$regex": escaped_q, "$options": "i"}},
+            {"subdomains.subdomain": {"$regex": escaped_q, "$options": "i"}},
+            {"infrastructure.subdomains.name": {"$regex": escaped_q, "$options": "i"}},
+            {"systems.target": {"$regex": escaped_q, "$options": "i"}},
+            {"web_applications.target": {"$regex": escaped_q, "$options": "i"}}
+        ]
+    
+    cursor = domains_col.find(
+        query,
+        {
+            "domain": 1,
+            "single_domain_only": 1,
+            "subdomains": 1,
+            "infrastructure.subdomains": 1,
+            "systems.target": 1,
+            "web_applications.target": 1,
+            "created_at": 1
+        }
+    ).sort([("domain", 1)]).limit(50)
+    
+    docs = await cursor.to_list(length=50)
+    root_summaries = []
+    results = []
+    
+    for d in docs:
+        doc_id = str(d["_id"])
+        root_domain = d.get("domain", "").strip()
+        is_single = d.get("single_domain_only", False)
+        
+        # Collect all unique targets/subdomains for this root
+        targets_set = set()
+        
+        # 1. infrastructure.subdomains
+        infra = d.get("infrastructure", {})
+        if isinstance(infra, dict):
+            for s in infra.get("subdomains", []):
+                if isinstance(s, dict) and s.get("name"):
+                    targets_set.add(s["name"].strip())
+                elif isinstance(s, str) and s.strip():
+                    targets_set.add(s.strip())
+                    
+        # 2. systems
+        for s in d.get("systems", []):
+            if isinstance(s, dict) and s.get("target"):
+                targets_set.add(s["target"].strip())
+                
+        # 3. web_applications
+        for w in d.get("web_applications", []):
+            if isinstance(w, dict) and w.get("target"):
+                targets_set.add(w["target"].strip())
+                
+        # 4. subdomains
+        for s in d.get("subdomains", []):
+            if isinstance(s, dict) and s.get("subdomain"):
+                targets_set.add(s["subdomain"].strip())
+            elif isinstance(s, str) and s.strip():
+                targets_set.add(s.strip())
+                
+        targets_set.discard(root_domain)
+        all_subdomains = sorted(list(targets_set))
+        
+        root_summaries.append({
+            "id": doc_id,
+            "domain": root_domain,
+            "single_domain_only": is_single,
+            "subdomains_count": len(all_subdomains),
+            "subdomains": all_subdomains[:50]
+        })
+        
+        if search_term:
+            # If root domain matches search term, include root item
+            if search_term in root_domain.lower():
+                results.append({
+                    "id": doc_id,
+                    "root_domain": root_domain,
+                    "target": root_domain,
+                    "is_subdomain": False,
+                    "single_domain_only": is_single,
+                    "subdomains_count": len(all_subdomains)
+                })
+            
+            # Check matching subdomains
+            for sub in all_subdomains:
+                if search_term in sub.lower():
+                    results.append({
+                        "id": doc_id,
+                        "root_domain": root_domain,
+                        "target": sub,
+                        "is_subdomain": True,
+                        "single_domain_only": is_single,
+                        "subdomains_count": len(all_subdomains)
+                    })
+                    if len(results) >= 60:
+                        break
+        else:
+            # Default: include root domain
+            results.append({
+                "id": doc_id,
+                "root_domain": root_domain,
+                "target": root_domain,
+                "is_subdomain": False,
+                "single_domain_only": is_single,
+                "subdomains_count": len(all_subdomains)
+            })
+            
+        if len(results) >= 60:
+            break
+            
+    return {"results": results[:60], "root_domains": root_summaries}
+
+@app.post("/api/tools/{tool_key}/run")
+async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+        
+    domain_id = body.get("domain_id")
+    target = body.get("target")
+    top_of_queue = bool(body.get("top_of_queue", False))
+    
+    if not domain_id:
+        raise HTTPException(status_code=400, detail="domain_id is required")
+        
+    try:
+        domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    except Exception:
+        domain_doc = await domains_col.find_one({"domain": domain_id})
+        
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+        
+    root_domain = domain_doc["domain"]
+    target = (target or root_domain).strip()
+    is_single = domain_doc.get("single_domain_only", False)
+    
+    priority_val = 10 if top_of_queue else 0
+    created_at_val = datetime.utcnow() - timedelta(days=365) if top_of_queue else datetime.utcnow()
+    
+    tasks_to_create = []
+    
+    if tool_key == "subdomain_discovery":
+        if is_single:
+            raise HTTPException(status_code=400, detail=f"'{root_domain}' is configured as a single-domain target. Subdomain discovery cannot be run on it.")
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "discovery",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["alive_check", "subdomain_alive_check"]:
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "verification",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "port_scanner":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "scan",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["osint_collector", "osint_agent"]:
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "osint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "archive_hunter":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "archive_urls",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "waf_detector":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "waf_detect",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "lb_detector":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "lb_detect",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "tech_fingerprinter":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "tech_fingerprint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "http",
+            "port": 80,
+            "task_type": "tech_fingerprint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "directory_hunter":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "directory_hunt",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "screenshot_agent":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "screenshot",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "bypass_403":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "bypass_403",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "js_miner":
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "url": f"https://{target}",
+            "task_type": "js_scrape",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "whois_lookup":
+        await domains_col.update_one(
+            {"_id": domain_doc["_id"]},
+            {"$set": {"whois_complete": False}}
+        )
+        msg = f"Reset WHOIS status for {root_domain} to trigger immediate lookup"
+        if top_of_queue:
+            msg += " (Priority flag noted)"
+        await log_audit(user["username"], "RUN_TOOL", f"Triggered WHOIS lookup on {root_domain}", request)
+        return {"status": "success", "message": msg, "tasks_queued": 1}
+        
+    elif tool_key == "loop_orchestrator":
+        await domains_col.update_one(
+            {"_id": domain_doc["_id"]},
+            {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+        )
+        if is_single:
+            await tasks_col.delete_many({"root_domain": root_domain})
+            tasks_to_create = [
+                {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val}
+            ]
+        else:
+            tasks_to_create.append({
+                "root_domain": root_domain,
+                "target": root_domain,
+                "task_type": "discovery",
+                "status": "pending",
+                "priority": priority_val,
+                "created_at": created_at_val
+            })
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported tool key: {tool_key}")
+
+    if tasks_to_create:
+        await tasks_col.insert_many(tasks_to_create)
+        
+    priority_txt = " (Top of Queue)" if top_of_queue else ""
+    await log_audit(user["username"], "RUN_TOOL", f"Triggered {tool_key} on {target} [{root_domain}]{priority_txt}", request)
+    
+    return {
+        "status": "success",
+        "message": f"Successfully queued {len(tasks_to_create)} task(s) for {target}{priority_txt}",
+        "tasks_queued": len(tasks_to_create),
+        "tool_key": tool_key,
+        "target": target,
+        "top_of_queue": top_of_queue
+    }
 
 @app.get("/api/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -1819,6 +2271,76 @@ async def toggle_scan_pause(request: Request, user: dict = Depends(get_current_u
     
     await log_audit(user["username"], "TOGGLE_SCAN_PAUSE", f"{'Paused' if new_state else 'Resumed'} all scanning activity", request)
     return {"status": "success", "scan_pause": new_state}
+
+@app.post("/api/settings/continue-scanning")
+async def continue_scanning(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+
+    # 1. Unpause global scanning if paused
+    await settings_col.update_one(
+        {"key": "global_settings"},
+        {"$set": {"scan_pause": False}},
+        upsert=True
+    )
+
+    # 2. Recover any tasks stuck in processing (e.g. from standby / sleep) back to pending
+    proc_reset = await tasks_col.update_many(
+        {"status": "processing"},
+        {"$set": {"status": "pending", "recovered_at": datetime.utcnow()}}
+    )
+
+    # 3. Check count of pending tasks
+    pending_count = await tasks_col.count_documents({"status": "pending"})
+
+    restarted_domains = []
+    # 4. If queue is completely idle (0 pending), restart scan cycle for all active domains
+    if pending_count == 0:
+        cursor = domains_col.find({
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True}
+        })
+        async for domain in cursor:
+            root_domain = domain["domain"]
+            is_single = domain.get("single_domain_only", False)
+
+            # Reset completion flags
+            await domains_col.update_one(
+                {"_id": domain["_id"]},
+                {"$set": {
+                    "scanned": False,
+                    "osint_complete": False,
+                    "archive_hunter_complete": False,
+                    "last_cycle_completed": domain.get("last_scanned")
+                }}
+            )
+
+            # Clean stale tasks and queue fresh initial cycle tasks
+            await tasks_col.delete_many({"root_domain": root_domain})
+            cycle_tasks = [
+                {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+            ]
+            if is_single:
+                cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+            else:
+                cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+
+            await tasks_col.insert_many(cycle_tasks)
+            restarted_domains.append(root_domain)
+            pending_count += len(cycle_tasks)
+
+    msg = f"Continued scanning: {pending_count} pending tasks active across {len(restarted_domains)} domain(s)."
+    await log_audit(user["username"], "CONTINUE_SCANNING", msg, request)
+    return {
+        "status": "success",
+        "scan_pause": False,
+        "recovered_processing": proc_reset.modified_count,
+        "pending_tasks": pending_count,
+        "restarted_domains": restarted_domains,
+        "message": msg
+    }
 
 @app.get("/api/stats/dashboard")
 async def get_stats_dashboard(user: dict = Depends(get_current_user)):

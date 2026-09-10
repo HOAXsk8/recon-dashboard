@@ -9,6 +9,7 @@ RUN apt update && apt install -y --no-install-recommends \
     unzip \
     whois \
     chromium \
+    whatweb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install subfinder and httpx with dynamic architecture detection

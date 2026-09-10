@@ -164,6 +164,26 @@
                 </div>
 
                 <div>
+                    <label class="block text-sm font-medium mb-1">Scanning Scope</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="flex items-start p-3 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:border-tech-accent/50 transition-colors bg-slate-50/50 dark:bg-tech-bg/50">
+                            <input type="radio" name="scope_mode" value="full" checked class="mt-0.5 text-tech-accent focus:ring-tech-accent">
+                            <div class="ml-2.5">
+                                <span class="block text-xs font-bold text-slate-800 dark:text-slate-200">Full Scope (Default)</span>
+                                <span class="block text-[11px] text-slate-500">Discover all subdomains and scan entire attack surface</span>
+                            </div>
+                        </label>
+                        <label class="flex items-start p-3 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:border-indigo-500/50 transition-colors bg-slate-50/50 dark:bg-tech-bg/50">
+                            <input type="radio" name="scope_mode" value="single" class="mt-0.5 text-indigo-500 focus:ring-indigo-500">
+                            <div class="ml-2.5">
+                                <span class="block text-xs font-bold text-indigo-400">Single Target Only</span>
+                                <span class="block text-[11px] text-slate-500">Strictly scan this host; skip subdomain discovery</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
                     <label class="block text-sm font-medium mb-1">Initial Scanning Status</label>
                     <select id="initial-status" name="status" class="w-full px-4 py-2 bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg outline-none focus:ring-2 focus:ring-tech-accent text-sm">
                         <option value="pending">Pending (Queue for scanning)</option>
@@ -273,6 +293,7 @@ async function loadDomains() {
                 <td class="px-6 py-4 font-mono font-bold text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent('${domain.domain}')">
                     ${domain.domain}
                     ${!domain.is_root ? '<span class="ml-1 px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
+                    ${domain.single_domain_only ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold uppercase tracking-wider" title="Single target only (subdomain discovery disabled)">Single Target</span>' : ''}
                 </td>
                 <td class="px-6 py-4">${statusBadge}</td>
                 <td class="px-6 py-4">
@@ -286,17 +307,20 @@ async function loadDomains() {
 
             if (['admin', 'analyst'].includes(USER_ROLE)) {
                 rowHtml += `
-                    <td class="px-6 py-4 text-right space-x-2">
-                        <button onclick="scanNow('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Scan Now">
+                    <td class="px-6 py-4 text-right space-x-1.5 whitespace-nowrap">
+                        <button onclick="scanNow('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors inline-flex items-center" title="Full Scan (Respects Domain Scope)">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                         </button>
-                        <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${(domain.notes || "").replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors" title="Notes">
+                        <button onclick="scanSingleDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors inline-flex items-center" title="Scan This Domain Only (Skip Subdomain Discovery)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><circle cx="12" cy="12" r="3" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 3v3m0 12v3M3 12h3m12 0h3"></path></svg>
+                        </button>
+                        <button onclick="openNotesModal('${domain.id}', '${domain.domain}', '${(domain.notes || "").replace(/'/g, "\\'")}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-accent transition-colors inline-flex items-center" title="Notes">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                         </button>
-                        <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${isBlacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors" title="${isBlacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
+                        <button onclick="toggleBlacklist('${domain.id}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg ${isBlacklisted ? 'text-tech-danger' : 'text-slate-400'} hover:text-tech-danger transition-colors inline-flex items-center" title="${isBlacklisted ? 'Remove from blacklist' : 'Blacklist domain'}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
                         </button>
-                        <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors" title="Delete">
+                        <button onclick="deleteDomain('${domain.id}', '${domain.domain}')" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-tech-danger transition-colors inline-flex items-center" title="Delete">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
                     </td>
@@ -351,6 +375,8 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
 
     const formData = new FormData();
     formData.append('status', initialStatus);
+    const scopeMode = document.querySelector('input[name="scope_mode"]:checked')?.value || 'full';
+    formData.append('single_domain_only', scopeMode === 'single');
     if (bulkDomains.trim()) {
         formData.append('bulk_domains', bulkDomains);
     }
@@ -398,6 +424,22 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
         submitBtn.innerHTML = originalBtnContent;
     }
 });
+
+async function scanSingleDomain(id, domain) {
+    if (!confirm(`Trigger immediate SINGLE DOMAIN scan for ${domain}?\n(Subdomain discovery will be skipped).`)) return;
+    
+    try {
+        const response = await fetch(`/api/domains/${id}/scan-single`, { method: 'POST' });
+        const result = await response.json();
+        if (result.status === 'success') {
+            loadDomains();
+        } else {
+            alert(result.message || 'Error triggering single scan');
+        }
+    } catch (error) {
+        console.error('Error triggering single domain scan:', error);
+    }
+}
 
 async function toggleBlacklist(id) {
     try {

@@ -113,7 +113,8 @@ class ArchiveHunterAgent(BaseAgent):
         )
 
         categorized = {
-            "total_urls": len(all_urls),
+            "total_urls": 0,
+            "raw_total_urls": len(all_urls),
             "sensitive_files": [],
             "api_endpoints": [],
             "interesting_params": [],
@@ -128,6 +129,10 @@ class ArchiveHunterAgent(BaseAgent):
 
         for u in all_urls:
             parsed = urllib.parse.urlparse(u)
+            host = (parsed.hostname or "").lower()
+            if not self.is_in_scope(host, domain):
+                continue
+
             path_lower = parsed.path.lower()
             query_lower = parsed.query.lower()
 
@@ -183,6 +188,46 @@ class ArchiveHunterAgent(BaseAgent):
             if len(categorized["other_endpoints"]) < 200:
                 categorized["other_endpoints"].append(u)
 
+        categorized["total_urls"] = (
+            len(categorized["sensitive_files"]) +
+            len(categorized["api_endpoints"]) +
+            len(categorized["interesting_params"]) +
+            len(categorized["documents"]) +
+            len(categorized["other_endpoints"])
+        )
+
+        # Partition categorized archive URLs by subdomain
+        by_subdomain = {}
+        for category_name, items in [
+            ("sensitive_files", categorized["sensitive_files"]),
+            ("api_endpoints", categorized["api_endpoints"]),
+            ("interesting_params", categorized["interesting_params"]),
+            ("documents", categorized["documents"]),
+            ("other_endpoints", categorized["other_endpoints"])
+        ]:
+            for item in items:
+                u_str = item.get("url") if isinstance(item, dict) else item
+                try:
+                    if not u_str.startswith("http://") and not u_str.startswith("https://"):
+                        u_str = "http://" + u_str
+                    host = (urllib.parse.urlparse(u_str).hostname or domain).lower().strip()
+                except Exception:
+                    host = domain.lower().strip()
+
+                if host not in by_subdomain:
+                    by_subdomain[host] = {
+                        "total_urls": 0,
+                        "sensitive_files": [],
+                        "api_endpoints": [],
+                        "interesting_params": [],
+                        "documents": [],
+                        "other_endpoints": []
+                    }
+                by_subdomain[host][category_name].append(item)
+                by_subdomain[host]["total_urls"] += 1
+
+        categorized["by_subdomain"] = by_subdomain
+
         return categorized
 
     async def process_domain_archives(self, doc):
@@ -202,7 +247,7 @@ class ArchiveHunterAgent(BaseAgent):
 
         categorized = self.categorize_urls(domain, all_urls)
 
-        logger.info(f"[{domain}] Categorized {len(all_urls)} archive URLs: {len(categorized['sensitive_files'])} sensitive, {len(categorized['api_endpoints'])} APIs, {len(categorized['interesting_params'])} params, {len(categorized['documents'])} docs.")
+        logger.info(f"[{domain}] Categorized {len(all_urls)} archive URLs: {len(categorized['sensitive_files'])} sensitive, {len(categorized['api_endpoints'])} APIs, {len(categorized['interesting_params'])} params, {len(categorized['documents'])} docs across {len(categorized.get('by_subdomain', {}))} subdomains.")
 
         # Save to Database
         await self.domains_col.update_one(
@@ -216,7 +261,17 @@ class ArchiveHunterAgent(BaseAgent):
             }
         )
 
-        # Cross-populate sensitive files into web_applications.$.sensitive_files
+        # Cross-populate sensitive files and archive_urls into matching web_applications
+        web_apps = doc.get("web_applications", [])
+        by_sub = categorized.get("by_subdomain", {})
+        for app in web_apps:
+            target = (app.get("target") or "").lower().strip()
+            if target and target in by_sub:
+                await self.domains_col.update_one(
+                    {"_id": doc["_id"], "web_applications.target": app["target"]},
+                    {"$set": {"web_applications.$.archive_urls": by_sub[target]}}
+                )
+
         for sf in categorized["sensitive_files"]:
             parsed = urllib.parse.urlparse(sf["url"])
             target = parsed.netloc
@@ -264,24 +319,26 @@ class ArchiveHunterAgent(BaseAgent):
 
     async def process_tasks(self):
         # 1. Process tasks explicitly queued in tasks_col
-        task = await self.tasks_col.find_one_and_update(
-            {"task_type": "archive_urls", "status": "pending"},
-            {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}}
-        )
+        task = await self.get_next_task("archive_urls")
 
         if task:
             root_domain = task["root_domain"]
-            doc = await self.domains_col.find_one({"domain": root_domain})
+            doc = await self.domains_col.find_one({
+                "domain": root_domain,
+                "blacklisted": {"$ne": True},
+                "on_hold": {"$ne": True}
+            })
             if doc:
                 await self.process_domain_archives(doc)
             else:
-                await self.tasks_col.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "Domain not found"}})
+                await self.tasks_col.update_one({"_id": task["_id"]}, {"$set": {"status": "failed", "error": "Domain not found or inactive"}})
             return
 
-        # 2. Automatically find any domain where archive_hunter_complete is not True
+        # 2. Automatically find any active domain where archive_hunter_complete is not True
         doc = await self.domains_col.find_one({
             "archive_hunter_complete": {"$ne": True},
-            "blacklisted": {"$ne": True}
+            "blacklisted": {"$ne": True},
+            "on_hold": {"$ne": True}
         })
 
         if doc:

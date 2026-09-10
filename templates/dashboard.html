@@ -51,6 +51,22 @@
                     <span id="stat-scanned">0 Scanned</span>
                 </div>
             </div>
+
+            <!-- Global Scan Status & Quick Controls -->
+            <div class="flex flex-wrap items-center justify-center gap-3 mt-4 pt-1">
+                <div id="dash-scan-status-pill" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-xs font-mono">
+                    <span id="dash-scan-status-dot" class="w-2 h-2 rounded-full bg-tech-success animate-pulse"></span>
+                    <span id="dash-scan-status-text" class="text-slate-300 font-bold uppercase tracking-wider text-[11px]">Scanner: Active</span>
+                </div>
+                <button id="dash-continue-btn" onclick="continueScanningGlobal()" class="px-4 py-1.5 bg-tech-accent hover:opacity-90 text-tech-bg rounded-xl font-bold text-xs transition-all flex items-center space-x-2 border border-tech-accent shadow-lg shadow-tech-accent/20" title="Continue scanning from where it stopped or trigger next scan pass">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span>Continue Scanning</span>
+                </button>
+                <button id="dash-pause-btn" onclick="togglePauseGlobal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-xs transition-all flex items-center space-x-2 border border-slate-700" title="Pause or Resume scanning">
+                    <svg id="dash-pause-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span id="dash-pause-text">Pause Scanning</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -364,9 +380,15 @@
                     tbody.appendChild(row);
                 });
                 
-                if (autoOpenDomain && data.subdomains.length > 0) {
-                    const match = data.subdomains.find(d => d.domain.toLowerCase() === autoOpenDomain.toLowerCase());
-                    if (match) openDetails(match.domain);
+                if (autoOpenDomain) {
+                    let targetDomain = null;
+                    if (data.subdomains && data.subdomains.length > 0) {
+                        const match = data.subdomains.find(d => d.domain.toLowerCase() === autoOpenDomain.toLowerCase())
+                                   || data.subdomains.find(d => autoOpenDomain.toLowerCase().endsWith(d.domain.toLowerCase()))
+                                   || data.subdomains[0];
+                        if (match) targetDomain = match.domain;
+                    }
+                    openDetails(targetDomain || autoOpenDomain);
                     autoOpenDomain = null;
                 }
                 
@@ -494,6 +516,7 @@
 
         switch(tabId) {
             case 'overview':
+                const viewingTarget = (window.currentInspectedDomain || data.target_query || data.domain || '').trim();
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
                 const reconDate = data.recon_date ? new Date(data.recon_date).toLocaleString() : 'N/A';
                 content.innerHTML = `
@@ -503,13 +526,16 @@
                             <p class="text-lg font-mono text-slate-300">${reconDate}</p>
                         </div>
                         <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
-                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">WAF / CDN Detected</h4>
-                            <p class="text-lg font-bold text-tech-accent">${data.infrastructure?.waf_cdn?.provider || 'None Detected'}</p>
+                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">WAF Detected</h4>
+                            <p class="text-lg font-bold ${data.infrastructure?.waf?.detected ? 'text-tech-accent' : 'text-slate-500'}">
+                                ${data.infrastructure?.waf?.firewall || (data.infrastructure?.waf?.scanned_at ? 'None Detected' : 'Not yet scanned')}
+                            </p>
+                            ${data.infrastructure?.waf?.manufacturer ? `<p class="text-xs text-slate-500 mt-1">${data.infrastructure.waf.manufacturer}</p>` : ''}
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                         <a href="/alerts?target=${encodeURIComponent(data.domain)}" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                         <a href="/alerts?target=${encodeURIComponent(viewingTarget)}" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group" title="View open alerts for ${viewingTarget}">
                             <div class="p-3 bg-red-500/10 text-red-500 rounded-xl group-hover:bg-red-500/20 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                             </div>
@@ -518,7 +544,7 @@
                                 <p class="text-2xl font-bold text-white">${stats.open_alerts}</p>
                             </div>
                         </a>
-                        <a href="/alerts?target=${encodeURIComponent(data.domain)}&status=true_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                        <a href="/alerts?target=${encodeURIComponent(viewingTarget)}&status=true_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group" title="View true positive alerts for ${viewingTarget}">
                             <div class="p-3 bg-tech-success/10 text-tech-success rounded-xl group-hover:bg-tech-success/20 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                             </div>
@@ -527,7 +553,7 @@
                                 <p class="text-2xl font-bold text-white">${stats.true_positives}</p>
                             </div>
                         </a>
-                        <a href="/alerts?target=${encodeURIComponent(data.domain)}&status=false_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group">
+                        <a href="/alerts?target=${encodeURIComponent(viewingTarget)}&status=false_positive" class="bg-tech-bg/50 p-6 rounded-2xl border border-slate-800 flex items-center space-x-4 hover:bg-slate-800/50 transition-all group" title="View false positive alerts for ${viewingTarget}">
                             <div class="p-3 bg-slate-700/50 text-slate-400 rounded-xl group-hover:bg-slate-700/70 transition-colors">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                             </div>
@@ -623,18 +649,81 @@
                         </div>
                         <div class="space-y-6">
                             <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                    WAF Detection
+                                </h3>
+                                ${(() => {
+                                    const waf = data.infrastructure?.waf;
+                                    if (!waf || !waf.scanned_at) return '<p class="text-sm text-slate-500 italic">Not yet scanned.</p>';
+                                    if (!waf.detected) return `
+                                        <div class="flex items-center gap-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0"></span>
+                                            <span class="text-sm text-slate-400">No WAF detected</span>
+                                        </div>
+                                        <p class="text-[10px] text-slate-600 mt-2">Scanned: ${new Date(waf.scanned_at).toLocaleString()}</p>
+                                    `;
+                                    return `
+                                        <div class="space-y-3">
+                                            <div class="flex items-center justify-between p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl">
+                                                <div class="flex items-center gap-3">
+                                                    <span class="w-2.5 h-2.5 rounded-full bg-sky-400 flex-shrink-0 animate-pulse"></span>
+                                                    <span class="text-sm font-bold text-sky-300">${waf.firewall || 'Generic WAF'}</span>
+                                                </div>
+                                                ${waf.confidence ? `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${ waf.confidence === 'high' ? 'bg-sky-500/20 text-sky-400' : waf.confidence === 'medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-slate-700 text-slate-400'}">Confidence: ${waf.confidence}</span>` : ''}
+                                            </div>
+                                            ${waf.manufacturer ? `<p class="text-xs text-slate-400"><span class="text-slate-500">Manufacturer:</span> ${waf.manufacturer}</p>` : ''}
+                                            <p class="text-[10px] text-slate-600">Scanned: ${new Date(waf.scanned_at).toLocaleString()}</p>
+                                        </div>
+                                    `;
+                                })()}
+                            </div>
+
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                                    Load Balancer
+                                </h3>
+                                ${(() => {
+                                    const lb = data.infrastructure?.load_balancer;
+                                    if (!lb || !lb.scanned_at) return '<p class="text-sm text-slate-500 italic">Not yet scanned.</p>';
+                                    if (!lb.detected) return `
+                                        <div class="flex items-center gap-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800">
+                                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0"></span>
+                                            <span class="text-sm text-slate-400">No load balancer detected</span>
+                                        </div>
+                                        <p class="text-[10px] text-slate-600 mt-2">Scanned: ${new Date(lb.scanned_at).toLocaleString()}</p>
+                                    `;
+                                    return `
+                                        <div class="space-y-3">
+                                            <div class="flex items-center justify-between p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+                                                <div class="flex items-center gap-3">
+                                                    <span class="w-2.5 h-2.5 rounded-full bg-purple-400 flex-shrink-0 animate-pulse"></span>
+                                                    <span class="text-sm font-bold text-purple-300">Detected</span>
+                                                </div>
+                                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-bold uppercase">${lb.method || 'unknown method'}</span>
+                                            </div>
+                                            ${lb.ips?.length ? `
+                                                <div>
+                                                    <p class="text-[10px] text-slate-500 uppercase mb-1 font-bold">IPs Observed</p>
+                                                    <div class="flex flex-wrap gap-1.5">
+                                                        ${lb.ips.map(ip => `<span class="font-mono text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded">${ip}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                            ${lb.details ? `<p class="text-xs text-slate-400">${lb.details}</p>` : ''}
+                                            <p class="text-[10px] text-slate-600">Scanned: ${new Date(lb.scanned_at).toLocaleString()}</p>
+                                        </div>
+                                    `;
+                                })()}
+                            </div>
+
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
                                 <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Cloud Footprint</h3>
                                 <div class="space-y-2 text-sm">
                                     <p><span class="text-slate-500">S3 Buckets:</span> ${data.infrastructure?.cloud_footprint?.s3_buckets?.length || 0}</p>
                                     <p><span class="text-slate-500">Azure Blobs:</span> ${data.infrastructure?.cloud_footprint?.azure_blobs?.length || 0}</p>
                                     <p><span class="text-slate-500">GCP Buckets:</span> ${data.infrastructure?.cloud_footprint?.gcp_buckets?.length || 0}</p>
-                                </div>
-                            </div>
-                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
-                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2">Email Security</h3>
-                                <div class="space-y-2 text-sm font-mono">
-                                    <p><span class="text-slate-500 uppercase text-[10px] block mb-1">SPF Record</span> ${data.infrastructure?.email_security?.spf || 'Not found'}</p>
-                                    <p><span class="text-slate-500 uppercase text-[10px] block mb-1">DMARC Record</span> ${data.infrastructure?.email_security?.dmarc || 'Not found'}</p>
                                 </div>
                             </div>
                         </div>
@@ -680,12 +769,75 @@
             case 'webapps':
                 const apps = data.web_applications || [];
                 const archiveData = data.archive_urls || {};
-                const sensitiveArchive = archiveData.sensitive_files || [];
-                const apiArchive = archiveData.api_endpoints || [];
-                const paramArchive = archiveData.interesting_params || [];
-                const docArchive = archiveData.documents || [];
-                const totalArchive = archiveData.total_urls || (sensitiveArchive.length + apiArchive.length + paramArchive.length + docArchive.length);
 
+                // Partition archive URLs by subdomain
+                const extractHost = (u) => {
+                    try {
+                        let s = typeof u === 'string' ? u : (u?.url || '');
+                        if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'http://' + s;
+                        return new URL(s).hostname.toLowerCase();
+                    } catch (e) {
+                        return (data.domain || '').toLowerCase();
+                    }
+                };
+
+                let bySubdomain = (archiveData.by_subdomain && Object.keys(archiveData.by_subdomain).length > 0)
+                    ? JSON.parse(JSON.stringify(archiveData.by_subdomain))
+                    : {};
+
+                if (Object.keys(bySubdomain).length === 0) {
+                    bySubdomain = {};
+                    ['sensitive_files', 'api_endpoints', 'interesting_params', 'documents', 'other_endpoints'].forEach(cat => {
+                        (archiveData[cat] || []).forEach(item => {
+                            const h = extractHost(item);
+                            if (!bySubdomain[h]) {
+                                bySubdomain[h] = {
+                                    total_urls: 0,
+                                    sensitive_files: [],
+                                    api_endpoints: [],
+                                    interesting_params: [],
+                                    documents: [],
+                                    other_endpoints: []
+                                };
+                            }
+                            bySubdomain[h][cat].push(item);
+                            bySubdomain[h].total_urls++;
+                        });
+                    });
+                }
+
+                apps.forEach(app => {
+                    const appT = (app.target || '').toLowerCase().trim();
+                    if (app.archive_urls && app.archive_urls.total_urls > 0) {
+                        bySubdomain[appT] = app.archive_urls;
+                    }
+                });
+
+                // Subdomain currently being viewed
+                const viewingSubdomain = (window.currentInspectedDomain || data.target_query || data.domain || '').toLowerCase().trim();
+
+                // Look up archive URLs for the viewing subdomain only
+                let targetArchive = bySubdomain[viewingSubdomain];
+                if (!targetArchive) {
+                    if (viewingSubdomain.startsWith('www.')) {
+                        targetArchive = bySubdomain[viewingSubdomain.slice(4)];
+                    } else if (bySubdomain['www.' + viewingSubdomain]) {
+                        targetArchive = bySubdomain['www.' + viewingSubdomain];
+                    }
+                }
+                if (!targetArchive && (data.domain || '').toLowerCase().trim() === viewingSubdomain && data.archive_urls && !data.archive_urls.by_subdomain) {
+                    targetArchive = data.archive_urls;
+                }
+                targetArchive = targetArchive || {
+                    total_urls: 0,
+                    sensitive_files: [],
+                    api_endpoints: [],
+                    interesting_params: [],
+                    documents: [],
+                    other_endpoints: []
+                };
+
+                window.activeArchiveCategory = window.activeArchiveCategory || 'all';
                 window.webappViewMode = window.webappViewMode || 'list';
 
                 // Helper to toggle between list and gallery views
@@ -695,19 +847,17 @@
                 };
 
                 // Helper to filter archive category
-                window.activeArchiveCategory = window.activeArchiveCategory || 'all';
                 window.setArchiveCategory = function(cat) {
                     window.activeArchiveCategory = cat;
-                    const items = document.querySelectorAll('.archive-row');
-                    items.forEach(row => {
-                        if (cat === 'all' || row.dataset.category === cat) {
-                            row.style.display = '';
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
+                    updateArchiveFilterUI();
+                };
+
+                window.updateArchiveFilterUI = function() {
+                    const currentCat = window.activeArchiveCategory || 'all';
+
+                    // Update Category button styling
                     document.querySelectorAll('.archive-filter-btn').forEach(btn => {
-                        if (btn.dataset.category === cat) {
+                        if (btn.dataset.category === currentCat) {
                             btn.classList.add('bg-tech-accent', 'text-black');
                             btn.classList.remove('bg-slate-800', 'text-slate-300');
                         } else {
@@ -715,12 +865,44 @@
                             btn.classList.add('bg-slate-800', 'text-slate-300');
                         }
                     });
+
+                    // Update Export link
+                    const exportBtn = document.getElementById('archive-export-link');
+                    if (exportBtn) {
+                        const targetParam = `target=${encodeURIComponent(viewingSubdomain)}`;
+                        const catParam = (currentCat !== 'all') ? `&category=${currentCat}` : '';
+                        exportBtn.href = `/api/domains/${data._id}/archive-urls/export?${targetParam}${catParam}`;
+                        exportBtn.title = `Export archive URLs for ${viewingSubdomain}`;
+                    }
+
+                    // Filter Table Rows
+                    const rows = document.querySelectorAll('.archive-row');
+                    let visibleCount = 0;
+                    rows.forEach(row => {
+                        const rowCat = row.dataset.category;
+                        const catMatch = (currentCat === 'all' || rowCat === currentCat);
+
+                        if (catMatch) {
+                            row.style.display = '';
+                            visibleCount++;
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+
+                    const emptyMsg = document.getElementById('archive-empty-row');
+                    if (emptyMsg) {
+                        emptyMsg.style.display = (visibleCount === 0) ? '' : 'none';
+                    }
                 };
 
                 // Render Visual Gallery Grid
                 const galleryHtml = `
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        ${apps.map(app => `
+                        ${apps.map(app => {
+                            const appTarget = (app.target || '').toLowerCase().trim();
+                            const appSubArch = bySubdomain[appTarget] || app.archive_urls || { total_urls: 0 };
+                            return `
                             <div class="bg-tech-bg rounded-3xl border border-slate-800 overflow-hidden hover:border-slate-700 transition-all flex flex-col group">
                                 <div class="relative h-44 bg-slate-900 overflow-hidden cursor-pointer" onclick="${app.screenshot ? `openScreenshotLightbox('${app.screenshot}', '${app.url}', '${app.target}')` : ''}">
                                     ${app.screenshot ? `
@@ -758,11 +940,20 @@
                                             <span>Visit App</span>
                                             <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                                         </a>
-                                        <span class="text-[10px] text-slate-500">${app.sensitive_files?.length || 0} Files</span>
+                                        <div class="flex items-center space-x-2">
+                                            <span class="text-[10px] text-slate-500">${app.sensitive_files?.length || 0} Files</span>
+                                            ${appSubArch.total_urls > 0 ? `
+                                                <span class="text-[10px] text-amber-400 font-bold flex items-center space-x-1" title="${appSubArch.total_urls} historical archive URLs">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                    <span>${appSubArch.total_urls} Arch</span>
+                                                </span>
+                                            ` : ''}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        `).join('') || '<div class="col-span-full py-16 text-center text-slate-500">No web applications identified.</div>'}
+                        `;
+                        }).join('') || '<div class="col-span-full py-16 text-center text-slate-500">No web applications identified.</div>'}
                     </div>
                 `;
 
@@ -770,6 +961,8 @@
                 const listHtml = `
                     <div class="space-y-8">
                         ${apps.map(app => {
+                            const appTarget = (app.target || '').toLowerCase().trim();
+                            const appSubArchive = bySubdomain[appTarget] || app.archive_urls || { total_urls: 0, sensitive_files: [], api_endpoints: [], interesting_params: [], documents: [], other_endpoints: [] };
                             const compStack = app.comprehensive_tech_stack;
                             let compStackHtml = '';
                             if (compStack) {
@@ -784,6 +977,39 @@
                                         </div>
                                     </div>
                                 `;
+                            }
+                            let whatwebHtml = '';
+                            if (app.whatweb && app.whatweb.plugins) {
+                                const ignoredKeys = ['Title', 'IP', 'Country', 'HTML5', 'UncommonHeaders', 'Script', 'Frame', 'Cookies', 'RedirectLocation', 'Strict-Transport-Security', 'X-Frame-Options', 'X-XSS-Protection', 'X-Content-Type-Options', 'Allow', 'Meta-Author', 'Open-Graph-Protocol', 'Content-Security-Policy', 'Access-Control-Allow-Origin', 'MetaGenerator', 'X-UA-Compatible', 'PasswordField', 'HttpOnly', 'X-Powered-By', 'HTTPServer'];
+                                const pluginEntries = Object.entries(app.whatweb.plugins).filter(([k, v]) => !ignoredKeys.includes(k));
+                                if (pluginEntries.length > 0) {
+                                    whatwebHtml = `
+                                        <div class="bg-slate-900/40 p-5 rounded-2xl border border-slate-800 mb-6">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="flex items-center space-x-2">
+                                                    <span class="text-[10px] font-black text-rose-400 uppercase tracking-[0.2em] flex items-center">
+                                                        <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                                        WhatWeb Fingerprint
+                                                    </span>
+                                                    <span class="px-1.5 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded text-[9px] font-mono">
+                                                        ${pluginEntries.length} plugins
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                ${pluginEntries.map(([name, data]) => {
+                                                    let ver = (data && data.version && data.version.length) ? data.version.join(', ') : '';
+                                                    let str = (data && data.string && data.string.length) ? data.string.slice(0, 2).join(', ') : '';
+                                                    let detail = ver || str;
+                                                    return `<span class="inline-flex items-center px-2 py-1 bg-slate-800/80 border border-slate-700/60 rounded text-[11px] text-slate-300 font-mono">
+                                                        <strong class="text-white mr-1">${name}</strong>
+                                                        ${detail ? `<span class="text-rose-400 font-semibold text-[10px]">[${detail}]</span>` : ''}
+                                                    </span>`;
+                                                }).join('')}
+                                            </div>
+                                        </div>
+                                    `;
+                                }
                             }
 
                             return `
@@ -817,6 +1043,12 @@
                                                 <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-mono font-bold">
                                                     HTTP ${app.status || '200'}
                                                 </span>
+                                                ${appSubArchive.total_urls > 0 ? `
+                                                    <span class="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="${appSubArchive.total_urls} historical archive URLs for ${app.target}">
+                                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                        <span>${appSubArchive.total_urls} Archives</span>
+                                                    </span>
+                                                ` : ''}
                                             </div>
                                             <div class="flex flex-wrap gap-1.5">
                                                 ${app.tech_stack?.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700/60 rounded text-[10px] text-slate-300 font-bold uppercase">${t}</span>`).join('') || ''}
@@ -829,6 +1061,7 @@
                                 </div>
                                 
                                 ${compStackHtml}
+                                ${whatwebHtml}
 
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                     <div>
@@ -849,24 +1082,47 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                                        <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b border-slate-700 pb-2">
                                             <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Discovered Files / Dirs</h4>
-                                            <div class="flex items-center space-x-2">
-                                                <input type="number" id="status-select-sensitive_files" placeholder="Status" class="w-14 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 text-white outline-none">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <!-- Status Filter/Delete -->
+                                                <input type="number" id="status-select-sensitive_files" placeholder="Status" class="w-14 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 text-white outline-none" title="Filter by HTTP status code">
                                                 <button onclick="selectByStatus('sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-tech-accent hover:underline font-bold uppercase">Select</button>
-                                                <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase">Delete All</button>
+                                                <button onclick="bulkDeleteFindings('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('status-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase" title="Delete all findings with this status code">Del Status</button>
+
+                                                <span class="text-slate-600 text-xs">|</span>
+
+                                                <!-- Length Filter/Delete -->
+                                                <input type="number" id="length-select-sensitive_files" placeholder="Length" class="w-16 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 text-white outline-none" title="Filter by response byte length">
+                                                <button onclick="bulkDeleteByLength('${data._id}', '${app.target}', 'sensitive_files', document.getElementById('length-select-sensitive_files').value)" class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase" title="Delete all findings with this byte length">Del Length</button>
+
+                                                <span class="text-slate-600 text-xs">|</span>
+
+                                                <!-- Prune Duplicate Lengths / Soft-404s -->
+                                                <button onclick="pruneDuplicateFindings('${data._id}', '${app.target}', 'sensitive_files')" class="text-[10px] text-amber-400 hover:text-amber-300 font-bold uppercase px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all flex items-center gap-1" title="Automatically prune false positive findings sharing identical response lengths (soft-404s)">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                    Prune Dupe Lengths
+                                                </button>
                                             </div>
                                         </div>
                                         <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
                                             ${app.sensitive_files?.map(f => {
                                                 const fid = 'sf_' + Math.random().toString(36).substr(2, 9);
                                                 window.currentFindingsMap.set(fid, f);
+                                                const lengthDisplay = (f.length !== undefined && f.length !== null && f.length > 0)
+                                                    ? (f.length > 1024 ? (f.length / 1024).toFixed(1) + ' KB' : f.length + ' B')
+                                                    : '';
                                                 return `
                                                 <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50 group finding-item-sensitive_files" data-fid="${fid}">
                                                     <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors">${f.path}</a>
-                                                    <div class="flex items-center">
+                                                    <div class="flex items-center gap-2">
                                                         <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
-                                                        <button onclick="deleteFinding('${data._id}', '${app.target}', 'sensitive_files', '${fid}')" class="ml-2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
+                                                        ${lengthDisplay ? `
+                                                            <span onclick="document.getElementById('length-select-sensitive_files').value = ${f.length}" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-tech-accent hover:border-tech-accent border border-slate-700 cursor-pointer transition-colors" title="Click to fill length filter (${f.length} bytes)">
+                                                                ${lengthDisplay}
+                                                            </span>
+                                                        ` : ''}
+                                                        <button onclick="deleteFinding('${data._id}', '${app.target}', 'sensitive_files', '${fid}')" class="ml-1 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 transition-all" title="Delete Finding">
                                                             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                         </button>
                                                     </div>
@@ -955,61 +1211,109 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Passive Historical Archive URLs for this Subdomain Only -->
+                                <div class="mt-8 border-t border-slate-800/80 pt-6">
+                                    <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b border-slate-700 pb-2">
+                                        <div class="flex items-center space-x-2">
+                                            <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center">
+                                                <svg class="w-4 h-4 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                Historical Archive Endpoints (${appSubArchive.total_urls || 0})
+                                            </h4>
+                                            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-tech-accent/10 text-tech-accent border border-tech-accent/20">
+                                                ${app.target} only
+                                            </span>
+                                        </div>
+                                        <div class="flex items-center space-x-3">
+                                            ${appSubArchive.total_urls > 0 ? `
+                                                <a href="/api/domains/${data._id}/archive-urls/export?target=${encodeURIComponent(app.target)}" download class="text-[10px] text-tech-accent hover:underline font-bold uppercase flex items-center space-x-1" title="Export archive URLs for ${app.target}">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                    <span>Export Subdomain URLs</span>
+                                                </a>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="max-h-[220px] overflow-y-auto space-y-2 pr-2">
+                                        ${appSubArchive.total_urls > 0 ? [
+                                            ...(appSubArchive.sensitive_files || []).map(f => ({ url: f.url, label: f.detected_keyword || 'Sensitive', badge: 'bg-red-500/20 text-red-400 border-red-500/30' })),
+                                            ...(appSubArchive.api_endpoints || []).map(f => ({ url: f.url, label: 'API Endpoint', badge: 'bg-sky-500/10 text-sky-400 border-sky-500/20' })),
+                                            ...(appSubArchive.interesting_params || []).map(f => ({ url: f.url, label: 'Query Param', badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20' })),
+                                            ...(appSubArchive.documents || []).map(f => ({ url: f.url, label: 'Document', badge: 'bg-slate-800 text-slate-400 border-slate-700' })),
+                                            ...(appSubArchive.other_endpoints || []).map(u => ({ url: typeof u === 'string' ? u : (u?.url || ''), label: 'Historical URL', badge: 'bg-slate-900 text-slate-500 border-slate-800' }))
+                                        ].map(item => `
+                                            <div class="flex items-center justify-between p-2.5 bg-slate-900/50 rounded-xl border border-slate-800/50 group hover:border-slate-700/80 transition-colors">
+                                                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors truncate max-w-lg">${item.url}</a>
+                                                <div class="flex items-center gap-2 flex-shrink-0">
+                                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold border ${item.badge}">${item.label}</span>
+                                                    <button onclick="navigator.clipboard.writeText('${item.url}')" class="text-[10px] text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">Copy</button>
+                                                </div>
+                                            </div>
+                                        `).join('') : `<p class="text-xs text-slate-600 italic py-2">No historical archive endpoints identified for ${app.target}.</p>`}
+                                    </div>
+                                </div>
                             </div>`;
                         }).join('') || '<div class="bg-tech-bg p-20 text-center text-slate-500 border border-slate-800 rounded-3xl">No web applications identified for this target.</div>'}
                     </div>
                 `;
 
-                // Render Passive Historical Archive Section
+                // Render Passive Historical Archive Section for viewingSubdomain ONLY
                 const archiveSectionHtml = `
-                    <div class="bg-tech-bg p-8 rounded-3xl border border-slate-800 mt-12">
+                    <div id="passive-archives-section" class="bg-tech-bg p-8 rounded-3xl border border-slate-800 mt-12">
                         <div class="flex flex-col md:flex-row md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
                             <div>
-                                <h3 class="text-lg font-bold text-white flex items-center">
-                                    <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                    Passive Historical Archive URLs (${totalArchive})
-                                </h3>
-                                <p class="text-xs text-slate-400 mt-1">Passively indexed endpoints from AlienVault OTX, URLScan.io, and the Wayback Machine (Zero Target Traffic).</p>
+                                <div class="flex items-center space-x-3">
+                                    <h3 class="text-lg font-bold text-white flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        Historical Archive URLs
+                                    </h3>
+                                    <span class="px-2.5 py-0.5 bg-tech-accent/10 text-tech-accent border border-tech-accent/20 rounded-lg text-xs font-mono font-bold" id="archive-current-subdomain-name">
+                                        ${viewingSubdomain}
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-400 mt-1">Passive historical URLs for <span class="text-white font-mono font-semibold">${viewingSubdomain}</span> from AlienVault OTX, URLScan.io, and Wayback Machine.</p>
                             </div>
                             <div class="flex items-center space-x-3">
-                                <a href="/api/domains/${data._id}/archive-urls/export" download class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700">
+                                <a id="archive-export-link" href="/api/domains/${data._id}/archive-urls/export?target=${encodeURIComponent(viewingSubdomain)}" download class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700">
                                     <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                    <span>Export URLs (.txt)</span>
+                                    <span>Export Subdomain URLs (.txt)</span>
                                 </a>
                             </div>
                         </div>
 
-                        <!-- Archive Category Tabs -->
+                        <!-- Archive Category Tabs (Scoped strictly to viewingSubdomain) -->
                         <div class="flex flex-wrap gap-2 mb-6">
                             <button onclick="setArchiveCategory('all')" data-category="all" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'all' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
-                                All Archives (${totalArchive})
+                                All Endpoints (${targetArchive.total_urls || 0})
                             </button>
-                            <button onclick="setArchiveCategory('sensitive')" data-category="sensitive" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'sensitive' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'} ${sensitiveArchive.length > 0 ? 'ring-1 ring-red-500/50' : ''}">
-                                ⚠️ Sensitive & Backups (${sensitiveArchive.length})
+                            <button onclick="setArchiveCategory('sensitive')" data-category="sensitive" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'sensitive' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                ⚠️ Sensitive & Backups (${(targetArchive.sensitive_files || []).length})
                             </button>
                             <button onclick="setArchiveCategory('api')" data-category="api" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'api' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
-                                ⚡ API Endpoints (${apiArchive.length})
+                                ⚡ API Endpoints (${(targetArchive.api_endpoints || []).length})
                             </button>
                             <button onclick="setArchiveCategory('params')" data-category="params" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'params' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
-                                🔍 Parameters (${paramArchive.length})
+                                🔍 Parameters (${(targetArchive.interesting_params || []).length})
                             </button>
                             <button onclick="setArchiveCategory('docs')" data-category="docs" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'docs' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
-                                📄 Documents (${docArchive.length})
+                                📄 Documents (${(targetArchive.documents || []).length})
+                            </button>
+                            <button onclick="setArchiveCategory('other')" data-category="other" class="archive-filter-btn px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${window.activeArchiveCategory === 'other' ? 'bg-tech-accent text-black' : 'bg-slate-800 text-slate-300'}">
+                                🌐 Other Endpoints (${(targetArchive.other_endpoints || []).length})
                             </button>
                         </div>
 
-                        <!-- Archive Table -->
+                        <!-- Archive Table (Displaying viewingSubdomain findings ONLY) -->
                         <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
                             <table class="w-full text-left text-sm">
                                 <thead class="text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-800">
                                     <tr>
-                                        <th class="pb-3">URL / Endpoint</th>
+                                        <th class="pb-3">Subdomain URL / Endpoint</th>
                                         <th class="pb-3">Category</th>
                                         <th class="pb-3 text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-800/60">
-                                    ${sensitiveArchive.map(item => `
+                                    ${(targetArchive.sensitive_files || []).map(item => `
                                         <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="sensitive">
                                             <td class="py-2.5 font-mono text-xs text-red-400 truncate max-w-xl">
                                                 <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
@@ -1019,7 +1323,7 @@
                                         </tr>
                                     `).join('')}
 
-                                    ${apiArchive.map(item => `
+                                    ${(targetArchive.api_endpoints || []).map(item => `
                                         <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="api">
                                             <td class="py-2.5 font-mono text-xs text-sky-400 truncate max-w-xl">
                                                 <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
@@ -1029,7 +1333,7 @@
                                         </tr>
                                     `).join('')}
 
-                                    ${paramArchive.map(item => `
+                                    ${(targetArchive.interesting_params || []).map(item => `
                                         <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="params">
                                             <td class="py-2.5 font-mono text-xs text-amber-300 truncate max-w-xl">
                                                 <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
@@ -1039,7 +1343,7 @@
                                         </tr>
                                     `).join('')}
 
-                                    ${docArchive.map(item => `
+                                    ${(targetArchive.documents || []).map(item => `
                                         <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="docs">
                                             <td class="py-2.5 font-mono text-xs text-slate-300 truncate max-w-xl">
                                                 <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="hover:underline">${item.url}</a>
@@ -1049,17 +1353,23 @@
                                         </tr>
                                     `).join('')}
 
-                                    ${(archiveData.other_endpoints || []).map(u => `
+                                    ${(targetArchive.other_endpoints || []).map(u => {
+                                        const urlStr = typeof u === 'string' ? u : (u?.url || '');
+                                        return `
                                         <tr class="archive-row hover:bg-slate-800/30 transition-colors" data-category="other">
                                             <td class="py-2.5 font-mono text-xs text-slate-400 truncate max-w-xl">
-                                                <a href="${u}" target="_blank" rel="noopener noreferrer" class="hover:underline">${u}</a>
+                                                <a href="${urlStr}" target="_blank" rel="noopener noreferrer" class="hover:underline">${urlStr}</a>
                                             </td>
                                             <td class="py-2.5 text-xs"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-900 text-slate-500">Historical URL</span></td>
-                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${u}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
+                                            <td class="py-2.5 text-right"><button onclick="navigator.clipboard.writeText('${urlStr}')" class="text-xs text-slate-400 hover:text-white">Copy</button></td>
                                         </tr>
-                                    `).join('')}
+                                        `;
+                                    }).join('')}
 
-                                    ${totalArchive === 0 ? '<tr><td colspan="3" class="py-12 text-center text-slate-600 text-xs">No historical archive endpoints indexed yet.</td></tr>' : ''}
+                                    <tr id="archive-empty-row" style="display: none;">
+                                        <td colspan="3" class="py-12 text-center text-slate-600 text-xs">No historical archive endpoints match this category for ${viewingSubdomain}.</td>
+                                    </tr>
+                                    ${(targetArchive.total_urls || 0) === 0 ? `<tr><td colspan="3" class="py-12 text-center text-slate-600 text-xs">No historical archive endpoints found for ${viewingSubdomain}.</td></tr>` : ''}
                                 </tbody>
                             </table>
                         </div>
@@ -1093,7 +1403,12 @@
                         ${archiveSectionHtml}
                     </div>
                 `;
-                break;
+
+                setTimeout(() => {
+                    if (typeof window.updateArchiveFilterUI === 'function') {
+                        window.updateArchiveFilterUI();
+                    }
+                }, 10);
                 break;
             case 'osint':
                 const osint = data.osint || {};
@@ -1412,6 +1727,7 @@
     }
 
     async function openDetails(domain) {
+        window.currentInspectedDomain = domain;
         const modal = document.getElementById('detail-modal');
         const content = document.getElementById('modal-content');
         const title = document.getElementById('modal-title');
@@ -1515,6 +1831,7 @@
         const port = urlParams.get('port');
         const query = urlParams.get('q');
         const tech = urlParams.get('tech');
+        const inspect = urlParams.get('inspect') || urlParams.get('domain');
 
         if (port) {
             currentPortFilter = port;
@@ -1537,13 +1854,91 @@
             techInput.classList.add('ring-2', 'ring-tech-accent');
         }
 
-        if (query) {
+        if (inspect) {
+            document.getElementById('main-search').value = inspect;
+            autoOpenDomain = inspect;
+            openDetails(inspect);
+        } else if (query) {
             document.getElementById('main-search').value = query;
             autoOpenDomain = query;
         }
 
         fetchInventory();
+        fetchGlobalScanStatus();
+        setInterval(fetchGlobalScanStatus, 15000);
     });
+
+    async function fetchGlobalScanStatus() {
+        try {
+            const resp = await fetch('/api/settings');
+            const settings = await resp.json();
+            updateGlobalScanUI(settings.scan_pause);
+        } catch (e) {
+            console.error('Scan Status Fetch Error:', e);
+        }
+    }
+
+    function updateGlobalScanUI(isPaused) {
+        const dot = document.getElementById('dash-scan-status-dot');
+        const text = document.getElementById('dash-scan-status-text');
+        const pauseBtn = document.getElementById('dash-pause-btn');
+        const pauseLabel = document.getElementById('dash-pause-label');
+        const pauseIcon = document.getElementById('dash-pause-icon');
+
+        if (!dot || !text || !pauseBtn) return;
+
+        if (isPaused) {
+            dot.className = 'w-2 h-2 rounded-full bg-tech-danger';
+            text.className = 'text-tech-danger font-bold uppercase tracking-wider text-[11px]';
+            text.innerText = 'Scanner: Paused';
+            pauseLabel.innerText = 'Resume';
+            pauseBtn.className = 'px-4 py-1.5 bg-tech-success hover:opacity-90 text-tech-bg rounded-xl font-bold text-xs transition-all flex items-center space-x-2 border border-tech-success shadow-lg shadow-tech-success/20';
+            pauseIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+        } else {
+            dot.className = 'w-2 h-2 rounded-full bg-tech-success animate-pulse';
+            text.className = 'text-slate-300 font-bold uppercase tracking-wider text-[11px]';
+            text.innerText = 'Scanner: Active';
+            pauseLabel.innerText = 'Pause Scanning';
+            pauseBtn.className = 'px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-xs transition-all flex items-center space-x-2 border border-slate-700';
+            pauseIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
+        }
+    }
+
+    async function togglePauseGlobal() {
+        try {
+            const resp = await fetch('/api/settings/toggle-pause', { method: 'POST' });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                updateGlobalScanUI(result.scan_pause);
+            }
+        } catch (e) {
+            console.error('Toggle Global Pause Error:', e);
+        }
+    }
+
+    async function continueScanningGlobal() {
+        const btn = document.getElementById('dash-continue-btn');
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg><span>Continuing...</span>`;
+        try {
+            const resp = await fetch('/api/settings/continue-scanning', { method: 'POST' });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                updateGlobalScanUI(false);
+                resetAndFetch();
+                showNotification(result.message || 'Scanning continued successfully.');
+            } else {
+                alert('Error: ' + (result.detail || 'Failed to continue scanning'));
+            }
+        } catch (e) {
+            console.error('Continue Scan Error:', e);
+            alert('Error continuing scan: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    }
     async function deleteDomain(domainId) {
         if (!confirm('Are you sure you want to delete this domain and all its reconnaissance data?')) return;
         
@@ -1649,6 +2044,86 @@
         } catch (e) {
             console.error(e);
             alert('Failed to bulk delete findings');
+        }
+    }
+
+    async function bulkDeleteByLength(domainId, target, category, lengthVal) {
+        if (!lengthVal) {
+            alert('Please enter a response length (bytes) to delete.');
+            return;
+        }
+        const len = parseInt(lengthVal);
+        if (isNaN(len)) {
+            alert('Invalid length value.');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to delete all findings with response length ${len} bytes on ${target}?`)) {
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/webapps/bulk-delete-findings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target: target,
+                    category: category,
+                    length: len
+                })
+            });
+
+            if (resp.ok) {
+                const res = await resp.json();
+                showNotification(`Deleted ${res.count || 0} findings with length ${len}B`);
+                const refreshResp = await fetch(`/search?q=${encodeURIComponent(currentDetailData.target_query || currentDetailData.domain)}`);
+                const newData = await refreshResp.json();
+                if (!newData.error) {
+                    currentDetailData = newData;
+                    renderTabContent('webapps');
+                }
+            } else {
+                const err = await resp.json();
+                alert('Error: ' + (err.detail || 'Failed to delete findings by length'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to delete findings by length');
+        }
+    }
+
+    async function pruneDuplicateFindings(domainId, target, category = 'sensitive_files') {
+        if (!confirm(`Automatically prune soft-404 false positives (findings sharing duplicate response lengths or recurring wildcard redirects) on ${target}?`)) {
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/webapps/bulk-delete-findings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target: target,
+                    category: category,
+                    prune_duplicates: true
+                })
+            });
+
+            if (resp.ok) {
+                const res = await resp.json();
+                showNotification(`Pruned ${res.count || 0} false positive findings from ${target}`);
+                const refreshResp = await fetch(`/search?q=${encodeURIComponent(currentDetailData.target_query || currentDetailData.domain)}`);
+                const newData = await refreshResp.json();
+                if (!newData.error) {
+                    currentDetailData = newData;
+                    renderTabContent('webapps');
+                }
+            } else {
+                const err = await resp.json();
+                alert('Error: ' + (err.detail || 'Failed to prune duplicate findings'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Failed to prune duplicate findings');
         }
     }
 
