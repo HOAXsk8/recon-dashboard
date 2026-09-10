@@ -16,6 +16,7 @@ services:
     build: .
     image: recon-dashboard:latest
     container_name: recon-dashboard
+    command: ["./start.sh"]
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
@@ -258,6 +259,22 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
     command: ["python", "tools/lb_detector.py"]
+    volumes:
+      - ./tools:/app/tools
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  dynamic-js-collector:
+    image: recon-dashboard:latest
+    container_name: dynamic-js-collector
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "tools/dynamic_js_collector.py"]
     volumes:
       - ./tools:/app/tools
     restart: always

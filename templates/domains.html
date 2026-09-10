@@ -19,13 +19,21 @@
     <!-- Domains Table Section -->
     <div class="bg-white dark:bg-tech-panel rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xl">
         <div id="global-selection-bar" class="hidden bg-tech-accent/10 border-b border-slate-200 dark:border-slate-800 px-8 py-3 text-sm text-center">
-            <span id="selection-message" class="text-slate-500"></span>
+            <span id="selection-message" class="text-slate-300 font-medium"></span>
             <button id="select-all-matching-btn" onclick="activateGlobalSelection()" class="ml-2 text-tech-accent font-black hover:underline uppercase text-xs tracking-widest">Select all matching domains</button>
             <button id="clear-selection-btn" onclick="clearGlobalSelection()" class="hidden ml-2 text-slate-500 font-bold hover:text-white uppercase text-xs tracking-widest">Clear selection</button>
         </div>
         <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div class="flex flex-col md:flex-row md:items-center gap-4 flex-grow">
-                <h3 class="text-lg font-bold">Target Domains</h3>
+                <div class="flex items-center space-x-3">
+                    <h3 class="text-lg font-bold">Target Domains</h3>
+                    {% if user.role in ['admin', 'analyst'] %}
+                    <button id="select-all-global-btn" onclick="activateGlobalSelection()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-tech-accent border border-tech-accent/30 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm" title="Select all domains across all pages">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                        <span>Select All (<span id="btn-total-count">0</span>)</span>
+                    </button>
+                    {% endif %}
+                </div>
                 <div class="flex items-center gap-2">
                     <select id="filter-status" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
                         <option value="">All Statuses</option>
@@ -51,7 +59,7 @@
                     <tr>
                         {% if user.role in ['admin', 'analyst'] %}
                         <th class="px-6 py-4 w-10">
-                            <input type="checkbox" id="select-all-domains" onclick="toggleSelectAll(this)" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                            <input type="checkbox" id="select-all-domains" onclick="toggleSelectAll(this)" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent cursor-pointer" title="Toggle page selection">
                         </th>
                         {% endif %}
                         <th class="px-6 py-4">Domain</th>
@@ -69,10 +77,23 @@
                 </tbody>
             </table>
         </div>
-        <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <span id="domain-count" class="text-xs text-slate-500">Showing 0 domains</span>
-            <div class="flex space-x-2">
+        <div class="p-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center space-x-4">
+                <span id="domain-count" class="text-xs text-slate-500">Showing 0 domains</span>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs text-slate-500">Per page:</span>
+                    <select id="per-page-select" onchange="changeLimit(this.value)" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-tech-accent cursor-pointer">
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
                 <button id="domain-prev" onclick="changeDomainPage(-1)" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs hover:bg-tech-accent hover:text-tech-bg disabled:opacity-50 disabled:hover:bg-slate-100 disabled:hover:text-slate-500 transition-all">Previous</button>
+                <span id="domain-page-indicator" class="px-2 py-1 text-xs text-slate-400 font-mono self-center">Page 1</span>
                 <button id="domain-next" onclick="changeDomainPage(1)" class="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded text-xs hover:bg-tech-accent hover:text-tech-bg disabled:opacity-50 disabled:hover:bg-slate-100 disabled:hover:text-slate-500 transition-all">Next</button>
             </div>
         </div>
@@ -235,9 +256,19 @@
 <script>
 const USER_ROLE = '{{ user.role }}';
 let currentPage = 1;
-const limit = 10;
+let limit = 10;
 let totalMatchingCount = 0;
 let isGlobalSelectionActive = false;
+
+function changeLimit(val) {
+    if (val === 'all') {
+        limit = 100000;
+    } else {
+        limit = parseInt(val) || 10;
+    }
+    currentPage = 1;
+    loadDomains();
+}
 
 function formatLastScan(ts) {
     if (!ts || ts === 'Never' || ts === 'N/A') return 'Never';
@@ -263,6 +294,9 @@ async function loadDomains() {
         const tbody = document.getElementById('domain-table-body');
         tbody.innerHTML = '';
         totalMatchingCount = data.total;
+
+        const btnTotal = document.getElementById('btn-total-count');
+        if (btnTotal) btnTotal.innerText = totalMatchingCount;
         
         data.domains.forEach(domain => {
             const isBlacklisted = domain.blacklisted === true;
@@ -282,9 +316,10 @@ async function loadDomains() {
             
             let rowHtml = '';
             if (['admin', 'analyst'].includes(USER_ROLE)) {
+                const isChecked = isGlobalSelectionActive ? 'checked' : '';
                 rowHtml += `
                     <td class="px-6 py-4">
-                        <input type="checkbox" name="domain-checkbox" value="${domain.id}" onclick="updateSelection()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+                        <input type="checkbox" name="domain-checkbox" value="${domain.id}" ${isChecked} onclick="updateSelection()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent cursor-pointer">
                     </td>
                 `;
             }
@@ -332,8 +367,38 @@ async function loadDomains() {
         });
         
         document.getElementById('domain-count').innerText = `Showing ${data.domains.length} of ${data.total} domains`;
-        document.getElementById('domain-prev').disabled = currentPage === 1;
-        document.getElementById('domain-next').disabled = currentPage * limit >= data.total;
+        const totalPages = Math.ceil(data.total / limit) || 1;
+        document.getElementById('domain-prev').disabled = currentPage <= 1;
+        document.getElementById('domain-next').disabled = currentPage >= totalPages;
+        const pageIndicator = document.getElementById('domain-page-indicator');
+        if (pageIndicator) pageIndicator.innerText = `Page ${currentPage} of ${totalPages}`;
+
+        // Sync master checkbox and global selection UI
+        const masterCb = document.getElementById('select-all-domains');
+        if (isGlobalSelectionActive) {
+            if (masterCb) masterCb.checked = true;
+            const bar = document.getElementById('bulk-actions-bar');
+            if (bar) {
+                bar.classList.remove('translate-y-24', 'opacity-0');
+                bar.classList.add('translate-y-0', 'opacity-100');
+            }
+            const count = document.getElementById('selected-count');
+            if (count) count.innerText = totalMatchingCount;
+            const selectionBar = document.getElementById('global-selection-bar');
+            if (selectionBar) selectionBar.classList.remove('hidden');
+            const msgEl = document.getElementById('selection-message');
+            if (msgEl) msgEl.textContent = `All ${totalMatchingCount} domains matching this filter are selected across all pages.`;
+            const matchBtn = document.getElementById('select-all-matching-btn');
+            if (matchBtn) matchBtn.classList.add('hidden');
+            const clearBtn = document.getElementById('clear-selection-btn');
+            if (clearBtn) clearBtn.classList.remove('hidden');
+        } else {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="domain-checkbox"]'));
+            const checkedBoxes = checkboxes.filter(cb => cb.checked);
+            if (masterCb) {
+                masterCb.checked = checkboxes.length > 0 && checkboxes.length === checkedBoxes.length;
+            }
+        }
         
     } catch (error) {
         console.error('Error loading domains:', error);
@@ -358,6 +423,7 @@ function changeDomainPage(delta) {
 }
 
 function resetAndFetch() {
+    clearSelection();
     currentPage = 1;
     loadDomains();
 }
@@ -389,8 +455,8 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
             alert('Security Error: Invalid file type. Only .txt and .csv are allowed.');
             return;
         }
-        if (domainFile.size > 2 * 1024 * 1024) { // 2MB limit
-            alert('File too large. Maximum size is 2MB.');
+        if (domainFile.size > 10 * 1024 * 1024) { // 10MB limit
+            alert('File too large. Maximum size is 10MB.');
             return;
         }
         formData.append('file', domainFile);
@@ -406,19 +472,27 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
             method: 'POST',
             body: formData
         });
-        const result = await response.json();
-        if (result.status === 'success') {
+        
+        let result;
+        const text = await response.text();
+        try {
+            result = JSON.parse(text);
+        } catch (_) {
+            result = { status: 'error', message: text || `Server error (${response.status})` };
+        }
+
+        if (response.ok && result.status === 'success') {
             document.getElementById('add-domain-modal').classList.add('hidden');
             document.getElementById('bulk-domains').value = '';
             document.getElementById('domain-file').value = '';
             alert(`Success: ${result.added} domains added, ${result.skipped} skipped.`);
             loadDomains();
         } else {
-            alert(result.message || 'Error adding domains');
+            alert(result.message || result.detail || `Error (${response.status}): Failed to add domains.`);
         }
     } catch (error) {
         console.error('Error adding domains:', error);
-        alert('Server connection error.');
+        alert(`Connection Error: ${error.message || 'Server request timed out or connection was reset'}.`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = originalBtnContent;
@@ -482,21 +556,36 @@ async function scanNow(id, domain) {
 }
 
 async function bulkScanNow() {
-    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
-    if (!selected.length) return;
-    
-    if (!confirm(`Trigger immediate scan for ${selected.length} domains?`)) return;
+    let body = {};
+    let confirmMsg = "";
+
+    if (isGlobalSelectionActive) {
+        confirmMsg = `Are you sure you want to trigger an immediate scan for ALL ${totalMatchingCount} matching domains?`;
+        body.apply_to_all = true;
+        body.q = document.getElementById('domain-search').value;
+        body.status_val = document.getElementById('filter-status').value;
+        body.blacklisted = document.getElementById('filter-blacklisted').value;
+    } else {
+        const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+        if (!selected.length) return;
+        confirmMsg = `Trigger immediate scan for ${selected.length} domains?`;
+        body.ids = selected;
+    }
+
+    if (!confirm(confirmMsg)) return;
     
     try {
         const response = await fetch('/api/domains/bulk-scan-now', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selected })
+            body: JSON.stringify(body)
         });
         const result = await response.json();
         if (result.status === 'success') {
             clearSelection();
             loadDomains();
+        } else {
+            alert(result.message || 'Error triggering scan');
         }
     } catch (error) {
         console.error('Bulk scan error:', error);
@@ -533,6 +622,9 @@ async function saveNotes() {
 
 // Bulk Edit Functions
 function toggleSelectAll(master) {
+    if (!master.checked && isGlobalSelectionActive) {
+        isGlobalSelectionActive = false;
+    }
     const checkboxes = document.getElementsByName('domain-checkbox');
     checkboxes.forEach(cb => cb.checked = master.checked);
     updateSelection();
@@ -545,44 +637,105 @@ function updateSelection() {
     const count = document.getElementById('selected-count');
     const selectionBar = document.getElementById('global-selection-bar');
     
-    count.innerText = selected.length;
-    
-    if (selected.length > 0) {
-        bar.classList.remove('translate-y-24', 'opacity-0');
-        bar.classList.add('translate-y-0', 'opacity-100');
-
-        if (selected.length === totalOnPage && totalMatchingCount > totalOnPage && !isGlobalSelectionActive) {
-            selectionBar.classList.remove('hidden');
-            document.getElementById('selection-message').textContent = `All ${selected.length} domains on this page are selected.`;
-            document.getElementById('select-all-matching-btn').classList.remove('hidden');
-            document.getElementById('clear-selection-btn').classList.add('hidden');
-        } else if (!isGlobalSelectionActive) {
-            selectionBar.classList.add('hidden');
+    if (isGlobalSelectionActive) {
+        if (selected.length < totalOnPage) {
+            // User unselected a domain on this page, break global selection
+            isGlobalSelectionActive = false;
+            if (count) count.innerText = selected.length;
+            if (selectionBar) selectionBar.classList.add('hidden');
+            const clearBtn = document.getElementById('clear-selection-btn');
+            if (clearBtn) clearBtn.classList.add('hidden');
+        } else {
+            if (count) count.innerText = totalMatchingCount;
         }
     } else {
-        bar.classList.add('translate-y-24', 'opacity-0');
-        bar.classList.remove('translate-y-0', 'opacity-100');
-        document.getElementById('select-all-domains').checked = false;
+        if (count) count.innerText = selected.length;
+    }
+    
+    if (selected.length > 0 || isGlobalSelectionActive) {
+        if (bar) {
+            bar.classList.remove('translate-y-24', 'opacity-0');
+            bar.classList.add('translate-y-0', 'opacity-100');
+        }
+
+        if (isGlobalSelectionActive) {
+            if (selectionBar) selectionBar.classList.remove('hidden');
+            const msgEl = document.getElementById('selection-message');
+            if (msgEl) msgEl.textContent = `All ${totalMatchingCount} domains matching this filter are selected across all pages.`;
+            const matchBtn = document.getElementById('select-all-matching-btn');
+            if (matchBtn) matchBtn.classList.add('hidden');
+            const clearBtn = document.getElementById('clear-selection-btn');
+            if (clearBtn) clearBtn.classList.remove('hidden');
+        } else if (selected.length === totalOnPage && totalMatchingCount > totalOnPage) {
+            if (selectionBar) selectionBar.classList.remove('hidden');
+            const msgEl = document.getElementById('selection-message');
+            if (msgEl) msgEl.textContent = `All ${selected.length} domains on this page are selected.`;
+            const matchBtn = document.getElementById('select-all-matching-btn');
+            if (matchBtn) {
+                matchBtn.textContent = `Select all ${totalMatchingCount} matching domains`;
+                matchBtn.classList.remove('hidden');
+            }
+            const clearBtn = document.getElementById('clear-selection-btn');
+            if (clearBtn) clearBtn.classList.add('hidden');
+        } else {
+            if (selectionBar) selectionBar.classList.add('hidden');
+        }
+    } else {
+        if (bar) {
+            bar.classList.add('translate-y-24', 'opacity-0');
+            bar.classList.remove('translate-y-0', 'opacity-100');
+        }
+        const master = document.getElementById('select-all-domains');
+        if (master) master.checked = false;
         clearGlobalSelection();
     }
 }
 
 function activateGlobalSelection() {
     isGlobalSelectionActive = true;
-    document.getElementById('selection-message').textContent = `All ${totalMatchingCount} domains matching this filter are selected.`;
-    document.getElementById('select-all-matching-btn').classList.add('hidden');
-    document.getElementById('clear-selection-btn').classList.remove('hidden');
+    document.querySelectorAll('input[name="domain-checkbox"]').forEach(cb => cb.checked = true);
+    const master = document.getElementById('select-all-domains');
+    if (master) master.checked = true;
+    
+    const count = document.getElementById('selected-count');
+    if (count) count.innerText = totalMatchingCount;
+    
+    const bar = document.getElementById('bulk-actions-bar');
+    if (bar) {
+        bar.classList.remove('translate-y-24', 'opacity-0');
+        bar.classList.add('translate-y-0', 'opacity-100');
+    }
+    
+    const selectionBar = document.getElementById('global-selection-bar');
+    if (selectionBar) selectionBar.classList.remove('hidden');
+    
+    const msgEl = document.getElementById('selection-message');
+    if (msgEl) msgEl.textContent = `All ${totalMatchingCount} domains matching this filter are selected across all pages.`;
+    
+    const matchBtn = document.getElementById('select-all-matching-btn');
+    if (matchBtn) matchBtn.classList.add('hidden');
+    
+    const clearBtn = document.getElementById('clear-selection-btn');
+    if (clearBtn) clearBtn.classList.remove('hidden');
 }
 
 function clearGlobalSelection() {
     isGlobalSelectionActive = false;
-    document.getElementById('global-selection-bar').classList.add('hidden');
-    document.getElementById('clear-selection-btn').classList.add('hidden');
+    const selectionBar = document.getElementById('global-selection-bar');
+    if (selectionBar) selectionBar.classList.add('hidden');
+    const clearBtn = document.getElementById('clear-selection-btn');
+    if (clearBtn) clearBtn.classList.add('hidden');
+    const count = document.getElementById('selected-count');
+    const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
+    if (count) count.innerText = selected.length;
 }
 
 function clearSelection() {
+    isGlobalSelectionActive = false;
     document.getElementsByName('domain-checkbox').forEach(cb => cb.checked = false);
-    document.getElementById('select-all-domains').checked = false;
+    const master = document.getElementById('select-all-domains');
+    if (master) master.checked = false;
+    clearGlobalSelection();
     updateSelection();
 }
 

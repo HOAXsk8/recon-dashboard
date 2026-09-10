@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Optional, List
+from typing import Optional, List, Union, Set
 import os
 import io
 import pandas as pd
@@ -732,6 +732,19 @@ async def export_archive_urls(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+@app.get("/api/domains/{domain_id}/dynamic-js")
+async def get_dynamic_js_results(domain_id: str, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    try:
+        domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID")
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    dynamic_js = domain_doc.get("infrastructure", {}).get("dynamic_js", {})
+    return {"status": "success", "data": dynamic_js}
+
 @app.get("/api/ip-lookup")
 async def ip_lookup(ip: str, user: dict = Depends(get_current_user)):
     if not user:
@@ -1231,50 +1244,75 @@ async def bulk_update_interval(request: Request, user: dict = Depends(get_curren
 
     await log_audit(user["username"], "BULK_UPDATE_INTERVAL", f"Updated scan interval of {len(ids)} domains to {interval} hours", request)
     return {"status": "success"}
+def normalize_and_validate_domain(raw: str) -> Optional[str]:
+    """Clean and validate raw domain string (strip schemes, paths, ports, wildcards)."""
+    if not raw:
+        return None
+    d = raw.strip().lower()
+    if not d:
+        return None
+    # Strip URL schemes if user pasted full URLs
+    if "://" in d:
+        d = d.split("://", 1)[1]
+    # Strip paths, queries, fragments
+    for delim in ["/", "?", "#"]:
+        if delim in d:
+            d = d.split(delim, 1)[0]
+    # Strip port (e.g. host:8080)
+    if ":" in d:
+        d = d.split(":", 1)[0]
+    # Strip wildcard prefix
+    if d.startswith("*."):
+        d = d[2:]
+    d = d.strip(".")
+    if re.match(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", d):
+        return d
+    return None
+
 @app.post("/api/domains/add")
 async def add_domain(
     request: Request,
     domain: str = Form(...),
-    single_domain_only: bool = Form(False),
+    single_domain_only: Union[bool, str] = Form(False),
     user: dict = Depends(get_current_user)
 ):
     check_analyst(user)
     
-    # Basic domain validation
-    domain = domain.strip().lower()
-    if not re.match(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$", domain):
+    cleaned_domain = normalize_and_validate_domain(domain)
+    if not cleaned_domain:
         return {"status": "error", "message": "Invalid domain format"}
 
-    existing = await domains_col.find_one({"domain": domain})
+    is_single = single_domain_only is True or str(single_domain_only).lower() in ["true", "1", "yes"]
+
+    existing = await domains_col.find_one({"domain": cleaned_domain})
     if existing:
         return {"status": "error", "message": "Domain already exists"}
     
+    now_dt = datetime.utcnow()
     await domains_col.insert_one({
-        "domain": domain,
+        "domain": cleaned_domain,
         "scanned": False,
         "blacklisted": False,
-        "single_domain_only": bool(single_domain_only),
+        "single_domain_only": is_single,
         "notes": "",
-        "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     })
     
     # Queue initial tasks
     initial_tasks = [
-        {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
-        {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
-        {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
-        {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "osint", "status": "pending", "created_at": now_dt},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt}
     ]
-    if single_domain_only:
-        # Single target: skip discovery, queue direct port scan
-        initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+    if is_single:
+        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "scan", "status": "pending", "created_at": now_dt})
     else:
-        # Full scope: queue discovery
-        initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
+        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "discovery", "status": "pending", "created_at": now_dt})
 
     await tasks_col.insert_many(initial_tasks)
     
-    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {domain} (single_domain_only={single_domain_only})", request)
+    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {cleaned_domain} (single_domain_only={is_single})", request)
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-add")
@@ -1282,7 +1320,7 @@ async def bulk_add_domains(
     request: Request,
     bulk_domains: Optional[str] = Form(None),
     status: str = Form("pending"),
-    single_domain_only: bool = Form(False),
+    single_domain_only: Union[bool, str] = Form(False),
     file: Optional[UploadFile] = File(None),
     user: dict = Depends(get_current_user)
 ):
@@ -1294,93 +1332,113 @@ async def bulk_add_domains(
 
     scanned_val = True if status == "scanned" else False
     on_hold_val = True if status == "on_hold" else False
+    is_single = single_domain_only is True or str(single_domain_only).lower() in ["true", "1", "yes"]
 
-    domains_to_add = set()
+    raw_candidates = []
     
     # 1. Process Bulk Paste
     if bulk_domains:
         for line in bulk_domains.splitlines():
-            d = line.strip().lower()
-            if d:
-                domains_to_add.add(d)
+            cleaned = normalize_and_validate_domain(line)
+            if cleaned:
+                raw_candidates.append(cleaned)
                 
-    # 2. Process File Upload (Strict Security)
+    # 2. Process File Upload
     if file:
-        # Strict Extension Check
         filename = file.filename.lower()
         if not (filename.endswith('.txt') or filename.endswith('.csv')):
             raise HTTPException(status_code=400, detail="Security Violation: Only .txt and .csv files allowed.")
         
-        # Read content (Limit to 2MB)
-        content = await file.read(2097152) # 2MB limit
-        if await file.read(1): # Check if there's more
-            raise HTTPException(status_code=400, detail="File too large. Maximum size is 2MB.")
+        # Read content (allow up to 10MB)
+        content = await file.read(10 * 1024 * 1024)
+        if await file.read(1):
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB.")
             
         try:
-            text_content = content.decode('utf-8')
+            text_content = content.decode('utf-8', errors='ignore')
             for line in text_content.splitlines():
-                d = line.strip().lower()
-                # If CSV, take the first column
-                if ',' in d and filename.endswith('.csv'):
-                    d = d.split(',')[0].strip()
-                if d:
-                    domains_to_add.add(d)
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid file encoding. Please use UTF-8.")
+                line_str = line.strip()
+                if ',' in line_str and filename.endswith('.csv'):
+                    line_str = line_str.split(',')[0].strip()
+                cleaned = normalize_and_validate_domain(line_str)
+                if cleaned:
+                    raw_candidates.append(cleaned)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error reading uploaded file: {str(e)}")
 
-    if not domains_to_add:
-        return {"status": "error", "message": "No valid domains found."}
+    if not raw_candidates:
+        return {"status": "error", "message": "No valid domains found in input. Please check the domain format."}
 
-    # Strict Domain Regex
-    domain_regex = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
+    # Deduplicate while preserving insertion order
+    unique_candidates = []
+    seen_candidates = set()
+    for d in raw_candidates:
+        if d not in seen_candidates:
+            seen_candidates.add(d)
+            unique_candidates.append(d)
+
+    # High-performance Batch Check & Bulk Insert
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_dt = datetime.utcnow()
     
-    valid_domains = []
-    for d in domains_to_add:
-        if domain_regex.match(d):
-            valid_domains.append(d)
-
-    if not valid_domains:
-        return {"status": "error", "message": "None of the provided domains were in a valid format."}
-
-    # Batch Check & Insert
+    # Check all existing domains in ONE database query
+    existing_docs = await domains_col.find(
+        {"domain": {"$in": unique_candidates}},
+        {"domain": 1}
+    ).to_list(length=None)
+    existing_set = {doc["domain"] for doc in existing_docs}
+    
+    domains_to_insert = []
+    tasks_to_insert = []
     added_count = 0
     skipped_count = 0
     
-    for domain in valid_domains:
-        existing = await domains_col.find_one({"domain": domain})
-        if not existing:
-            await domains_col.insert_one({
-                "domain": domain,
-                "scanned": scanned_val,
-                "on_hold": on_hold_val,
-                "blacklisted": False,
-                "single_domain_only": bool(single_domain_only),
-                "notes": "",
-                "added_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            })
-            if not scanned_val and not on_hold_val:
-                tasks_to_insert = [
-                    {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
-                    {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
-                    {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
-                    {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
-                ]
-                if single_domain_only:
-                    tasks_to_insert.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
-                else:
-                    tasks_to_insert.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
-                await tasks_col.insert_many(tasks_to_insert)
-            added_count += 1
-        else:
+    for domain in unique_candidates:
+        if domain in existing_set:
             skipped_count += 1
+            continue
+            
+        added_count += 1
+        domains_to_insert.append({
+            "domain": domain,
+            "scanned": scanned_val,
+            "on_hold": on_hold_val,
+            "blacklisted": False,
+            "single_domain_only": is_single,
+            "notes": "",
+            "added_at": now_str
+        })
+        
+        if not scanned_val and not on_hold_val:
+            initial_tasks = [
+                {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": now_dt},
+                {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt},
+                {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt},
+                {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt}
+            ]
+            if is_single:
+                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": now_dt})
+            else:
+                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": now_dt})
+            tasks_to_insert.extend(initial_tasks)
 
-    await log_audit(user["username"], "BULK_ADD_DOMAINS", f"Added {added_count} domains, skipped {skipped_count} (Total attempted: {len(domains_to_add)})", request)
+    # Bulk insert domains in chunks of 1000
+    if domains_to_insert:
+        for i in range(0, len(domains_to_insert), 1000):
+            await domains_col.insert_many(domains_to_insert[i:i+1000], ordered=False)
+
+    # Bulk insert tasks in chunks of 1000
+    if tasks_to_insert:
+        for i in range(0, len(tasks_to_insert), 1000):
+            await tasks_col.insert_many(tasks_to_insert[i:i+1000], ordered=False)
+
+    await log_audit(user["username"], "BULK_ADD_DOMAINS", f"Added {added_count} domains, skipped {skipped_count} (Total unique: {len(unique_candidates)}, single_domain_only={is_single})", request)
     
     return {
         "status": "success", 
         "added": added_count, 
         "skipped": skipped_count, 
-        "total_valid": len(valid_domains)
+        "total_valid": len(unique_candidates)
     }
 
 @app.post("/api/domains/{domain_id}/blacklist")
@@ -1641,8 +1699,19 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
     check_analyst(user)
     
     data = await request.json()
-    ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
+    if data.get("apply_to_all"):
+        q = data.get("q")
+        status_val_filter = data.get("status_val")
+        blacklisted = data.get("blacklisted")
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
+        pipeline.append({"$group": {"_id": "$_id"}})
+        cursor = domains_col.aggregate(pipeline)
+        ids = [doc["_id"] for doc in await cursor.to_list(length=None)]
+    else:
+        ids = [ObjectId(id_str) for id_str in data.get("ids", [])]
     
+    ids = list(set(ids))
     if not ids:
         return {"status": "error", "message": "No domains selected"}
     
@@ -2184,6 +2253,17 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             "target": target,
             "url": f"https://{target}",
             "task_type": "js_scrape",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["dynamic_js_collector", "dynamic_js_recon"]:
+        tasks_to_create.append({
+            "root_domain": root_domain,
+            "target": target,
+            "url": f"https://{target}",
+            "task_type": "dynamic_js_extract",
             "status": "pending",
             "priority": priority_val,
             "created_at": created_at_val

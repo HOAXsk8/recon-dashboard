@@ -726,6 +726,97 @@
                                     <p><span class="text-slate-500">GCP Buckets:</span> ${data.infrastructure?.cloud_footprint?.gcp_buckets?.length || 0}</p>
                                 </div>
                             </div>
+
+                            <div class="bg-tech-bg p-6 rounded-2xl border border-slate-800">
+                                <h3 class="text-lg font-bold mb-4 border-b border-slate-700 pb-2 flex items-center justify-between">
+                                    <span class="flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                        Dynamic JS Recon
+                                    </span>
+                                    ${data.infrastructure?.dynamic_js?.total_scripts_intercepted ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/20 text-amber-400">${data.infrastructure.dynamic_js.total_scripts_intercepted} scripts intercepted</span>` : ''}
+                                </h3>
+                                ${(() => {
+                                    const djs = data.infrastructure?.dynamic_js;
+                                    if (!djs || !djs.scanned_at) return '<p class="text-sm text-slate-500 italic">Not yet scanned with Dynamic JS Recon.</p>';
+                                    return `
+                                        <div class="space-y-4 text-sm">
+                                            <div class="grid grid-cols-2 gap-3">
+                                                <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block">Subdomains Found</span>
+                                                    <span class="text-lg font-bold text-tech-accent">${djs.extracted_subdomains?.length || 0}</span>
+                                                </div>
+                                                <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block">API Routes Found</span>
+                                                    <span class="text-lg font-bold text-indigo-400">${djs.extracted_endpoints?.length || 0}</span>
+                                                </div>
+                                                <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block">Cloud Assets</span>
+                                                    <span class="text-lg font-bold text-sky-400">${djs.extracted_cloud_assets?.length || 0}</span>
+                                                </div>
+                                                <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800">
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block">Secrets / Tokens</span>
+                                                    <span class="text-lg font-bold ${djs.extracted_secrets_count ? 'text-red-400' : 'text-slate-400'}">${djs.extracted_secrets_count || 0}</span>
+                                                </div>
+                                            </div>
+
+                                            ${djs.extracted_subdomains?.length ? `
+                                                <div>
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Discovered Subdomains from Runtime JS:</span>
+                                                    <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                                                        ${djs.extracted_subdomains.map(s => `<span class="font-mono text-[11px] px-2 py-0.5 bg-tech-accent/10 text-tech-accent rounded border border-tech-accent/20 cursor-pointer hover:underline" onclick="showDomainMenu(event, '${s}')">${s}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+
+                                            ${djs.extracted_cloud_assets?.length ? `
+                                                <div>
+                                                    <span class="text-[10px] font-bold uppercase text-slate-500 block mb-1">Cloud / S3 Assets:</span>
+                                                    <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                                                        ${djs.extracted_cloud_assets.map(c => `<span class="font-mono text-[11px] px-2 py-0.5 bg-sky-500/10 text-sky-300 rounded border border-sky-500/20">${c}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+
+                                            ${djs.scripts?.length ? `
+                                                <details class="bg-slate-900/40 rounded-xl border border-slate-800 p-2.5 group">
+                                                    <summary class="cursor-pointer text-[11px] font-bold uppercase text-slate-400 flex items-center justify-between select-none">
+                                                        <span>Intercepted JavaScript Files (${djs.scripts.length})</span>
+                                                        <span class="text-[10px] text-slate-500 font-mono group-open:rotate-180 transition-transform">&#9660;</span>
+                                                    </summary>
+                                                    <div class="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                                        ${djs.scripts.map(sc => `
+                                                            <div class="flex items-center justify-between text-[11px] p-1.5 bg-slate-950/40 rounded border border-slate-800/60 font-mono">
+                                                                <a href="${sc.url}" target="_blank" class="truncate text-slate-300 hover:text-amber-400 max-w-[70%]" title="${sc.url}">${sc.url}</a>
+                                                                <div class="flex items-center gap-2 text-[10px] text-slate-500 shrink-0">
+                                                                    ${sc.endpoints_found ? `<span class="text-indigo-400">${sc.endpoints_found} eps</span>` : ''}
+                                                                    ${sc.secrets_found ? `<span class="text-red-400 font-bold">${sc.secrets_found} sec</span>` : ''}
+                                                                    <span>${(sc.size_bytes / 1024).toFixed(1)} KB</span>
+                                                                </div>
+                                                            </div>
+                                                        `).join('')}
+                                                    </div>
+                                                </details>
+                                            ` : ''}
+
+                                            ${djs.extracted_endpoints?.length ? `
+                                                <details class="bg-slate-900/40 rounded-xl border border-slate-800 p-2.5 group">
+                                                    <summary class="cursor-pointer text-[11px] font-bold uppercase text-slate-400 flex items-center justify-between select-none">
+                                                        <span>Discovered API Endpoints (${djs.extracted_endpoints.length})</span>
+                                                        <span class="text-[10px] text-slate-500 font-mono group-open:rotate-180 transition-transform">&#9660;</span>
+                                                    </summary>
+                                                    <div class="mt-2 space-y-1 max-h-40 overflow-y-auto pr-1 font-mono text-[11px]">
+                                                        ${djs.extracted_endpoints.slice(0, 100).map(ep => `
+                                                            <div class="text-indigo-300 truncate hover:text-white p-1 bg-slate-950/30 rounded border border-slate-800/40">${ep}</div>
+                                                        `).join('')}
+                                                    </div>
+                                                </details>
+                                            ` : ''}
+
+                                            <p class="text-[10px] text-slate-600">Scanned: ${new Date(djs.scanned_at).toLocaleString()}</p>
+                                        </div>
+                                    `;
+                                })()}
+                            </div>
                         </div>
                     </div>
                 `;

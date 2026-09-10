@@ -35,7 +35,10 @@ class WafDetectorAgent(BaseAgent):
         Parse wafw00f JSON output into a normalised result dict.
 
         wafw00f JSON output:
-        [{"url": "...", "detected": [{"firewall": "Cloudflare", "manufacturer": "..."}], "generic": false}]
+        [
+          {"url": "https://...", "detected": true, "firewall": "Cloudflare", "manufacturer": "Cloudflare Inc."},
+          {"url": "https://...", "detected": true, "firewall": "Generic", "manufacturer": "Unknown"}
+        ]
         """
         result = {
             "detected": False,
@@ -44,24 +47,59 @@ class WafDetectorAgent(BaseAgent):
             "mode": None,
             "confidence": None,
             "generic": False,
+            "all_detections": [],
             "scanned_at": datetime.datetime.utcnow().isoformat()
         }
         if not data or not isinstance(data, list):
             return result
 
-        entry = data[0] if data else {}
-        detections = entry.get("detected", [])
-        result["generic"] = entry.get("generic", False)
+        detected_entries = []
+        has_generic = False
 
-        if detections:
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+
+            # Handle case where entry["detected"] is a list of dicts (legacy or wrapper format)
+            raw_detected = entry.get("detected")
+            if isinstance(raw_detected, list):
+                for sub in raw_detected:
+                    if isinstance(sub, dict) and sub.get("firewall") and str(sub.get("firewall")).lower() != "none":
+                        if str(sub.get("firewall")).lower() == "generic":
+                            has_generic = True
+                        else:
+                            detected_entries.append(sub)
+                if entry.get("generic"):
+                    has_generic = True
+                continue
+
+            # Standard wafw00f format: entry has "detected": bool, "firewall": str, "manufacturer": str
+            if raw_detected is True:
+                fw = entry.get("firewall")
+                if fw and str(fw).lower() != "none":
+                    if str(fw).lower() == "generic":
+                        has_generic = True
+                    else:
+                        detected_entries.append(entry)
+
+        result["generic"] = has_generic
+
+        if detected_entries:
             result["detected"] = True
-            first = detections[0]
+            first = detected_entries[0]
             result["firewall"] = first.get("firewall")
             result["manufacturer"] = first.get("manufacturer")
-            result["confidence"] = "high" if len(detections) == 1 else "medium"
-            if result["generic"] and not result["firewall"]:
-                result["firewall"] = "Generic WAF"
-                result["confidence"] = "low"
+            result["confidence"] = "high" if len(detected_entries) == 1 else "medium"
+            result["all_detections"] = [
+                {"firewall": d.get("firewall"), "manufacturer": d.get("manufacturer")}
+                for d in detected_entries
+            ]
+        elif has_generic:
+            result["detected"] = True
+            result["firewall"] = "Generic WAF"
+            result["manufacturer"] = "Unknown"
+            result["confidence"] = "low"
+            result["all_detections"] = [{"firewall": "Generic WAF", "manufacturer": "Unknown"}]
 
         return result
 
@@ -122,6 +160,11 @@ class WafDetectorAgent(BaseAgent):
                 {"domain": root_domain},
                 {"$set": {"infrastructure.waf": waf_result}}
             )
+            if target != root_domain:
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "infrastructure.subdomains.name": target},
+                    {"$set": {"infrastructure.subdomains.$.waf": waf_result}}
+                )
             logger.info(f"WAF scan complete for {target}: detected={waf_result['detected']}, firewall={waf_result['firewall']}")
 
             await self.tasks_col.update_one(

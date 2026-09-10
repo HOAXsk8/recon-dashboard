@@ -24,6 +24,7 @@ TASK_AGENT_MAP = {
     "bypass_403": "bypass_403",
     "dns_scan": "dns_scanner",
     "screenshot": "screenshot_agent",
+    "dynamic_js_extract": "dynamic_js_collector",
 }
 
 class ContinuousLoopAgent(BaseAgent):

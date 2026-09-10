@@ -5,3 +5,5 @@ tools/scanners/C_port_scanner
 .env
 .DS_Store
 *.DS_Store
+screenshots/*.png
+!screenshots/test.png
