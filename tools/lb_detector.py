@@ -115,16 +115,47 @@ class LbDetectorAgent(BaseAgent):
 
         detected = dns_lb or http_lb
 
+        # If HTTP-detected LB but DNS round-robin returned 0 or 1 IP, ensure we resolve the IP
+        if detected and not ips:
+            try:
+                loop = asyncio.get_event_loop()
+                results = await loop.getaddrinfo(domain, None, type=socket.SOCK_STREAM)
+                for r in results:
+                    ip = r[4][0]
+                    if ip and not ip.startswith("127.") and ip not in ips:
+                        ips.append(ip)
+            except Exception as e:
+                logger.debug(f"Fallback DNS resolution error for {domain}: {e}")
+
+        # Perform reverse DNS lookup using `dig -x` for all observed device IPs
+        reverse_dns = {}
+        all_fqdns = []
+        if detected and ips:
+            for ip in ips:
+                try:
+                    fqdns = await self.reverse_dns_lookup(ip)
+                    if fqdns:
+                        reverse_dns[ip] = fqdns
+                        for f in fqdns:
+                            if f not in all_fqdns:
+                                all_fqdns.append(f)
+                except Exception as rdns_err:
+                    logger.debug(f"Reverse DNS error for LB IP {ip}: {rdns_err}")
+
         detail_parts = []
         if http_info["served_by"]:
             detail_parts.append(f"Via/X-Served-By: {', '.join(http_info['served_by'])}")
         if http_info["unique_servers"] and http_info["server_variance"]:
             detail_parts.append(f"Server headers: {', '.join(http_info['unique_servers'])}")
+        if all_fqdns:
+            detail_parts.append(f"Reverse DNS (FQDN): {', '.join(all_fqdns)}")
 
         return {
             "detected": detected,
             "method": ", ".join(methods) if methods else None,
             "ips": ips,
+            "reverse_dns": reverse_dns,
+            "fqdns": all_fqdns,
             "details": "; ".join(detail_parts) if detail_parts else None,
             "scanned_at": datetime.datetime.utcnow().isoformat()
         }
@@ -143,46 +174,20 @@ class LbDetectorAgent(BaseAgent):
         try:
             lb_result = await self.detect_load_balancer(target)
 
-            # Change detection — alert on state changes
-            domain_doc = await self.domains_col.find_one({"domain": root_domain})
-            old_lb = domain_doc.get("infrastructure", {}).get("load_balancer", {}) if domain_doc else {}
-            old_detected = old_lb.get("detected", False)
-            new_detected = lb_result.get("detected", False)
-
-            if new_detected and not old_detected:
-                title = f"Load Balancer Detected: {target}"
-                description = (
-                    f"A load balancer was identified on {target} "
-                    f"(method: {lb_result.get('method') or 'unknown'})."
+            if target.strip().lower() == root_domain.strip().lower():
+                await self.domains_col.update_one(
+                    {"domain": root_domain},
+                    {"$set": {"infrastructure.load_balancer": lb_result}}
                 )
-                details = (
-                    f"Load balancer detection result for {target}:\n"
-                    f"- Method: {lb_result.get('method') or 'N/A'}\n"
-                    f"- IPs observed: {', '.join(lb_result.get('ips', [])) or 'N/A'}\n"
-                    f"- Details: {lb_result.get('details') or 'N/A'}"
+            else:
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "infrastructure.subdomains.name": target},
+                    {"$set": {"infrastructure.subdomains.$.load_balancer": lb_result}}
                 )
-                exploitation = (
-                    "### Load Balancer Analysis\n\n"
-                    "1. **Session Handling**: Verify that session management is consistent across all backend nodes.\n"
-                    "2. **Node Enumeration**: Multiple IPs from DNS round-robin may reveal backend infrastructure.\n"
-                    "3. **Direct IP Access**: Test whether backend nodes respond directly without WAF/proxy protection."
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "web_applications.target": target},
+                    {"$set": {"web_applications.$.load_balancer": lb_result}}
                 )
-                await self.create_alert(title, description, target, "low", details, exploitation)
-
-            elif old_detected and not new_detected:
-                title = f"Load Balancer No Longer Detected: {target}"
-                description = f"The load balancer previously detected on {target} was not found in this scan."
-                details = f"Previous method: {old_lb.get('method') or 'unknown'}"
-                exploitation = (
-                    "### Load Balancer Removed\n\n"
-                    "1. **Verify Change**: Confirm whether the load balancer was intentionally removed or if detection failed."
-                )
-                await self.create_alert(title, description, target, "low", details, exploitation)
-
-            await self.domains_col.update_one(
-                {"domain": root_domain},
-                {"$set": {"infrastructure.load_balancer": lb_result}}
-            )
             logger.info(
                 f"LB scan complete for {target}: detected={lb_result['detected']}, "
                 f"ips={lb_result['ips']}, method={lb_result['method']}"

@@ -10,6 +10,7 @@ from base_agent import BaseAgent, logger
 TASK_AGENT_MAP = {
     "discovery": "subdomain_discovery",
     "alive_check": "alive_check",
+    "verification": "alive_check",
     "port_scan": "port_scanner",
     "scan": "port_scanner",
     "tech_detect": "tech_fingerprinter",
@@ -18,13 +19,13 @@ TASK_AGENT_MAP = {
     "lb_detect": "lb_detector",
     "osint": "osint_collector",
     "archive_urls": "archive_hunter",
-    "js_crawl": "js_miner",
-    "js_analyze": "js_miner",
     "directory_hunt": "directory_hunter",
     "bypass_403": "bypass_403",
     "dns_scan": "dns_scanner",
     "screenshot": "screenshot_agent",
     "dynamic_js_extract": "dynamic_js_collector",
+    "cloud_storage_audit": "cloud_storage_auditor",
+    "environment_mutate": "subdomain_mutator",
 }
 
 class ContinuousLoopAgent(BaseAgent):
@@ -61,7 +62,8 @@ class ContinuousLoopAgent(BaseAgent):
             {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.datetime.utcnow()},
             {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.datetime.utcnow()},
             {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.datetime.utcnow()},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.datetime.utcnow()}
+            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.datetime.utcnow()},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.datetime.utcnow()}
         ]
         if is_single:
             cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.datetime.utcnow()})

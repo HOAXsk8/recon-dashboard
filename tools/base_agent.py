@@ -155,14 +155,13 @@ class BaseAgent:
             logger.error(f"Error checking global pause: {e}")
         return False
 
-    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions):
+    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None):
         """
         Create a new alert (lead) with fingerprint-based deduplication.
         Prevents repeats even if the user deletes the lead.
         """
-        # Create a unique fingerprint based on target and title
-        # Description might change slightly (e.g. timestamp or count), so we use title + target
-        fingerprint_input = f"{target}|{title}"
+        # Create a unique fingerprint based on target, title, and optional extra_key (e.g. source map URL or secret)
+        fingerprint_input = f"{target}|{title}|{extra_key}" if extra_key else f"{target}|{title}"
         fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()
 
         # 1. Check if this fingerprint is explicitly suppressed
@@ -190,7 +189,8 @@ class BaseAgent:
             "details": details,
             "exploitation_suggestions": exploitation_suggestions,
             "fingerprint": fingerprint,
-            "acknowledged": False
+            "acknowledged": False,
+            "response_size": int(response_size) if response_size is not None else 0
         }
         
         await self.leads_col.insert_one(lead_doc)
@@ -304,6 +304,58 @@ class BaseAgent:
             raise RuntimeError(f"Command '{' '.join(cmd)}' timed out after {timeout} seconds")
         except Exception as e:
             raise RuntimeError(f"Error running command '{' '.join(cmd)}': {e}")
+
+    async def reverse_dns_lookup(self, ip: str, timeout: int = 5) -> list:
+        """
+        Perform a reverse DNS lookup using `dig -x <ip> +short`.
+        Falls back to public DNS (@8.8.8.8) and dnspython if needed.
+        Returns a list of FQDNs.
+        """
+        if not ip:
+            return []
+        ip = str(ip).strip()
+        fqdns = []
+
+        # 1. Try dig -x <ip> +short (system resolver)
+        try:
+            stdout, _ = await self.run_command(["dig", "-x", ip, "+short"], timeout=timeout)
+            for line in stdout.splitlines():
+                clean = line.strip().rstrip(".")
+                if clean and not clean.startswith(";;") and clean not in fqdns:
+                    fqdns.append(clean)
+        except Exception:
+            pass
+
+        # 2. If empty, try dig -x <ip> @8.8.8.8 +short (public resolver)
+        if not fqdns:
+            try:
+                stdout, _ = await self.run_command(["dig", "-x", ip, "@8.8.8.8", "+short"], timeout=timeout)
+                for line in stdout.splitlines():
+                    clean = line.strip().rstrip(".")
+                    if clean and not clean.startswith(";;") and clean not in fqdns:
+                        fqdns.append(clean)
+            except Exception:
+                pass
+
+        # 3. If still empty and dnspython is installed, try dnspython
+        if not fqdns:
+            try:
+                import dns.reversename
+                import dns.asyncresolver
+                rev_name = dns.reversename.from_address(ip)
+                resolver = dns.asyncresolver.Resolver()
+                resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
+                resolver.timeout = timeout
+                resolver.lifetime = timeout
+                ans = await resolver.resolve(rev_name, "PTR")
+                for rdata in ans:
+                    clean = str(rdata).strip().rstrip(".")
+                    if clean and clean not in fqdns:
+                        fqdns.append(clean)
+            except Exception:
+                pass
+
+        return fqdns
 
     async def main_loop(self):
         asyncio.create_task(self.update_heartbeat())

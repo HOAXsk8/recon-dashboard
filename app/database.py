@@ -24,6 +24,7 @@ leads_col = db["leads"]
 scanners_col = db["scanners"]
 settings_col = db["settings"]
 tasks_col = db["tasks"]
+source_maps_col = db["recovered_source_maps"]
 
 # Sync client for setup scripts
 sync_client = MongoClient(MONGO_URI)

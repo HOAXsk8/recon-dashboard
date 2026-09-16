@@ -29,6 +29,7 @@ services:
       - ./templates:/app/templates
       - ./tools:/app/tools
       - ./screenshots:/app/screenshots
+      - ./recovered_sources:/app/recovered_sources
     restart: always
     network_mode: "host"
     depends_on:
@@ -135,6 +136,7 @@ services:
       - ./tools:/app/tools
       - ./screenshots:/app/screenshots
     restart: always
+    init: true
     network_mode: "host"
     depends_on:
       - db
@@ -202,24 +204,6 @@ services:
       - db
       - dashboard
 
-  js-miner:
-    image: recon-dashboard:latest
-    container_name: js-miner
-    environment:
-      - MONGO_HOST=localhost
-      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/js_miner.py"]
-    volumes:
-      - ./app:/app/app
-      - ./templates:/app/templates
-      - ./tools:/app/tools
-    restart: always
-    network_mode: "host"
-    depends_on:
-      - db
-      - dashboard
-
-
   bypass-403:
     image: recon-dashboard:latest
     container_name: bypass-403
@@ -277,6 +261,24 @@ services:
     command: ["python", "tools/dynamic_js_collector.py"]
     volumes:
       - ./tools:/app/tools
+      - ./recovered_sources:/app/recovered_sources
+    restart: always
+    init: true
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
+  cloud-storage-auditor:
+    image: recon-dashboard:latest
+    container_name: cloud-storage-auditor
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "tools/cloud_storage_auditor.py"]
+    volumes:
+      - ./tools:/app/tools
     restart: always
     network_mode: "host"
     depends_on:
@@ -287,3 +289,4 @@ volumes:
   mongo_data:
   caddy_data:
   caddy_config:
+

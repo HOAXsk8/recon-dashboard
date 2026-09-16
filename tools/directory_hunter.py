@@ -222,7 +222,7 @@ class DirectoryHunterAgent(BaseAgent):
         details = f"A new directory/file was discovered at {full_discovery_url} with status code {item['status']} (length: {item.get('length', 0)} bytes)."
         exploitation = f"### Exploitation Guidance\n\n1. **Verify Exposure**: Navigate to [{full_discovery_url}]({full_discovery_url}) to see what data is exposed.\n2. **Check Content**: If it's a directory, check for directory listing. If it's a file, check for sensitive configuration, credentials, or source code.\n3. **Context**: This was found on {target} as part of the {root_domain} infrastructure."
 
-        await self.create_alert(title, description, target, risk, details, exploitation)
+        await self.create_alert(title, description, target, risk, details, exploitation, response_size=item.get('length', 0))
 
     async def process_tasks(self):
         task = await self.get_next_task("directory_hunt")
@@ -260,26 +260,6 @@ class DirectoryHunterAgent(BaseAgent):
                                 # New discovery! Create an alert
                                 await self.create_alert_for_item(root_domain, target, item, url)
                                 
-                                # Trigger JS mining for .js files
-                                if path.lower().endswith(".js"):
-                                    exists_js = await self.tasks_col.find_one({
-                                        "root_domain": root_domain,
-                                        "target": target,
-                                        "path": path,
-                                        "task_type": "js_mine"
-                                    })
-                                    if not exists_js:
-                                        await self.tasks_col.insert_one({
-                                            "root_domain": root_domain,
-                                            "target": target,
-                                            "path": path,
-                                            "base_url": url,
-                                            "task_type": "js_mine",
-                                            "status": "pending",
-                                            "created_at": datetime.datetime.utcnow()
-                                        })
-                                        logger.info(f"Queued JS MINE task for {url}/{path}")
-                                
                                 # Trigger 403 bypass for forbidden paths
                                 if item["status"] == 403:
                                     exists_bypass = await self.tasks_col.find_one({
@@ -316,25 +296,6 @@ class DirectoryHunterAgent(BaseAgent):
                     for item in found_items:
                         path = item["path"]
                         await self.create_alert_for_item(root_domain, target, item, url)
-                        
-                        if path.lower().endswith(".js"):
-                            exists_js = await self.tasks_col.find_one({
-                                "root_domain": root_domain,
-                                "target": target,
-                                "path": path,
-                                "task_type": "js_mine"
-                            })
-                            if not exists_js:
-                                await self.tasks_col.insert_one({
-                                    "root_domain": root_domain,
-                                    "target": target,
-                                    "path": path,
-                                    "base_url": url,
-                                    "task_type": "js_mine",
-                                    "status": "pending",
-                                    "created_at": datetime.datetime.utcnow()
-                                })
-                                logger.info(f"Queued JS MINE task for {url}/{path}")
 
                         if item["status"] == 403:
                             exists_bypass = await self.tasks_col.find_one({

@@ -1,21 +1,59 @@
 {% extends "base.html" %}
 
-{% block title %}Investigate Leads | Recon Dashboard{% endblock %}
+{% block title %}Investigate Leads | RDash{% endblock %}
 
 {% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
 
 {% block content %}
 <div class="space-y-10 animate-fade-in">
-    <div class="flex justify-between items-end">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-3xl font-extrabold tracking-tight text-white uppercase">Investigate <span class="text-tech-accent">Leads</span></h1>
-            <p class="text-slate-500 text-sm mt-1">Showing <span id="filtered-count" class="text-tech-accent font-bold">0</span> leads under investigation</p>
+            <p class="text-slate-500 text-sm mt-1">Showing <span id="filtered-count" class="text-tech-accent font-bold">0</span> leads under active investigation</p>
         </div>
-        <div class="flex space-x-4">
-            <button onclick="exportLeads()" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all flex items-center space-x-2 shadow-lg shadow-green-900/20">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        <div class="flex items-center space-x-3">
+            <button onclick="fetchLeads()" class="p-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all border border-slate-700" title="Refresh Leads">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            </button>
+            <button onclick="exportLeads()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 shadow-lg shadow-emerald-950/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                 <span>Export Excel</span>
             </button>
+        </div>
+    </div>
+
+    <!-- Filters & Sorting Control Panel -->
+    <div class="bg-tech-panel/80 p-4 md:p-5 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+        <!-- Search bar -->
+        <div class="relative w-full md:w-80">
+            <input type="text" id="lead-search" oninput="handleSearch()" placeholder="Filter by target, title or keyword..." class="w-full bg-slate-900 border border-slate-800 text-slate-200 pl-10 pr-4 py-2.5 rounded-xl text-xs font-medium focus:ring-2 focus:ring-tech-accent focus:border-tech-accent outline-none">
+            <svg class="w-4 h-4 text-slate-500 absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        </div>
+
+        <!-- Sort controls -->
+        <div class="flex items-center space-x-3 w-full md:w-auto justify-end">
+            <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Sort By:</span>
+            <div class="relative min-w-[260px]">
+                <select id="sort-select" onchange="handleSortSelectChange()" class="w-full appearance-none bg-slate-900 border border-slate-800 text-slate-200 pl-4 pr-10 py-2.5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-tech-accent focus:border-tech-accent outline-none cursor-pointer">
+                    <optgroup label="Severity / Risk">
+                        <option value="severity_desc" selected>Severity: Highest First</option>
+                        <option value="severity_asc">Severity: Lowest First</option>
+                    </optgroup>
+                    <optgroup label="Time Added to Investigate">
+                        <option value="time_desc">Time Added: Newest First</option>
+                        <option value="time_asc">Time Added: Oldest First</option>
+                    </optgroup>
+                    <optgroup label="Alphabetical Order">
+                        <option value="target_asc">Alphabetical: Target (A &rarr; Z)</option>
+                        <option value="target_desc">Alphabetical: Target (Z &rarr; A)</option>
+                        <option value="title_asc">Alphabetical: Title (A &rarr; Z)</option>
+                        <option value="title_desc">Alphabetical: Title (Z &rarr; A)</option>
+                    </optgroup>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -23,12 +61,48 @@
     <div class="bg-tech-panel rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left">
-                <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                <thead class="bg-slate-900/60 text-slate-400 text-xs font-bold uppercase tracking-wider select-none">
                     <tr>
-                        <th class="px-6 py-4">Risk</th>
-                        <th class="px-6 py-4">Title / Lead</th>
-                        <th class="px-6 py-4">Target</th>
-                        <th class="px-6 py-4">Detected</th>
+                        <!-- Risk / Severity Header -->
+                        <th onclick="toggleSortHeader('severity')" class="px-6 py-4 cursor-pointer hover:text-white transition-colors group">
+                            <div class="flex items-center space-x-1.5">
+                                <span>Severity</span>
+                                <span id="sort-icon-severity" class="text-tech-accent transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                                </span>
+                            </div>
+                        </th>
+
+                        <!-- Title Header -->
+                        <th onclick="toggleSortHeader('title')" class="px-6 py-4 cursor-pointer hover:text-white transition-colors group">
+                            <div class="flex items-center space-x-1.5">
+                                <span>Title / Finding</span>
+                                <span id="sort-icon-title" class="text-slate-600 group-hover:text-slate-400 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                                </span>
+                            </div>
+                        </th>
+
+                        <!-- Target Header -->
+                        <th onclick="toggleSortHeader('target')" class="px-6 py-4 cursor-pointer hover:text-white transition-colors group">
+                            <div class="flex items-center space-x-1.5">
+                                <span>Target Host</span>
+                                <span id="sort-icon-target" class="text-slate-600 group-hover:text-slate-400 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                                </span>
+                            </div>
+                        </th>
+
+                        <!-- Time Added to Investigate Header -->
+                        <th onclick="toggleSortHeader('time')" class="px-6 py-4 cursor-pointer hover:text-white transition-colors group">
+                            <div class="flex items-center space-x-1.5">
+                                <span>Time Added</span>
+                                <span id="sort-icon-time" class="text-slate-600 group-hover:text-slate-400 transition-colors">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                                </span>
+                            </div>
+                        </th>
+
                         <th class="px-8 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -50,7 +124,7 @@
                     <h2 id="modal-lead-title" class="text-2xl font-bold text-white uppercase tracking-tight">Lead Investigation</h2>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <button id="modal-domain-link" target="_blank" class="px-4 py-2 bg-tech-accent text-tech-bg rounded-xl font-bold hover:opacity-90 transition-all flex items-center space-x-2 text-sm">
+                    <button id="modal-domain-link" type="button" class="px-4 py-2 bg-tech-accent text-tech-bg rounded-xl font-bold hover:opacity-90 transition-all flex items-center space-x-2 text-sm shadow-md" title="Inspect Target Domain Overview">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                         <span>Domain Overview</span>
                     </button>
@@ -110,57 +184,172 @@
 <script>
     let currentLeads = [];
     let activeLeadId = null;
+    let currentSortBy = 'severity'; // 'severity', 'time', 'target', 'title'
+    let currentSortOrder = 'desc'; // 'desc', 'asc'
+    let searchQuery = '';
+
+    const SEVERITY_WEIGHTS = {
+        'critical': 4,
+        'high': 3,
+        'medium': 2,
+        'low': 1,
+        'info': 0
+    };
+
+    function sortLeads(leadsList, sortBy, sortOrder) {
+        return [...leadsList].sort((a, b) => {
+            let comp = 0;
+            if (sortBy === 'severity') {
+                const aSev = SEVERITY_WEIGHTS[(a.risk_level || '').toLowerCase()] || 0;
+                const bSev = SEVERITY_WEIGHTS[(b.risk_level || '').toLowerCase()] || 0;
+                comp = aSev - bSev;
+                if (comp === 0) {
+                    const aTime = new Date(a.investigating_at || a.timestamp || 0).getTime();
+                    const bTime = new Date(b.investigating_at || b.timestamp || 0).getTime();
+                    comp = aTime - bTime;
+                }
+            } else if (sortBy === 'time' || sortBy === 'time_added' || sortBy === 'investigating_at') {
+                const aTime = new Date(a.investigating_at || a.timestamp || 0).getTime();
+                const bTime = new Date(b.investigating_at || b.timestamp || 0).getTime();
+                comp = aTime - bTime;
+            } else if (sortBy === 'target') {
+                comp = (a.target || '').localeCompare(b.target || '', undefined, { sensitivity: 'base' });
+            } else if (sortBy === 'title') {
+                comp = (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+            }
+            return sortOrder === 'desc' ? -comp : comp;
+        });
+    }
+
+    function updateSortHeaderIcons() {
+        const columns = ['severity', 'title', 'target', 'time'];
+        columns.forEach(col => {
+            const iconEl = document.getElementById(`sort-icon-${col}`);
+            if (!iconEl) return;
+            if (currentSortBy === col) {
+                iconEl.className = 'text-tech-accent transition-colors';
+                if (currentSortOrder === 'desc') {
+                    // Down arrow
+                    iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>`;
+                } else {
+                    // Up arrow
+                    iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"></path></svg>`;
+                }
+            } else {
+                iconEl.className = 'text-slate-600 group-hover:text-slate-400 transition-colors';
+                iconEl.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>`;
+            }
+        });
+        
+        // Sync select dropdown
+        const select = document.getElementById('sort-select');
+        if (select) {
+            select.value = `${currentSortBy}_${currentSortOrder}`;
+        }
+    }
+
+    function toggleSortHeader(col) {
+        if (currentSortBy === col) {
+            currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+        } else {
+            currentSortBy = col;
+            currentSortOrder = (col === 'target' || col === 'title') ? 'asc' : 'desc';
+        }
+        applyFiltersAndRender();
+    }
+
+    function handleSortSelectChange() {
+        const val = document.getElementById('sort-select').value;
+        const [by, ord] = val.split('_');
+        currentSortBy = by;
+        currentSortOrder = ord;
+        applyFiltersAndRender();
+    }
+
+    function handleSearch() {
+        searchQuery = (document.getElementById('lead-search').value || '').trim().toLowerCase();
+        applyFiltersAndRender();
+    }
+
+    function renderTableRows(leads) {
+        const tbody = document.getElementById('leads-table-body');
+        if (leads.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="py-20 text-center text-slate-500 italic uppercase tracking-widest text-xs">No active investigations matching criteria.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        leads.forEach(lead => {
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-800/40 transition-colors cursor-pointer group';
+            row.onclick = () => openInvestigationModal(lead._id);
+            
+            const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : (lead.risk_level === 'critical' ? 'bg-rose-500' : (lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500'));
+            const riskText = (lead.risk_level || 'UNKNOWN').toUpperCase();
+
+            const timeAdded = lead.investigating_at ? new Date(lead.investigating_at).toLocaleString() : new Date(lead.timestamp).toLocaleString();
+            const detectedDate = new Date(lead.timestamp).toLocaleDateString();
+            
+            row.innerHTML = `
+                <td class="px-6 py-5">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-3 h-3 rounded-full ${riskColor} ${lead.risk_level === 'high' || lead.risk_level === 'critical' ? 'animate-pulse' : ''}"></span>
+                        <span class="text-xs font-bold text-slate-300">${riskText}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-5">
+                    <div class="flex flex-col">
+                        <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title}</span>
+                        <span class="text-xs text-slate-500 line-clamp-1">${lead.description}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); openDomainOverviewModal('${lead.target}')" title="Inspect Target Domain Overview">${lead.target}</td>
+                <td class="px-6 py-5">
+                    <div class="flex flex-col">
+                        <span class="text-xs font-semibold text-slate-300">${timeAdded}</span>
+                        <span class="text-[10px] text-slate-500">Detected: ${detectedDate}</span>
+                    </div>
+                </td>
+                <td class="px-8 py-5 text-right">
+                    <button onclick="event.stopPropagation(); openInvestigationModal('${lead._id}')" class="px-4 py-2 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all text-xs font-bold uppercase tracking-widest shadow-sm">
+                        Analyze
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function applyFiltersAndRender() {
+        updateSortHeaderIcons();
+        let filtered = currentLeads;
+        if (searchQuery) {
+            filtered = filtered.filter(l => 
+                (l.title || '').toLowerCase().includes(searchQuery) ||
+                (l.target || '').toLowerCase().includes(searchQuery) ||
+                (l.description || '').toLowerCase().includes(searchQuery)
+            );
+        }
+        const sorted = sortLeads(filtered, currentSortBy, currentSortOrder);
+        renderTableRows(sorted);
+        document.getElementById('filtered-count').textContent = sorted.length;
+    }
 
     async function fetchLeads() {
         const tbody = document.getElementById('leads-table-body');
         tbody.innerHTML = '<tr><td colspan="5" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
         try {
-            const params = new URLSearchParams({ status: 'investigating' });
+            const sortByParam = currentSortBy === 'time' ? 'investigating_at' : currentSortBy;
+            const params = new URLSearchParams({
+                status: 'investigating',
+                sort_by: sortByParam,
+                order: currentSortOrder
+            });
             const resp = await fetch(`/api/leads?${params.toString()}`);
             const data = await resp.json();
-            const leads = data.leads || [];
-            currentLeads = leads;
-            
-            document.getElementById('filtered-count').textContent = data.filtered_count || 0;
-            
-            tbody.innerHTML = '';
-            if (leads.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="py-20 text-center text-slate-500 italic uppercase tracking-widest text-xs">No active investigations.</td></tr>';
-                return;
-            }
-
-            leads.forEach(lead => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-slate-800/40 transition-colors cursor-pointer group';
-                row.onclick = () => openInvestigationModal(lead._id);
-                
-                const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
-                const riskText = lead.risk_level.toUpperCase();
-                
-                row.innerHTML = `
-                    <td class="px-6 py-5">
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 rounded-full ${riskColor} ${lead.risk_level === 'high' ? 'animate-pulse' : ''}"></span>
-                            <span class="text-xs font-bold text-slate-300">${riskText}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-5">
-                        <div class="flex flex-col">
-                            <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title}</span>
-                            <span class="text-xs text-slate-500 line-clamp-1">${lead.description}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); window.location.href='/dashboard?q=' + encodeURIComponent('${lead.target}')">${lead.target}</td>
-                    <td class="px-6 py-5 text-xs text-slate-500">${new Date(lead.timestamp).toLocaleString()}</td>
-                    <td class="px-8 py-5 text-right">
-                        <button onclick="event.stopPropagation(); openInvestigationModal('${lead._id}')" class="px-4 py-2 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg rounded-lg transition-all text-xs font-bold uppercase tracking-widest">
-                            Analyze
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
+            currentLeads = data.leads || [];
+            applyFiltersAndRender();
         } catch (e) {
             console.error(e);
             tbody.innerHTML = '<tr><td colspan="5" class="py-20 text-center text-red-500">Failed to load investigations.</td></tr>';
@@ -191,7 +380,7 @@
         document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
         
         document.getElementById('modal-domain-link').onclick = () => {
-            window.open('/dashboard?q=' + encodeURIComponent(lead.target), '_blank');
+            openDomainOverviewModal(lead.target);
         };
 
         const indicator = document.getElementById('modal-risk-indicator');
@@ -203,7 +392,10 @@
 
     function closeInvestigationModal() {
         document.getElementById('investigation-modal').classList.add('hidden');
-        document.body.style.overflow = 'auto';
+        const domainModal = document.getElementById('domain-overview-modal');
+        if (!domainModal || domainModal.classList.contains('hidden')) {
+            document.body.style.overflow = 'auto';
+        }
         activeLeadId = null;
     }
 
@@ -237,11 +429,21 @@
     }
 
     function exportLeads() {
-        window.location.href = `/api/leads/export?status=investigating`;
+        const sortByParam = currentSortBy === 'time' ? 'investigating_at' : currentSortBy;
+        window.location.href = `/api/leads/export?status=investigating&sort_by=${encodeURIComponent(sortByParam)}&order=${encodeURIComponent(currentSortOrder)}`;
     }
 
     document.addEventListener('DOMContentLoaded', fetchLeads);
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInvestigationModal(); });
+    window.addEventListener('keydown', (e) => { 
+        if (e.key === 'Escape') {
+            const domainModal = document.getElementById('domain-overview-modal');
+            if (domainModal && !domainModal.classList.contains('hidden')) {
+                closeDomainOverviewModal();
+                return;
+            }
+            closeInvestigationModal(); 
+        }
+    });
 </script>
 
 <style>

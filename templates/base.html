@@ -3,10 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Netbytes.cloud{% endblock %}</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%2338bdf8'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='central' text-anchor='middle' font-family='sans-serif' font-weight='900' font-size='24' fill='%230f172a'%3EN%3C/text%3E%3C/svg%3E">
+    <title>{% block title %}RDash{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%2338bdf8'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='central' text-anchor='middle' font-family='sans-serif' font-weight='900' font-size='24' fill='%230f172a'%3ER%3C/text%3E%3C/svg%3E">
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio,line-clamp"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
     <script>
         // Apply saved sidebar collapse state before render to avoid flash
         if (localStorage.getItem('sidebar_collapsed') === 'true') {
@@ -94,17 +102,17 @@
         }
     </style>
 </head>
-<body class="min-h-screen flex bg-tech-bg">
+<body class="min-h-screen flex bg-tech-bg {% if embedded %}overflow-hidden p-0 m-0{% endif %}">
     <!-- Sidebar Navigation -->
+    {% if not embedded %}
     {% block sidebar %}
     <aside id="sidebar" class="w-64 border-r border-slate-800 bg-tech-panel flex flex-col sticky top-0 h-screen flex-shrink-0 z-40">
         <!-- Sidebar Header -->
         <div class="sidebar-header p-4 border-b border-slate-800 flex items-center justify-between transition-all">
             <div class="flex items-center space-x-3 overflow-hidden min-w-0">
-                <div class="w-10 h-10 bg-tech-accent rounded-xl flex items-center justify-center text-tech-bg font-black text-xl flex-shrink-0 shadow-lg shadow-tech-accent/20">N</div>
+                <div class="w-10 h-10 bg-tech-accent rounded-xl flex items-center justify-center text-tech-bg font-black text-xl flex-shrink-0 shadow-lg shadow-tech-accent/20">R</div>
                 <div class="flex flex-col sidebar-logo-text overflow-hidden whitespace-nowrap transition-opacity duration-200">
-                    <span class="text-sm font-black tracking-tighter text-tech-accent leading-none">NETBYTES</span>
-                    <span class="text-[10px] font-bold text-slate-500 tracking-[0.2em]">CLOUD</span>
+                    <span class="text-base font-black tracking-tighter text-tech-accent leading-none">RDASH</span>
                     <span class="text-[8px] font-bold text-slate-400 tracking-tight mt-1 whitespace-nowrap">PENTESTERS THREAT HUNTER</span>
                 </div>
             </div>
@@ -192,16 +200,19 @@
         </div>
     </aside>
     {% endblock %}
+    {% endif %}
 
     <!-- Main Content Area -->
-    <main class="flex-grow overflow-y-auto">
-        <div class="{% block container_class %}w-full px-4 sm:px-6 lg:px-8 py-8{% endblock %}">
+    <main class="flex-grow {% if embedded %}overflow-hidden h-screen p-0 m-0{% else %}overflow-y-auto{% endif %}">
+        <div class="{% if embedded %}w-full h-full p-0 m-0{% else %}{% block container_class %}w-full px-4 sm:px-6 lg:px-8 py-8{% endblock %}{% endif %}">
             {% block content %}{% endblock %}
         </div>
         
+        {% if not embedded %}
         <footer class="border-t border-slate-800 py-6 text-center text-[10px] font-mono uppercase tracking-[0.3em] text-slate-600">
-            &copy; 2026 NETBYTES.CLOUD - PENTESTERS THREAT HUNTER
+            &copy; 2026 RDASH - PENTESTERS THREAT HUNTER
         </footer>
+        {% endif %}
     </main>
 
     <script>
@@ -273,6 +284,1605 @@
             document.documentElement.classList.remove('dark');
         }
         updateIcons();
+    </script>
+
+    {% if not embedded %}
+    <!-- Global Domain Overview Popup Modal Overlay -->
+    <div id="domain-overview-modal" class="fixed inset-0 z-[200] hidden overflow-hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fade-in" onclick="if(event.target === this) closeDomainOverviewModal()">
+        <div class="relative w-full max-w-7xl h-[92vh] bg-tech-panel rounded-3xl border border-slate-700 shadow-3xl flex flex-col overflow-hidden" onclick="event.stopPropagation()">
+            <!-- Top Bar with domain title, open in new tab shortcut, and close button -->
+            <div class="px-6 py-3.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center space-x-3 truncate">
+                    <span class="w-2.5 h-2.5 rounded-full bg-tech-accent animate-pulse flex-shrink-0"></span>
+                    <span class="text-xs font-black uppercase tracking-widest text-slate-400 flex-shrink-0">Domain Overview:</span>
+                    <span id="domain-overview-modal-title" class="font-mono text-sm font-bold text-tech-accent truncate"></span>
+                </div>
+                <div class="flex items-center space-x-2 flex-shrink-0">
+                    <a id="domain-overview-newtab-btn" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors text-xs font-mono flex items-center space-x-1.5" title="Open Full Dashboard in New Tab">
+                        <span>Open in Dashboard</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                    </a>
+                    <button onclick="closeDomainOverviewModal()" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors" title="Close Domain Overview">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <!-- Iframe Container -->
+            <div class="flex-grow w-full h-full relative bg-tech-bg overflow-hidden">
+                <div id="domain-overview-loading" class="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-tech-bg z-10">
+                    <div class="w-12 h-12 border-4 border-tech-accent border-t-transparent rounded-full animate-spin"></div>
+                    <p class="text-xs font-mono text-slate-400 uppercase tracking-widest animate-pulse">Loading Domain Intelligence...</p>
+                </div>
+                <iframe id="domain-overview-iframe" class="w-full h-full border-0" src="about:blank"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openDomainOverviewModal(domain) {
+            if (!domain) return;
+            const modal = document.getElementById('domain-overview-modal');
+            const iframe = document.getElementById('domain-overview-iframe');
+            const title = document.getElementById('domain-overview-modal-title');
+            const newTabBtn = document.getElementById('domain-overview-newtab-btn');
+            const loader = document.getElementById('domain-overview-loading');
+            
+            if (title) title.textContent = domain;
+            if (newTabBtn) newTabBtn.href = `/dashboard?inspect=${encodeURIComponent(domain)}&q=${encodeURIComponent(domain)}`;
+            if (loader) loader.style.display = 'flex';
+            
+            if (iframe) {
+                iframe.onload = () => {
+                    if (loader) loader.style.display = 'none';
+                };
+                iframe.src = `/dashboard?inspect=${encodeURIComponent(domain)}&embedded=1`;
+            }
+            
+            if (modal) {
+                modal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+
+        function closeDomainOverviewModal() {
+            const modal = document.getElementById('domain-overview-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                const iframe = document.getElementById('domain-overview-iframe');
+                if (iframe) iframe.src = 'about:blank';
+                
+                // Check if another modal is currently active on the page
+                const investigationModal = document.getElementById('investigation-modal');
+                const leadModal = document.getElementById('lead-modal');
+                const hasOtherModal = (investigationModal && !investigationModal.classList.contains('hidden')) ||
+                                      (leadModal && !leadModal.classList.contains('hidden'));
+                if (!hasOtherModal) {
+                    document.body.style.overflow = 'auto';
+                }
+            }
+        }
+
+        // Listen for close message from inside the iframe
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'CLOSE_DOMAIN_OVERVIEW') {
+                closeDomainOverviewModal();
+            }
+        });
+    </script>
+    {% endif %}
+
+    <!-- Global Source Code Explorer Modal (Dark IDE Layout) -->
+    <div id="source-code-viewer-modal" class="fixed inset-0 z-[220] hidden overflow-hidden bg-slate-950/90 backdrop-blur-lg flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fade-in" onclick="if(event.target === this) closeSourceMapViewer()">
+        <div class="relative w-full max-w-7xl h-[92vh] bg-[#0d1117] rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden text-slate-200" onclick="event.stopPropagation()">
+            
+            <!-- Top Header Bar -->
+            <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+                <div class="flex items-center space-x-3 min-w-0">
+                    <span class="p-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg flex-shrink-0 shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="flex items-center space-x-2 flex-wrap">
+                            <span class="text-xs font-black uppercase tracking-wider text-slate-400">Recovered Source:</span>
+                            <a id="scm-target-link" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:underline px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 rounded inline-flex items-center space-x-1 transition-colors" title="Visit live application URL in new tab">
+                                <span id="scm-target-badge"></span>
+                                <svg class="w-3 h-3 ml-1 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                            </a>
+                            <a id="scm-sourcemap-link" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-[11px] text-slate-400 hover:text-slate-200 hover:underline truncate max-w-[200px] hidden sm:inline-flex items-center space-x-1 transition-colors" title="Open original remote .js.map URL">
+                                <span id="scm-filename-badge"></span>
+                                <svg class="w-2.5 h-2.5 ml-1 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                            </a>
+                        </div>
+                        <div class="flex items-center space-x-3 text-[11px] text-slate-400 mt-0.5">
+                            <span id="scm-stats-total" class="font-medium">Loading files...</span>
+                            <span class="text-slate-600">•</span>
+                            <span id="scm-stats-app" class="text-emerald-400 font-medium"></span>
+                            <span class="text-slate-600">•</span>
+                            <span id="scm-stats-vendor" class="text-slate-500"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Mode Switcher Tabs -->
+                <div class="flex items-center space-x-1 bg-[#0d1117] p-1 rounded-xl border border-slate-700/70">
+                    <button id="scm-mode-files-btn" onclick="setSourceMapMode('files')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                        <span>Files</span>
+                    </button>
+                    <button id="scm-mode-routes-btn" onclick="setSourceMapMode('routes')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span>Routes & APIs</span>
+                        <span id="scm-routes-tab-badge" class="px-1.5 py-0.5 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-full text-[10px] font-mono leading-none">0</span>
+                    </button>
+                    <button id="scm-mode-secrets-btn" onclick="setSourceMapMode('secrets')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                        <span>Secrets & Keys</span>
+                        <span id="scm-secrets-tab-badge" class="px-1.5 py-0.5 bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full text-[10px] font-mono leading-none">0</span>
+                    </button>
+                </div>
+
+                <!-- Header Actions -->
+                <div class="flex items-center space-x-2 flex-shrink-0">
+                    <a id="scm-visit-app-btn" href="#" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-700" title="Visit live web app">
+                        <span>Visit Site</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                    </a>
+                    <a id="scm-download-zip-btn" href="#" download class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md shadow-emerald-950/40 active:scale-95" title="Download reconstructed source bundle (.zip)">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span>Download ZIP</span>
+                    </a>
+                    <button onclick="closeSourceMapViewer()" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors" title="Close (Esc)">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- View 1: Source Files Explorer (Left Tree + Right Editor) -->
+            <div id="scm-files-view" class="flex-grow flex overflow-hidden">
+                
+                <!-- Left Pane: File Tree Navigator / Code Search -->
+                <div class="w-80 md:w-96 flex-shrink-0 bg-[#0d1117] border-r border-slate-700/60 flex flex-col">
+                    
+                    <!-- Left Sidebar Tab Switcher: Explorer vs Search Code -->
+                    <div class="flex items-center border-b border-slate-800 bg-[#161b22]/90 text-xs font-bold flex-shrink-0">
+                        <button id="scm-left-tab-explorer" onclick="setSourceMapLeftTab('explorer')" class="flex-1 py-2 text-center text-emerald-400 border-b-2 border-emerald-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                            <span>Explorer</span>
+                        </button>
+                        <button id="scm-left-tab-search" onclick="setSourceMapLeftTab('search')" class="flex-1 py-2 text-center text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            <span>Search Code</span>
+                            <span id="scm-search-hit-badge" class="hidden px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full text-[9px] font-mono leading-none">0</span>
+                        </button>
+                    </div>
+
+                    <!-- Panel 1: Explorer (File Tree) -->
+                    <div id="scm-explorer-container" class="flex-grow flex flex-col overflow-hidden">
+                        <!-- Search & Category Filters -->
+                        <div class="p-3 border-b border-slate-800 space-y-2.5 flex-shrink-0">
+                            <div class="relative">
+                                <input type="text" id="scm-file-search" placeholder="Filter files... (e.g. auth, .tsx)" oninput="filterSourceMapFiles()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </div>
+                            
+                            <!-- Category Tabs -->
+                            <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
+                                <button id="scm-tab-app" onclick="setSourceMapCategory('app')" class="flex-1 py-1 text-center rounded text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 transition-all">App Code</button>
+                                <button id="scm-tab-all" onclick="setSourceMapCategory('all')" class="flex-1 py-1 text-center rounded text-slate-400 hover:text-slate-200 transition-all">All Files</button>
+                                <button id="scm-tab-vendor" onclick="setSourceMapCategory('vendor')" class="flex-1 py-1 text-center rounded text-slate-400 hover:text-slate-200 transition-all">Vendor</button>
+                            </div>
+                        </div>
+
+                        <!-- Scrollable File List -->
+                        <div id="scm-file-list" class="flex-grow overflow-y-auto divide-y divide-slate-800/40 p-1 font-mono text-xs select-none">
+                            <!-- Populated by JS -->
+                        </div>
+
+                        <!-- File List Footer -->
+                        <div class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
+                            <span id="scm-visible-count">0 files shown</span>
+                            <span class="text-slate-600">Click a file to inspect</span>
+                        </div>
+                    </div>
+
+                    <!-- Panel 2: Code Search (Full-Text in All Files) -->
+                    <div id="scm-search-container" class="flex-grow flex flex-col overflow-hidden hidden">
+                        <!-- Query Input & Search Controls -->
+                        <div class="p-3 border-b border-slate-800 space-y-2 flex-shrink-0">
+                            <div class="relative flex items-center">
+                                <input type="text" id="scm-code-query" placeholder="Search keyword in all files..." onkeydown="if(event.key==='Enter') executeSourceMapCodeSearch()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-16 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
+                                <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                
+                                <div class="absolute right-1.5 flex items-center space-x-0.5">
+                                    <button id="scm-search-opt-case" onclick="toggleSearchOptCase()" class="px-1.5 py-0.5 text-[10px] font-bold rounded text-slate-500 hover:text-slate-200 transition-colors" title="Match Case (Aa)">Aa</button>
+                                    <button id="scm-search-opt-regex" onclick="toggleSearchOptRegex()" class="px-1.5 py-0.5 text-[10px] font-bold rounded text-slate-500 hover:text-slate-200 transition-colors" title="Use Regular Expression (.*)">.*</button>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between text-[11px] text-slate-400">
+                                <label class="flex items-center space-x-1.5 cursor-pointer select-none">
+                                    <input type="checkbox" id="scm-search-opt-app" checked class="rounded border-slate-700 text-amber-500 focus:ring-0 bg-slate-900">
+                                    <span>App Code Only</span>
+                                </label>
+                                <button onclick="executeSourceMapCodeSearch()" id="scm-search-submit-btn" class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[11px] transition-all border border-amber-500/30 flex items-center space-x-1 shadow-sm active:scale-95">
+                                    <span>Find</span>
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Scrollable Search Results -->
+                        <div id="scm-search-results-list" class="flex-grow overflow-y-auto p-2 font-mono text-xs select-none space-y-2">
+                            <div class="p-6 text-center text-slate-500 text-xs italic">
+                                Type a keyword or pattern above and press Enter.
+                            </div>
+                        </div>
+
+                        <!-- Search Results Footer -->
+                        <div class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
+                            <span id="scm-search-status-label">Ready</span>
+                            <span id="scm-search-files-label"></span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Right Pane: Code Viewer -->
+                <div class="flex-grow flex flex-col bg-[#0d1117] min-w-0 overflow-hidden">
+                    
+                    <!-- File Breadcrumb & Action Toolbar -->
+                    <div class="px-4 py-2 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0">
+                        <div class="flex items-center space-x-2 truncate mr-3">
+                            <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <span id="scm-active-path" class="font-mono text-xs text-slate-200 truncate select-all">Select a file to view</span>
+                            <span id="scm-active-lines" class="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 bg-slate-800/80 rounded flex-shrink-0 hidden"></span>
+                            <span id="scm-active-size" class="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 bg-slate-800/80 rounded flex-shrink-0 hidden"></span>
+                        </div>
+
+                        <div class="flex items-center space-x-2 flex-shrink-0">
+                            <button id="scm-copy-code-btn" onclick="copyActiveSourceCode()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[11px] font-medium transition-colors flex items-center space-x-1" title="Copy code to clipboard">
+                                <svg id="scm-copy-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                <span id="scm-copy-text">Copy Code</span>
+                            </button>
+                            <button id="scm-wrap-btn" onclick="toggleSourceWrap()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded text-[11px] font-medium transition-colors" title="Toggle word wrap">
+                                Wrap
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Code Viewer Body -->
+                    <div class="flex-grow overflow-auto relative p-4 bg-[#0d1117]" id="scm-code-container">
+                        <div id="scm-code-loading" class="absolute inset-0 bg-[#0d1117]/85 flex flex-col items-center justify-center space-y-3 hidden z-10">
+                            <div class="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span class="text-xs font-mono text-slate-400">Loading source file...</span>
+                        </div>
+
+                        <div id="scm-empty-state" class="h-full flex flex-col items-center justify-center text-slate-600 p-8 text-center">
+                            <svg class="w-16 h-16 mb-4 opacity-40 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 002 2v12a2 2 0 002 2z"></path></svg>
+                            <h4 class="text-sm font-bold text-slate-400 mb-1">Human-Readable Source Code Explorer</h4>
+                            <p class="text-xs text-slate-500 max-w-md">Browse recovered TypeScript, JavaScript, and asset source files on the left. All original modules, functions, and comments are preserved.</p>
+                        </div>
+
+                        <pre id="scm-code-pre" class="hidden m-0 p-0 bg-transparent text-xs font-mono overflow-visible"><code id="scm-code-content" class="language-javascript"></code></pre>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- View 2: Discovered Routes & APIs Explorer -->
+            <div id="scm-routes-view" class="flex-grow flex flex-col overflow-hidden hidden bg-[#0d1117]">
+                
+                <!-- Subheader / Stats & Export Bar -->
+                <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
+                    <div class="flex items-center space-x-2 sm:space-x-3 flex-wrap">
+                        <div class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-slate-400">Total Routes:</span>
+                            <span id="scm-stat-total-routes" class="font-bold text-white">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-sky-500/10 border border-sky-500/30 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-sky-300">API Endpoints:</span>
+                            <span id="scm-stat-api-routes" class="font-bold text-sky-400">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-purple-500/10 border border-purple-500/30 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-purple-300">Client Routes:</span>
+                            <span id="scm-stat-client-routes" class="font-bold text-purple-400">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-cyan-300">External URLs:</span>
+                            <span id="scm-stat-external-routes" class="font-bold text-cyan-400">0</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                        <button onclick="reanalyzeSourceMapRoutes()" id="scm-reanalyze-btn" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border border-slate-700" title="Re-scan recovered source files">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            <span>Re-scan</span>
+                        </button>
+                        <a id="scm-export-json-btn" href="#" download class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 border border-slate-700" title="Export routes as JSON">
+                            <span>JSON</span>
+                        </a>
+                        <a id="scm-export-csv-btn" href="#" download class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 border border-slate-700" title="Export routes as CSV">
+                            <span>CSV</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Filters & Search Toolbar -->
+                <div class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                    <div class="flex items-center space-x-2 flex-grow max-w-md">
+                        <div class="relative w-full">
+                            <input type="text" id="scm-routes-search" placeholder="Search routes, methods, files, snippets..." oninput="filterDiscoveredRoutes()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500">
+                            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2 flex-wrap gap-1">
+                        <!-- Category pills -->
+                        <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
+                            <button id="scm-rcat-all" onclick="setRouteFilterCategory('all')" class="px-2.5 py-1 rounded text-sky-400 bg-sky-500/15 border border-sky-500/30 transition-all">All</button>
+                            <button id="scm-rcat-api" onclick="setRouteFilterCategory('api_endpoint')" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all">APIs</button>
+                            <button id="scm-rcat-client" onclick="setRouteFilterCategory('client_route')" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all">Client</button>
+                            <button id="scm-rcat-ext" onclick="setRouteFilterCategory('external_url')" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all">External</button>
+                        </div>
+
+                        <!-- Method Selector -->
+                        <select id="scm-routes-method-filter" onchange="filterDiscoveredRoutes()" class="bg-[#161b22] border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-slate-300 outline-none focus:border-sky-500">
+                            <option value="">All Methods</option>
+                            <option value="GET">GET / FETCH</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="ROUTE">ROUTE</option>
+                            <option value="NAVIGATE">NAVIGATE</option>
+                            <option value="EXTERNAL">EXTERNAL</option>
+                        </select>
+
+                        <!-- App Code Only Toggle -->
+                        <label class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800">
+                            <input type="checkbox" id="scm-routes-app-only" onchange="filterDiscoveredRoutes()" checked class="rounded border-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 bg-slate-900">
+                            <span class="text-[11px] font-medium">App Code Only</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Routes Table Container -->
+                <div class="flex-grow overflow-auto p-4">
+                    <div id="scm-routes-loading" class="h-64 flex flex-col items-center justify-center space-y-3">
+                        <div class="w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs font-mono text-slate-400">Discovering and analyzing routes...</span>
+                    </div>
+
+                    <div id="scm-routes-empty" class="h-64 flex flex-col items-center justify-center text-slate-500 text-center hidden">
+                        <svg class="w-12 h-12 mb-2 opacity-30 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <p class="text-xs">No routes or endpoints matching the current filter.</p>
+                    </div>
+
+                    <table id="scm-routes-table" class="w-full text-left border-collapse font-mono text-xs hidden">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-500 select-none">
+                                <th class="py-2.5 px-3 w-24">Method</th>
+                                <th class="py-2.5 px-3">Discovered Route / Endpoint</th>
+                                <th class="py-2.5 px-3 w-32">Category</th>
+                                <th class="py-2.5 px-3 w-48">Source Location</th>
+                                <th class="py-2.5 px-3">Context Preview</th>
+                                <th class="py-2.5 px-3 w-20 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scm-routes-tbody" class="divide-y divide-slate-800/60">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Routes Footer -->
+                <!-- Routes Footer -->
+                <div class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
+                    <span id="scm-routes-count-label">0 routes discovered</span>
+                    <span class="text-slate-600">Click any source link to jump to the code</span>
+                </div>
+
+            </div>
+
+            <!-- View 3: Discovered Secrets & Keys Explorer -->
+            <div id="scm-secrets-view" class="flex-grow flex flex-col overflow-hidden hidden bg-[#0d1117]">
+                
+                <!-- Subheader / Stats & Export Bar -->
+                <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
+                    <div class="flex items-center space-x-2 sm:space-x-3 flex-wrap">
+                        <div class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-slate-400">Total Secrets:</span>
+                            <span id="scm-stat-total-secrets" class="font-bold text-white">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-rose-300">App Secrets:</span>
+                            <span id="scm-stat-app-secrets" class="font-bold text-rose-400">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-slate-400">Vendor Secrets:</span>
+                            <span id="scm-stat-vendor-secrets" class="font-bold text-slate-300">0</span>
+                        </div>
+                        <div class="px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs flex items-center space-x-2">
+                            <span class="text-amber-300">Tokens & Keys:</span>
+                            <span id="scm-stat-tokens-secrets" class="font-bold text-amber-400">0</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                        <button onclick="reanalyzeSourceMapRoutes()" id="scm-reanalyze-secrets-btn" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border border-slate-700" title="Re-scan recovered source files for secrets and routes">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            <span>Re-scan</span>
+                        </button>
+                        <a id="scm-export-secrets-json-btn" href="#" download class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center space-x-1 border border-slate-700" title="Export secrets as JSON">
+                            <span>JSON</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Filters & Search Toolbar -->
+                <div class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                    <div class="flex items-center space-x-2 flex-grow max-w-md">
+                        <div class="relative w-full">
+                            <input type="text" id="scm-secrets-search" placeholder="Search secret type, value, file, snippet..." oninput="filterDiscoveredSecrets()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500">
+                            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2 flex-wrap gap-1">
+                        <!-- Secret Type Selector -->
+                        <select id="scm-secrets-type-filter" onchange="filterDiscoveredSecrets()" class="bg-[#161b22] border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs text-slate-300 outline-none focus:border-rose-500">
+                            <option value="">All Secret Types</option>
+                        </select>
+
+                        <!-- App Code Only Toggle -->
+                        <label class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800">
+                            <input type="checkbox" id="scm-secrets-app-only" onchange="filterDiscoveredSecrets()" checked class="rounded border-slate-700 text-rose-500 focus:ring-0 focus:ring-offset-0 bg-slate-900">
+                            <span class="text-[11px] font-medium">App Code Only</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Secrets Table Container -->
+                <div class="flex-grow overflow-auto p-4">
+                    <div id="scm-secrets-loading" class="h-64 flex flex-col items-center justify-center space-y-3">
+                        <div class="w-8 h-8 border-3 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs font-mono text-slate-400">Extracting secrets, tokens, and storage credentials...</span>
+                    </div>
+
+                    <div id="scm-secrets-empty" class="h-64 flex flex-col items-center justify-center text-slate-500 text-center hidden">
+                        <svg class="w-12 h-12 mb-2 opacity-30 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                        <p class="text-xs">No secrets or credentials matching the current filter.</p>
+                    </div>
+
+                    <table id="scm-secrets-table" class="w-full text-left border-collapse font-mono text-xs hidden">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-500 select-none">
+                                <th class="py-2.5 px-3 w-40">Classification</th>
+                                <th class="py-2.5 px-3">Secret / Token Value</th>
+                                <th class="py-2.5 px-3 w-28">Scope</th>
+                                <th class="py-2.5 px-3 w-56">Source Location</th>
+                                <th class="py-2.5 px-3">Code Snippet</th>
+                                <th class="py-2.5 px-3 w-20 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scm-secrets-tbody" class="divide-y divide-slate-800/60">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Secrets Footer -->
+                <div class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
+                    <span id="scm-secrets-count-label">0 secrets discovered</span>
+                    <span class="text-slate-600">Click any source link to jump directly to line in editor</span>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Global Source Code Viewer State
+        window.scmActiveMapId = null;
+        window.scmActiveTarget = null;
+        window.scmCurrentFiles = [];
+        window.scmActiveCategory = 'app';
+        window.scmActiveFilePath = null;
+        window.scmActiveContent = '';
+        window.scmWordWrap = false;
+        window.scmCurrentMode = 'files';
+        window.scmDiscoveredRoutes = [];
+        window.scmDiscoveredSecrets = [];
+        window.scmActiveRouteCat = 'all';
+        window.scmActiveLeftTab = 'explorer';
+        window.scmSearchOptCase = false;
+        window.scmSearchOptRegex = false;
+        window.scmSearchLastQuery = '';
+
+        function setSourceMapLeftTab(tab) {
+            window.scmActiveLeftTab = tab;
+            const expBtn = document.getElementById('scm-left-tab-explorer');
+            const searchBtn = document.getElementById('scm-left-tab-search');
+            const expContainer = document.getElementById('scm-explorer-container');
+            const searchContainer = document.getElementById('scm-search-container');
+
+            if (tab === 'search') {
+                expContainer?.classList.add('hidden');
+                searchContainer?.classList.remove('hidden');
+                if (expBtn) expBtn.className = 'flex-1 py-2 text-center text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center text-amber-400 border-b-2 border-amber-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                
+                setTimeout(() => document.getElementById('scm-code-query')?.focus(), 50);
+            } else {
+                searchContainer?.classList.add('hidden');
+                expContainer?.classList.remove('hidden');
+                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (expBtn) expBtn.className = 'flex-1 py-2 text-center text-emerald-400 border-b-2 border-emerald-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
+            }
+        }
+
+        function toggleSearchOptCase() {
+            window.scmSearchOptCase = !window.scmSearchOptCase;
+            const btn = document.getElementById('scm-search-opt-case');
+            if (btn) {
+                if (window.scmSearchOptCase) {
+                    btn.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 transition-colors';
+                } else {
+                    btn.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded text-slate-500 hover:text-slate-200 transition-colors';
+                }
+            }
+            if (document.getElementById('scm-code-query')?.value.trim()) {
+                executeSourceMapCodeSearch();
+            }
+        }
+
+        function toggleSearchOptRegex() {
+            window.scmSearchOptRegex = !window.scmSearchOptRegex;
+            const btn = document.getElementById('scm-search-opt-regex');
+            if (btn) {
+                if (window.scmSearchOptRegex) {
+                    btn.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 transition-colors';
+                } else {
+                    btn.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded text-slate-500 hover:text-slate-200 transition-colors';
+                }
+            }
+            if (document.getElementById('scm-code-query')?.value.trim()) {
+                executeSourceMapCodeSearch();
+            }
+        }
+
+        async function executeSourceMapCodeSearch() {
+            if (!window.scmActiveMapId) return;
+            const queryInput = document.getElementById('scm-code-query');
+            const query = (queryInput?.value || '').trim();
+            const resultsList = document.getElementById('scm-search-results-list');
+            const statusLabel = document.getElementById('scm-search-status-label');
+            const filesLabel = document.getElementById('scm-search-files-label');
+            const hitBadge = document.getElementById('scm-search-hit-badge');
+            const appOnly = document.getElementById('scm-search-opt-app')?.checked ?? true;
+            const submitBtn = document.getElementById('scm-search-submit-btn');
+
+            if (!query) {
+                if (resultsList) resultsList.innerHTML = '<div class="p-6 text-center text-slate-500 text-xs italic">Type a keyword or pattern above and press Enter.</div>';
+                if (statusLabel) statusLabel.textContent = 'Ready';
+                if (filesLabel) filesLabel.textContent = '';
+                if (hitBadge) hitBadge.classList.add('hidden');
+                return;
+            }
+
+            window.scmSearchLastQuery = query;
+            if (statusLabel) statusLabel.textContent = 'Searching...';
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.classList.add('opacity-50');
+            }
+            if (resultsList) {
+                resultsList.innerHTML = `
+                    <div class="p-6 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-2">
+                        <div class="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                        <span>Searching files for "${escapeHtml(query)}"...</span>
+                    </div>
+                `;
+            }
+
+            try {
+                const params = new URLSearchParams({
+                    q: query,
+                    case_sensitive: window.scmSearchOptCase ? 'true' : 'false',
+                    regex: window.scmSearchOptRegex ? 'true' : 'false',
+                    app_only: appOnly ? 'true' : 'false',
+                    limit: '300'
+                });
+
+                const resp = await fetch(`/api/source-maps/${window.scmActiveMapId}/search?${params.toString()}`);
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.detail || 'Search request failed');
+                }
+                const data = await resp.json();
+
+                renderSourceMapSearchResults(data);
+            } catch (err) {
+                console.error('Code search error:', err);
+                if (resultsList) {
+                    resultsList.innerHTML = `<div class="p-4 text-rose-400 text-xs font-mono">Error: ${escapeHtml(err.message)}</div>`;
+                }
+                if (statusLabel) statusLabel.textContent = 'Search failed';
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-50');
+                }
+            }
+        }
+
+        function renderSourceMapSearchResults(data) {
+            const resultsList = document.getElementById('scm-search-results-list');
+            const statusLabel = document.getElementById('scm-search-status-label');
+            const filesLabel = document.getElementById('scm-search-files-label');
+            const hitBadge = document.getElementById('scm-search-hit-badge');
+            if (!resultsList) return;
+
+            const totalMatches = data.total_matches || 0;
+            const totalFiles = data.total_files || 0;
+
+            if (hitBadge) {
+                hitBadge.textContent = totalMatches;
+                if (totalMatches > 0) hitBadge.classList.remove('hidden');
+                else hitBadge.classList.add('hidden');
+            }
+
+            if (statusLabel) {
+                statusLabel.textContent = `${totalMatches}${data.hit_limit ? '+' : ''} matches`;
+            }
+            if (filesLabel) {
+                filesLabel.textContent = `in ${totalFiles} files`;
+            }
+
+            if (!data.results || data.results.length === 0) {
+                resultsList.innerHTML = `
+                    <div class="p-6 text-center text-slate-500 text-xs italic">
+                        No matches found for "${escapeHtml(data.query)}".
+                    </div>
+                `;
+                return;
+            }
+
+            resultsList.innerHTML = data.results.map(res => {
+                const safePath = res.path.replace(/'/g, "\\'");
+                const ext = res.path.split('.').pop().toUpperCase();
+                let badgeClass = 'bg-slate-800 text-slate-400';
+                if (['TSX', 'JSX'].includes(ext)) badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+                else if (['TS', 'JS'].includes(ext)) badgeClass = 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+
+                return `
+                    <div class="bg-[#161b22]/70 rounded-lg border border-slate-800/80 overflow-hidden">
+                        <div class="px-2.5 py-1.5 bg-[#1c2129] flex items-center justify-between text-[11px] font-bold text-slate-300 border-b border-slate-800/60 cursor-pointer hover:bg-slate-800/60 transition-colors" onclick="loadSourceMapFile('${safePath}')">
+                            <div class="flex items-center space-x-1.5 min-w-0 pr-2">
+                                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${badgeClass} flex-shrink-0">${ext}</span>
+                                <span class="truncate font-mono" title="${escapeHtml(res.path)}">${escapeHtml(res.path)}</span>
+                            </div>
+                            <span class="px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full text-[9px] font-mono flex-shrink-0">${res.matches.length}</span>
+                        </div>
+                        
+                        <div class="divide-y divide-slate-800/40">
+                            ${res.matches.map(m => `
+                                <div onclick="jumpToSourceFile('${safePath}', ${m.line})" class="px-2.5 py-1 hover:bg-slate-800/50 cursor-pointer transition-colors group flex items-start space-x-2">
+                                    <span class="text-slate-500 text-[10px] w-6 flex-shrink-0 pt-0.5 text-right font-mono">:${m.line}</span>
+                                    <div class="text-[11px] text-slate-300 group-hover:text-amber-300 transition-colors truncate font-mono">
+                                        ${highlightSearchSnippet(m.snippet, data.query, data.regex, data.case_sensitive)}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function highlightSearchSnippet(snippet, query, isRegex, isCaseSensitive) {
+            if (!snippet) return '';
+            const safeSnippet = escapeHtml(snippet);
+            if (!query) return safeSnippet;
+
+            try {
+                const flags = isCaseSensitive ? 'g' : 'gi';
+                const pattern = isRegex ? query : escapeRegExp(query);
+                const re = new RegExp(pattern, flags);
+                return safeSnippet.replace(re, match => `<mark class="bg-amber-500/30 text-amber-300 font-bold px-0.5 rounded">${match}</mark>`);
+            } catch (e) {
+                return safeSnippet;
+            }
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function setSourceMapMode(mode) {
+            window.scmCurrentMode = mode;
+            const filesView = document.getElementById('scm-files-view');
+            const routesView = document.getElementById('scm-routes-view');
+            const secretsView = document.getElementById('scm-secrets-view');
+            const filesBtn = document.getElementById('scm-mode-files-btn');
+            const routesBtn = document.getElementById('scm-mode-routes-btn');
+            const secretsBtn = document.getElementById('scm-mode-secrets-btn');
+
+            // Hide all views first
+            filesView?.classList.add('hidden');
+            routesView?.classList.add('hidden');
+            secretsView?.classList.add('hidden');
+
+            if (filesBtn) filesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
+            if (routesBtn) routesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
+            if (secretsBtn) secretsBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
+
+            if (mode === 'secrets') {
+                secretsView?.classList.remove('hidden');
+                if (secretsBtn) secretsBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30';
+                
+                if (window.scmDiscoveredSecrets.length === 0 && window.scmActiveMapId) {
+                    loadDiscoveredSecrets();
+                } else {
+                    filterDiscoveredSecrets();
+                }
+            } else if (mode === 'routes') {
+                routesView?.classList.remove('hidden');
+                if (routesBtn) routesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-sky-500/20 text-sky-300 border border-sky-500/30';
+                
+                if (window.scmDiscoveredRoutes.length === 0 && window.scmActiveMapId) {
+                    loadDiscoveredRoutes();
+                } else {
+                    filterDiscoveredRoutes();
+                }
+            } else {
+                filesView?.classList.remove('hidden');
+                if (filesBtn) filesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+            }
+        }
+
+        async function openSourceMapViewer(mapId, targetDomain, initialFilePath) {
+            if (!mapId) return;
+            const modal = document.getElementById('source-code-viewer-modal');
+            if (!modal) return;
+
+            window.scmActiveMapId = mapId;
+            window.scmActiveTarget = targetDomain;
+            window.scmDiscoveredRoutes = [];
+            window.scmDiscoveredSecrets = [];
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+
+            const targetBadge = document.getElementById('scm-target-badge');
+            const fileBadge = document.getElementById('scm-filename-badge');
+            const totalStats = document.getElementById('scm-stats-total');
+            const appStats = document.getElementById('scm-stats-app');
+            const vendorStats = document.getElementById('scm-stats-vendor');
+            const zipBtn = document.getElementById('scm-download-zip-btn');
+            const searchInput = document.getElementById('scm-file-search');
+            const targetLink = document.getElementById('scm-target-link');
+            const visitAppBtn = document.getElementById('scm-visit-app-btn');
+            const smLink = document.getElementById('scm-sourcemap-link');
+            const exportJsonBtn = document.getElementById('scm-export-json-btn');
+            const exportCsvBtn = document.getElementById('scm-export-csv-btn');
+            const exportSecretsJsonBtn = document.getElementById('scm-export-secrets-json-btn');
+
+            if (targetBadge) targetBadge.textContent = targetDomain || 'Target';
+            if (searchInput) searchInput.value = '';
+            if (zipBtn) zipBtn.href = `/api/source-maps/${mapId}/download`;
+            if (exportJsonBtn) exportJsonBtn.href = `/api/source-maps/${mapId}/routes/export?format=json`;
+            if (exportCsvBtn) exportCsvBtn.href = `/api/source-maps/${mapId}/routes/export?format=csv`;
+            if (exportSecretsJsonBtn) exportSecretsJsonBtn.href = `/api/source-maps/${mapId}/secrets`;
+
+            if (targetDomain) {
+                const liveUrl = targetDomain.startsWith('http') ? targetDomain : `https://${targetDomain}`;
+                if (targetLink) targetLink.href = liveUrl;
+                if (visitAppBtn) visitAppBtn.href = liveUrl;
+            }
+
+            // Always start in files view and explorer tab
+            setSourceMapMode('files');
+            setSourceMapLeftTab('explorer');
+            const codeQuery = document.getElementById('scm-code-query');
+            if (codeQuery) codeQuery.value = '';
+            document.getElementById('scm-search-hit-badge')?.classList.add('hidden');
+            const searchResultsList = document.getElementById('scm-search-results-list');
+            if (searchResultsList) searchResultsList.innerHTML = '<div class="p-6 text-center text-slate-500 text-xs italic">Type a keyword or pattern above and press Enter.</div>';
+            const searchStatus = document.getElementById('scm-search-status-label');
+            if (searchStatus) searchStatus.textContent = 'Ready';
+            const searchFiles = document.getElementById('scm-search-files-label');
+            if (searchFiles) searchFiles.textContent = '';
+
+            // Reset UI states
+            document.getElementById('scm-empty-state')?.classList.remove('hidden');
+            document.getElementById('scm-code-pre')?.classList.add('hidden');
+            document.getElementById('scm-active-path').textContent = 'Select a file to view';
+            document.getElementById('scm-active-lines').classList.add('hidden');
+            document.getElementById('scm-active-size').classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/source-maps/${mapId}`);
+                if (!resp.ok) throw new Error('Source map record not found');
+                const data = await resp.json();
+
+                window.scmActiveTarget = data.target || targetDomain;
+                if (targetBadge && data.target) targetBadge.textContent = data.target;
+                if (fileBadge) fileBadge.textContent = data.map_name || 'source.map';
+                if (totalStats) totalStats.textContent = `${data.total_files || 0} Total Files`;
+                if (appStats) appStats.textContent = `${data.app_files_count || 0} App Files`;
+                if (vendorStats) vendorStats.textContent = `${data.vendor_files_count || 0} Vendor Files`;
+
+                if (data.source_map_url && smLink) {
+                    smLink.href = data.source_map_url;
+                }
+                if (data.target && targetLink) {
+                    targetLink.href = `https://${data.target}`;
+                }
+                if (data.target && visitAppBtn) {
+                    visitAppBtn.href = `https://${data.target}`;
+                }
+
+                // Update routes tab badge from metadata
+                const routesBadge = document.getElementById('scm-routes-tab-badge');
+                const routesTotal = data.routes_count || (data.routes_stats?.total) || 0;
+                if (routesBadge) routesBadge.textContent = routesTotal;
+
+                // Update secrets tab badge from metadata
+                const secretsBadge = document.getElementById('scm-secrets-tab-badge');
+                const secretsTotal = data.secrets_count || (data.secrets_stats?.total) || 0;
+                if (secretsBadge) secretsBadge.textContent = secretsTotal;
+
+                window.scmCurrentFiles = data.file_tree || [];
+                
+                // If there are app files, default to 'app', otherwise 'all'
+                if ((data.app_files_count || 0) > 0) {
+                    setSourceMapCategory('app', false);
+                } else {
+                    setSourceMapCategory('all', false);
+                }
+
+                // Render list
+                renderSourceMapFileList();
+
+                // Automatically load first app file (or initialFilePath)
+                let firstFile = initialFilePath;
+                if (!firstFile) {
+                    const firstApp = window.scmCurrentFiles.find(f => f.is_app);
+                    firstFile = firstApp ? firstApp.path : (window.scmCurrentFiles[0]?.path);
+                }
+                if (firstFile) {
+                    loadSourceMapFile(firstFile);
+                }
+
+                // Pre-fetch routes and secrets in background
+                loadDiscoveredRoutes();
+                loadDiscoveredSecrets();
+            } catch (err) {
+                console.error('Failed to open source map viewer:', err);
+                if (totalStats) totalStats.textContent = 'Error loading map metadata';
+            }
+        }
+
+        async function openSourceMapViewerForLead(leadId, targetDomain) {
+            if (!leadId) return;
+            try {
+                let mapUrl = null;
+                let actualTarget = targetDomain;
+
+                const resp = await fetch(`/api/leads/${leadId}`);
+                if (resp.ok) {
+                    const lead = await resp.json();
+                    if (lead.recovered_source_map_id) {
+                        return openSourceMapViewer(lead.recovered_source_map_id, lead.target || targetDomain);
+                    }
+                    if (lead.target) actualTarget = lead.target;
+                    mapUrl = lead.source_map_url || lead.url;
+                    if (!mapUrl) {
+                        const blob = `${lead.details || ''} ${lead.description || ''}`;
+                        const m = blob.match(/Source Map URL:\s*(https?:\/\/[^\s\r\n]+)/i) || blob.match(/(https?:\/\/[^\s\r\n'"<>]+\.map[^\s\r\n'"<>]*)/i);
+                        if (m && m[1]) {
+                            mapUrl = m[1].replace(/[.,;:)'"]+$/, '');
+                        }
+                    }
+                }
+                
+                if (actualTarget) {
+                    const listResp = await fetch(`/api/source-maps?target=${encodeURIComponent(actualTarget)}`);
+                    if (listResp.ok) {
+                        const maps = await listResp.json();
+                        if (maps.length > 0) {
+                            return openSourceMapViewer(maps[0]._id, actualTarget);
+                        }
+                    }
+                }
+
+                const recResp = await fetch(`/api/source-maps/recover`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lead_id: leadId, target: actualTarget, url: mapUrl })
+                });
+                const recData = await recResp.json();
+                if (recResp.ok && recData.status === 'success' && recData.id) {
+                    return openSourceMapViewer(recData.id, actualTarget);
+                } else {
+                    const errMsg = recData.detail || recData.message || 'Could not recover source map content.';
+                    alert('Source Map Recovery: ' + errMsg);
+                }
+            } catch (e) {
+                console.error('Error recovering source map for lead:', e);
+                alert('Error loading source map: ' + e.message);
+            }
+        }
+
+        // --- Discovered Routes Management ---
+
+        async function loadDiscoveredRoutes() {
+            if (!window.scmActiveMapId) return;
+            const loadingEl = document.getElementById('scm-routes-loading');
+            const tableEl = document.getElementById('scm-routes-table');
+            const emptyEl = document.getElementById('scm-routes-empty');
+
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            if (tableEl) tableEl.classList.add('hidden');
+            if (emptyEl) emptyEl.classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/source-maps/${window.scmActiveMapId}/routes`);
+                if (!resp.ok) throw new Error('Failed to fetch routes analysis');
+                const data = await resp.json();
+
+                window.scmDiscoveredRoutes = data.routes || [];
+
+                // Update summary stats
+                const stats = data.stats || {};
+                document.getElementById('scm-stat-total-routes').textContent = stats.total || window.scmDiscoveredRoutes.length;
+                document.getElementById('scm-stat-api-routes').textContent = stats.api_endpoints || 0;
+                document.getElementById('scm-stat-client-routes').textContent = stats.client_routes || 0;
+                document.getElementById('scm-stat-external-routes').textContent = stats.external_urls || 0;
+                
+                const routesBadge = document.getElementById('scm-routes-tab-badge');
+                if (routesBadge) routesBadge.textContent = stats.total || window.scmDiscoveredRoutes.length;
+
+                filterDiscoveredRoutes();
+            } catch (err) {
+                console.error('Error loading routes:', err);
+                if (emptyEl) {
+                    emptyEl.innerHTML = `<p class="text-rose-400 text-xs">Failed to load route analysis: ${err.message}</p>`;
+                    emptyEl.classList.remove('hidden');
+                }
+            } finally {
+                if (loadingEl) loadingEl.classList.add('hidden');
+            }
+        }
+
+        function setRouteFilterCategory(cat) {
+            window.scmActiveRouteCat = cat;
+            const buttons = {
+                all: document.getElementById('scm-rcat-all'),
+                api_endpoint: document.getElementById('scm-rcat-api'),
+                client_route: document.getElementById('scm-rcat-client'),
+                external_url: document.getElementById('scm-rcat-ext')
+            };
+            Object.entries(buttons).forEach(([key, btn]) => {
+                if (!btn) return;
+                if (key === cat) {
+                    btn.className = 'px-2.5 py-1 rounded text-sky-400 bg-sky-500/15 border border-sky-500/30 transition-all font-bold';
+                } else {
+                    btn.className = 'px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all font-medium';
+                }
+            });
+            filterDiscoveredRoutes();
+        }
+
+        function filterDiscoveredRoutes() {
+            const searchVal = (document.getElementById('scm-routes-search')?.value || '').toLowerCase().trim();
+            const methodVal = (document.getElementById('scm-routes-method-filter')?.value || '').toUpperCase();
+            const appOnly = document.getElementById('scm-routes-app-only')?.checked || false;
+
+            let filtered = window.scmDiscoveredRoutes || [];
+
+            // Category filter
+            if (window.scmActiveRouteCat !== 'all') {
+                filtered = filtered.filter(r => r.category === window.scmActiveRouteCat);
+            }
+
+            // Method filter
+            if (methodVal) {
+                filtered = filtered.filter(r => (r.method || '').toUpperCase() === methodVal);
+            }
+
+            // App only filter
+            if (appOnly) {
+                filtered = filtered.filter(r => r.is_app);
+            }
+
+            // Search query
+            if (searchVal) {
+                filtered = filtered.filter(r => 
+                    (r.path || '').toLowerCase().includes(searchVal) ||
+                    (r.snippet || '').toLowerCase().includes(searchVal) ||
+                    (r.file || '').toLowerCase().includes(searchVal) ||
+                    (r.method || '').toLowerCase().includes(searchVal)
+                );
+            }
+
+            renderDiscoveredRoutesTable(filtered);
+        }
+
+        function renderDiscoveredRoutesTable(routes) {
+            const tbody = document.getElementById('scm-routes-tbody');
+            const tableEl = document.getElementById('scm-routes-table');
+            const emptyEl = document.getElementById('scm-routes-empty');
+            const countLabel = document.getElementById('scm-routes-count-label');
+
+            if (countLabel) countLabel.textContent = `${routes.length} routes matching filter`;
+
+            if (!routes || routes.length === 0) {
+                if (tableEl) tableEl.classList.add('hidden');
+                if (emptyEl) emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            if (emptyEl) emptyEl.classList.add('hidden');
+            if (tableEl) tableEl.classList.remove('hidden');
+
+            tbody.innerHTML = routes.map((r, idx) => {
+                const method = (r.method || 'GET').toUpperCase();
+                let methodBadge = 'bg-slate-800 text-slate-400 border-slate-700';
+                if (['GET', 'FETCH'].includes(method)) methodBadge = 'bg-sky-500/15 text-sky-400 border-sky-500/30';
+                else if (method === 'POST') methodBadge = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+                else if (['PUT', 'PATCH'].includes(method)) methodBadge = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+                else if (method === 'DELETE') methodBadge = 'bg-rose-500/15 text-rose-400 border-rose-500/30';
+                else if (['ROUTE', 'NAVIGATE'].includes(method)) methodBadge = 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+                else if (method === 'EXTERNAL') methodBadge = 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
+                else if (method === 'WS') methodBadge = 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+
+                let catLabel = 'API Endpoint';
+                let catBadge = 'text-sky-400';
+                if (r.category === 'client_route') { catLabel = 'Client Route'; catBadge = 'text-purple-400'; }
+                else if (r.category === 'external_url') { catLabel = 'External Service'; catBadge = 'text-cyan-400'; }
+                else if (r.category === 'websocket') { catLabel = 'WebSocket'; catBadge = 'text-orange-400'; }
+
+                const safePath = (r.path || '').replace(/'/g, "\\'");
+                const safeFile = (r.file || '').replace(/'/g, "\\'");
+                const targetUrl = r.target_url || (r.path?.startsWith('http') ? r.path : `https://${window.scmActiveTarget}${r.path?.startsWith('/') ? '' : '/'}${r.path}`);
+
+                return `
+                    <tr class="hover:bg-slate-800/40 transition-colors group">
+                        <td class="py-2 px-3 align-middle">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${methodBadge} inline-block uppercase">${method}</span>
+                        </td>
+                        <td class="py-2 px-3 align-middle min-w-[200px]">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-bold text-slate-100 group-hover:text-sky-300 transition-colors select-all break-all">${escapeHtml(r.path)}</span>
+                                <button onclick="copyRouteText('${safePath}', this)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-white text-slate-400 transition-opacity" title="Copy route path">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                </button>
+                            </div>
+                        </td>
+                        <td class="py-2 px-3 align-middle text-[11px]">
+                            <span class="${catBadge} font-medium">${catLabel}</span>
+                            ${r.is_app ? '<span class="ml-1.5 px-1 py-0.2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[9px]">App</span>' : '<span class="ml-1.5 px-1 py-0.2 bg-slate-800 text-slate-500 rounded text-[9px]">Vendor</span>'}
+                        </td>
+                        <td class="py-2 px-3 align-middle text-[11px] truncate max-w-[220px]">
+                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${r.line || 1})" class="text-slate-300 hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${r.file}:${r.line}">
+                                <svg class="w-3 h-3 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                <span class="truncate font-mono">${escapeHtml(r.file)}</span>
+                                <span class="text-emerald-400/80 font-bold">:${r.line || 1}</span>
+                            </a>
+                        </td>
+                        <td class="py-2 px-3 align-middle text-[10px] text-slate-400 truncate max-w-[260px] font-mono">
+                            <span class="bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800 block truncate" title="${escapeHtml(r.snippet || '')}">
+                                ${escapeHtml(r.snippet || '')}
+                            </span>
+                        </td>
+                        <td class="py-2 px-3 align-middle text-right flex-shrink-0 whitespace-nowrap">
+                            <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 rounded text-[10px] font-bold inline-flex items-center space-x-1 transition-colors" title="Test/Open endpoint on target">
+                                <span>Visit</span>
+                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                            </a>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function jumpToSourceFile(filePath, lineNum) {
+            setSourceMapMode('files');
+            loadSourceMapFile(filePath).then(() => {
+                if (lineNum) {
+                    setTimeout(() => {
+                        const container = document.getElementById('scm-code-container');
+                        if (container) {
+                            const approxLineHeight = 19;
+                            container.scrollTop = Math.max(0, (lineNum - 5) * approxLineHeight);
+                        }
+                    }, 150);
+                }
+            });
+        }
+
+        function copyRouteText(text, btnEl) {
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                if (btnEl) {
+                    btnEl.classList.add('text-emerald-400');
+                    setTimeout(() => btnEl.classList.remove('text-emerald-400'), 1200);
+                }
+            });
+        }
+
+        async function reanalyzeSourceMapRoutes() {
+            if (!window.scmActiveMapId) return;
+            const btn = document.getElementById('scm-reanalyze-btn');
+            const secBtn = document.getElementById('scm-reanalyze-secrets-btn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `
+                    <div class="w-3.5 h-3.5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>Scanning...</span>
+                `;
+            }
+            if (secBtn) {
+                secBtn.disabled = true;
+                secBtn.innerHTML = `
+                    <div class="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>Scanning...</span>
+                `;
+            }
+            try {
+                const resp = await fetch(`/api/source-maps/${window.scmActiveMapId}/analyze`, { method: 'POST' });
+                if (resp.ok) {
+                    await Promise.all([loadDiscoveredRoutes(), loadDiscoveredSecrets()]);
+                } else {
+                    alert('Re-analysis failed.');
+                }
+            } catch (e) {
+                console.error('Re-analysis error:', e);
+                alert('Error running re-analysis: ' + e.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span>Re-scan</span>
+                    `;
+                }
+                if (secBtn) {
+                    secBtn.disabled = false;
+                    secBtn.innerHTML = `
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        <span>Re-scan</span>
+                    `;
+                }
+            }
+        }
+
+        // --- Discovered Secrets & Keys Management ---
+
+        async function loadDiscoveredSecrets() {
+            if (!window.scmActiveMapId) return;
+            const loadingEl = document.getElementById('scm-secrets-loading');
+            const tableEl = document.getElementById('scm-secrets-table');
+            const emptyEl = document.getElementById('scm-secrets-empty');
+
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            if (tableEl) tableEl.classList.add('hidden');
+            if (emptyEl) emptyEl.classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/source-maps/${window.scmActiveMapId}/secrets`);
+                if (!resp.ok) throw new Error('Failed to fetch secrets analysis');
+                const data = await resp.json();
+
+                window.scmDiscoveredSecrets = data.secrets || [];
+
+                // Update summary stats
+                const stats = data.stats || {};
+                const total = stats.total || window.scmDiscoveredSecrets.length;
+                const appSec = stats.app_secrets_count !== undefined ? stats.app_secrets_count : window.scmDiscoveredSecrets.filter(s => s.is_app).length;
+                const vendorSec = Math.max(0, total - appSec);
+
+                // Count high impact tokens & keys
+                const tokenSec = window.scmDiscoveredSecrets.filter(s => {
+                    const t = (s.type || '').toLowerCase();
+                    return t.includes('key') || t.includes('token') || t.includes('secret') || t.includes('cred');
+                }).length;
+
+                const statTotal = document.getElementById('scm-stat-total-secrets');
+                const statApp = document.getElementById('scm-stat-app-secrets');
+                const statVendor = document.getElementById('scm-stat-vendor-secrets');
+                const statTokens = document.getElementById('scm-stat-tokens-secrets');
+
+                if (statTotal) statTotal.textContent = total;
+                if (statApp) statApp.textContent = appSec;
+                if (statVendor) statVendor.textContent = vendorSec;
+                if (statTokens) statTokens.textContent = tokenSec;
+
+                const secretsBadge = document.getElementById('scm-secrets-tab-badge');
+                if (secretsBadge) secretsBadge.textContent = total;
+
+                // Dynamically populate type filter options
+                const typeFilter = document.getElementById('scm-secrets-type-filter');
+                if (typeFilter) {
+                    const currentVal = typeFilter.value;
+                    const types = [...new Set(window.scmDiscoveredSecrets.map(s => s.type).filter(Boolean))].sort();
+                    typeFilter.innerHTML = `<option value="">All Secret Types (${total})</option>` +
+                        types.map(t => {
+                            const count = window.scmDiscoveredSecrets.filter(s => s.type === t).length;
+                            return `<option value="${escapeHtml(t)}">${escapeHtml(t)} (${count})</option>`;
+                        }).join('');
+                    typeFilter.value = currentVal || '';
+                }
+
+                filterDiscoveredSecrets();
+            } catch (err) {
+                console.error('Error loading secrets:', err);
+                if (emptyEl) {
+                    emptyEl.innerHTML = `<p class="text-rose-400 text-xs">Failed to load secrets: ${escapeHtml(err.message)}</p>`;
+                    emptyEl.classList.remove('hidden');
+                }
+            } finally {
+                if (loadingEl) loadingEl.classList.add('hidden');
+            }
+        }
+
+        function filterDiscoveredSecrets() {
+            const searchVal = (document.getElementById('scm-secrets-search')?.value || '').toLowerCase().trim();
+            const typeVal = document.getElementById('scm-secrets-type-filter')?.value || '';
+            const appOnly = document.getElementById('scm-secrets-app-only')?.checked || false;
+
+            let filtered = window.scmDiscoveredSecrets || [];
+
+            if (typeVal) {
+                filtered = filtered.filter(s => s.type === typeVal);
+            }
+
+            if (appOnly) {
+                filtered = filtered.filter(s => s.is_app);
+            }
+
+            if (searchVal) {
+                filtered = filtered.filter(s =>
+                    (s.type || '').toLowerCase().includes(searchVal) ||
+                    (s.value || '').toLowerCase().includes(searchVal) ||
+                    (s.file || '').toLowerCase().includes(searchVal) ||
+                    (s.snippet || '').toLowerCase().includes(searchVal)
+                );
+            }
+
+            renderDiscoveredSecretsTable(filtered);
+        }
+
+        function renderDiscoveredSecretsTable(secrets) {
+            const tbody = document.getElementById('scm-secrets-tbody');
+            const tableEl = document.getElementById('scm-secrets-table');
+            const emptyEl = document.getElementById('scm-secrets-empty');
+            const countLabel = document.getElementById('scm-secrets-count-label');
+
+            if (countLabel) countLabel.textContent = `${secrets.length} secret(s) matching filter`;
+
+            if (!secrets || secrets.length === 0) {
+                if (tableEl) tableEl.classList.add('hidden');
+                if (emptyEl) emptyEl.classList.remove('hidden');
+                return;
+            }
+
+            if (emptyEl) emptyEl.classList.add('hidden');
+            if (tableEl) tableEl.classList.remove('hidden');
+
+            tbody.innerHTML = secrets.map((s, idx) => {
+                const sType = s.type || 'Secret';
+                const sTypeLower = sType.toLowerCase();
+
+                let typeBadge = 'bg-rose-500/15 text-rose-400 border-rose-500/30';
+                if (sTypeLower.includes('storage') || sTypeLower.includes('bucket') || sTypeLower.includes('s3') || sTypeLower.includes('blob')) {
+                    typeBadge = 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30';
+                } else if (sTypeLower.includes('webhook') || sTypeLower.includes('generic')) {
+                    typeBadge = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+                } else if (sTypeLower.includes('jwt') || sTypeLower.includes('bearer')) {
+                    typeBadge = 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+                }
+
+                const rawVal = s.value || '';
+                const maskedVal = maskSecretValue(rawVal);
+                const safeFile = (s.file || '').replace(/'/g, "\\'");
+                const safeVal = rawVal.replace(/'/g, "\\'");
+                const hasJwt = !!s.jwt_payload;
+
+                return `
+                    <tr class="hover:bg-slate-800/40 transition-colors group">
+                        <td class="py-2.5 px-3 align-middle">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${typeBadge} inline-block whitespace-nowrap">${escapeHtml(sType)}</span>
+                        </td>
+                        <td class="py-2.5 px-3 align-middle min-w-[220px]">
+                            <div class="flex items-center space-x-2">
+                                <span id="scm-secret-val-${idx}" data-raw="${escapeHtml(rawVal)}" data-masked="${escapeHtml(maskedVal)}" class="font-bold text-rose-300 font-mono text-xs select-all break-all">
+                                    ${escapeHtml(maskedVal)}
+                                </span>
+                                <button onclick="toggleSecretMask(${idx})" class="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Toggle Show/Hide Full Secret">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                </button>
+                                <button onclick="copySecretText('${safeVal}', this)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-white text-slate-400 transition-opacity" title="Copy Secret Value">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                </button>
+                            </div>
+                            ${hasJwt ? `
+                            <div class="mt-1">
+                                <button onclick="toggleJwtClaims(${idx})" class="text-[10px] text-purple-400 hover:underline flex items-center space-x-1 font-sans">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    <span>Inspect Decoded JWT Claims</span>
+                                </button>
+                                <div id="scm-jwt-details-${idx}" class="hidden mt-1 p-2 bg-slate-900 border border-purple-500/30 rounded text-[10px] text-slate-300 font-mono overflow-auto max-h-32">
+                                    <pre class="m-0">${escapeHtml(JSON.stringify(s.jwt_payload, null, 2))}</pre>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </td>
+                        <td class="py-2.5 px-3 align-middle text-[11px]">
+                            ${s.is_app ? '<span class="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold">App Code</span>' : '<span class="px-1.5 py-0.5 bg-slate-800 text-slate-500 rounded text-[10px]">Vendor</span>'}
+                        </td>
+                        <td class="py-2.5 px-3 align-middle text-[11px] truncate max-w-[220px]">
+                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${s.line || 1})" class="text-slate-300 hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${escapeHtml(s.file)}:${s.line || 1}">
+                                <svg class="w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                <span class="truncate font-mono">${escapeHtml(s.file || '')}</span>
+                                <span class="text-rose-400 font-bold">:${s.line || 1}</span>
+                            </a>
+                        </td>
+                        <td class="py-2.5 px-3 align-middle text-[10px] text-slate-400 truncate max-w-[260px] font-mono">
+                            <span class="bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800 block truncate" title="${escapeHtml(s.snippet || '')}">
+                                ${escapeHtml(s.snippet || '')}
+                            </span>
+                        </td>
+                        <td class="py-2.5 px-3 align-middle text-right flex-shrink-0 whitespace-nowrap">
+                            <button onclick="copySecretText('${safeVal}', this)" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded text-[10px] font-bold inline-flex items-center space-x-1 transition-colors" title="Copy Secret Value">
+                                <span>Copy</span>
+                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function maskSecretValue(val) {
+            if (!val) return '';
+            if (val.length <= 10) return '••••••••';
+            return val.substring(0, 6) + '••••••••' + val.substring(val.length - 4);
+        }
+
+        function toggleSecretMask(index) {
+            const el = document.getElementById(`scm-secret-val-${index}`);
+            if (!el) return;
+            const isMasked = el.textContent.trim() === el.dataset.masked;
+            el.textContent = isMasked ? el.dataset.raw : el.dataset.masked;
+        }
+
+        function toggleJwtClaims(index) {
+            const el = document.getElementById(`scm-jwt-details-${index}`);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        function copySecretText(text, btnEl) {
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                if (btnEl) {
+                    const origContent = btnEl.innerHTML;
+                    btnEl.classList.add('text-emerald-400');
+                    setTimeout(() => {
+                        btnEl.classList.remove('text-emerald-400');
+                        btnEl.innerHTML = origContent;
+                    }, 1200);
+                }
+            });
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // --- File Tree and Viewer Functions ---
+
+        function setSourceMapCategory(cat, rerender = true) {
+            window.scmActiveCategory = cat;
+            const tabs = {
+                app: document.getElementById('scm-tab-app'),
+                all: document.getElementById('scm-tab-all'),
+                vendor: document.getElementById('scm-tab-vendor')
+            };
+            Object.entries(tabs).forEach(([key, btn]) => {
+                if (!btn) return;
+                if (key === cat) {
+                    btn.className = 'flex-1 py-1 text-center rounded text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 transition-all font-bold';
+                } else {
+                    btn.className = 'flex-1 py-1 text-center rounded text-slate-400 hover:text-slate-200 transition-all font-medium';
+                }
+            });
+            if (rerender) renderSourceMapFileList();
+        }
+
+        function filterSourceMapFiles() {
+            renderSourceMapFileList();
+        }
+
+        function renderSourceMapFileList() {
+            const listContainer = document.getElementById('scm-file-list');
+            const countEl = document.getElementById('scm-visible-count');
+            const query = (document.getElementById('scm-file-search')?.value || '').toLowerCase().trim();
+            if (!listContainer) return;
+
+            let files = window.scmCurrentFiles || [];
+
+            // Category filter
+            if (window.scmActiveCategory === 'app') {
+                files = files.filter(f => f.is_app);
+            } else if (window.scmActiveCategory === 'vendor') {
+                files = files.filter(f => !f.is_app);
+            }
+
+            // Search query filter
+            if (query) {
+                files = files.filter(f => f.path.toLowerCase().includes(query));
+            }
+
+            if (countEl) countEl.textContent = `${files.length} files shown`;
+
+            if (files.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="p-6 text-center text-slate-500 text-xs italic">
+                        No files matching filter.
+                    </div>
+                `;
+                return;
+            }
+
+            listContainer.innerHTML = files.map(f => {
+                const isActive = f.path === window.scmActiveFilePath;
+                const ext = f.path.split('.').pop().toUpperCase();
+                let badgeClass = 'bg-slate-800 text-slate-400';
+                if (['TSX', 'JSX'].includes(ext)) badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+                else if (['TS', 'JS'].includes(ext)) badgeClass = 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+                else if (['CSS', 'SCSS'].includes(ext)) badgeClass = 'bg-purple-500/20 text-purple-400 border border-purple-500/30';
+                else if (['JSON'].includes(ext)) badgeClass = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+
+                const activeClass = isActive 
+                    ? 'bg-emerald-500/15 border-l-2 border-emerald-500 text-emerald-300' 
+                    : 'hover:bg-slate-800/50 text-slate-300';
+
+                return `
+                    <div onclick="loadSourceMapFile('${f.path.replace(/'/g, "\\'")}')" 
+                         class="px-3 py-2 cursor-pointer transition-colors flex items-center justify-between group ${activeClass}">
+                        <div class="flex items-center space-x-2 min-w-0 pr-2">
+                            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${badgeClass} flex-shrink-0">${ext}</span>
+                            <span class="truncate text-[11px] font-mono group-hover:text-emerald-400 transition-colors" title="${f.path}">${f.path}</span>
+                        </div>
+                        <div class="flex items-center space-x-1 flex-shrink-0 text-[10px] text-slate-500">
+                            ${f.lines ? `<span>${f.lines}L</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadSourceMapFile(filePath) {
+            if (!filePath || !window.scmActiveMapId) return;
+            window.scmActiveFilePath = filePath;
+
+            renderSourceMapFileList();
+
+            const pathEl = document.getElementById('scm-active-path');
+            const linesEl = document.getElementById('scm-active-lines');
+            const sizeEl = document.getElementById('scm-active-size');
+            const loader = document.getElementById('scm-code-loading');
+            const emptyState = document.getElementById('scm-empty-state');
+            const preEl = document.getElementById('scm-code-pre');
+            const codeEl = document.getElementById('scm-code-content');
+
+            if (pathEl) pathEl.textContent = filePath;
+            if (loader) loader.classList.remove('hidden');
+
+            try {
+                const resp = await fetch(`/api/source-maps/${window.scmActiveMapId}/file?path=${encodeURIComponent(filePath)}`);
+                if (!resp.ok) throw new Error('File content could not be read');
+                const fileData = await resp.json();
+
+                window.scmActiveContent = fileData.content || '';
+
+                if (linesEl) {
+                    linesEl.textContent = `${fileData.lines || 0} lines`;
+                    linesEl.classList.remove('hidden');
+                }
+                if (sizeEl) {
+                    const sz = fileData.size || 0;
+                    sizeEl.textContent = sz > 1024 ? `${(sz / 1024).toFixed(1)} KB` : `${sz} B`;
+                    sizeEl.classList.remove('hidden');
+                }
+
+                if (emptyState) emptyState.classList.add('hidden');
+                if (preEl) preEl.classList.remove('hidden');
+
+                if (codeEl) {
+                    const lang = fileData.language || 'javascript';
+                    codeEl.className = `language-${lang}`;
+                    codeEl.textContent = fileData.content;
+                    
+                    if (window.Prism) {
+                        Prism.highlightElement(codeEl);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load source file:', e);
+                if (codeEl) codeEl.textContent = `// Error loading file: ${e.message}`;
+            } finally {
+                if (loader) loader.classList.add('hidden');
+            }
+        }
+
+        function copyActiveSourceCode() {
+            if (!window.scmActiveContent) return;
+            navigator.clipboard.writeText(window.scmActiveContent).then(() => {
+                const textEl = document.getElementById('scm-copy-text');
+                const btn = document.getElementById('scm-copy-code-btn');
+                if (textEl && btn) {
+                    const orig = textEl.textContent;
+                    textEl.textContent = 'Copied!';
+                    btn.classList.add('bg-emerald-600', 'text-white');
+                    setTimeout(() => {
+                        textEl.textContent = orig;
+                        btn.classList.remove('bg-emerald-600', 'text-white');
+                    }, 1500);
+                }
+            }).catch(e => {
+                console.error('Clipboard copy failed:', e);
+            });
+        }
+
+        function toggleSourceWrap() {
+            const preEl = document.getElementById('scm-code-pre');
+            const wrapBtn = document.getElementById('scm-wrap-btn');
+            if (!preEl) return;
+            window.scmWordWrap = !window.scmWordWrap;
+            if (window.scmWordWrap) {
+                preEl.classList.add('whitespace-pre-wrap', 'break-all');
+                preEl.classList.remove('whitespace-pre');
+                if (wrapBtn) wrapBtn.classList.add('bg-emerald-600/30', 'text-emerald-400');
+            } else {
+                preEl.classList.remove('whitespace-pre-wrap', 'break-all');
+                preEl.classList.add('whitespace-pre');
+                if (wrapBtn) wrapBtn.classList.remove('bg-emerald-600/30', 'text-emerald-400');
+            }
+        }
+
+        function closeSourceMapViewer() {
+            const modal = document.getElementById('source-code-viewer-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                
+                const otherModals = ['domain-overview-modal', 'lead-modal', 'investigation-modal']
+                    .some(id => {
+                        const el = document.getElementById(id);
+                        return el && !el.classList.contains('hidden');
+                    });
+                if (!otherModals) {
+                    document.body.style.overflow = 'auto';
+                }
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('source-code-viewer-modal');
+                if (modal && !modal.classList.contains('hidden')) {
+                    closeSourceMapViewer();
+                }
+            }
+        });
     </script>
 </body>
 </html>

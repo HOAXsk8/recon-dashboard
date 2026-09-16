@@ -1,9 +1,61 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python virtual environments
 .venv/
-tools/scanners/C_port_scanner
-*.log
+venv/
+ENV/
+env/
+
+# Environment and secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Collected reconnaissance data & artifacts
+screenshots/
+recovered_sources/
+wordlists/
+exports/
+*.xlsx
+*.csv
+*.tsv
+
+# Archive and compressed files from extractions
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Local databases and Docker runtime state
+*.db
+*.sqlite
+*.sqlite3
+mongo_data/
+caddy_data/
+caddy_config/
+
+# Logs, cookies and temporary runtime files
+*.log
+cookies.txt
+scratch/
+
+# Compiled scanner binaries
+tools/scanners/C_port_scanner
+
+# Operating system artifacts
 .DS_Store
-*.DS_Store
-screenshots/*.png
-!screenshots/test.png
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+

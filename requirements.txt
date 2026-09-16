@@ -15,3 +15,4 @@ httpx
 dnspython
 wafw00f
 playwright
+brotli

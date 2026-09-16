@@ -1,7 +1,7 @@
-# Recon Dashboard - Advanced External Attack Surface Management
+# RDash - Advanced External Attack Surface Management
 
 ## Overview
-Recon Dashboard is a comprehensive, centralized platform for continuous reconnaissance, asset discovery, and automated vulnerability hunting. It provides security analysts and red teams with a real-time view of an organization's external attack surface by aggregating data from various specialized scanning agents into a modern, interactive web interface.
+RDash is a comprehensive, centralized platform for continuous reconnaissance, asset discovery, and automated vulnerability hunting. It provides security analysts and red teams with a real-time view of an organization's external attack surface by aggregating data from various specialized scanning agents into a modern, interactive web interface.
 
 The tool is designed to move beyond static snapshots, offering a "living" inventory of infrastructure, web applications, and potential entry points.
 

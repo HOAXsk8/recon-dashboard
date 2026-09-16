@@ -1,6 +1,6 @@
 from bson import ObjectId
 from fastapi import FastAPI, Request, Depends, HTTPException, status, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -34,7 +34,7 @@ from jose import jwt, JWTError
 
 # Initialize Limiter
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI()
+app = FastAPI(title="RDash")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -50,10 +50,10 @@ app.mount("/screenshots", StaticFiles(directory=SCREENSHOTS_DIR), name="screensh
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https://flagcdn.com; font-src 'self' data:; frame-ancestors 'none';"
+        response.headers["Content-Security-Policy"] = "default-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https://flagcdn.com; font-src 'self' data:; frame-ancestors 'self';"
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
@@ -96,7 +96,7 @@ def format_domain_item(d: dict):
         "last_scanned": d.get("last_scanned", "Never")
     }
 
-def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val: Optional[str] = None, tech: Optional[str] = None, port: Optional[int] = None):
+def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val: Optional[str] = None, tech: Optional[str] = None, port: Optional[int] = None, waf: Optional[str] = None, lb: Optional[str] = None):
     pipeline = [
         {"$match": root_query},
         {
@@ -127,6 +127,7 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                     }
                 },
                 "domain": 1,
+                "infrastructure": 1,
                 "systems": {"$ifNull": ["$systems", []]},
                 "web_applications": {"$ifNull": ["$web_applications", []]},
                 "scanned": 1,
@@ -172,6 +173,40 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                         },
                         0
                     ]
+                },
+                "waf": {
+                    "$ifNull": [
+                        "$targets.waf",
+                        {
+                            "$ifNull": [
+                                "$web_app.waf",
+                                {
+                                    "$cond": [
+                                        {"$eq": ["$targets.name", "$domain"]},
+                                        "$infrastructure.waf",
+                                        None
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "load_balancer": {
+                    "$ifNull": [
+                        "$targets.load_balancer",
+                        {
+                            "$ifNull": [
+                                "$web_app.load_balancer",
+                                {
+                                    "$cond": [
+                                        {"$eq": ["$targets.name", "$domain"]},
+                                        "$infrastructure.load_balancer",
+                                        None
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
                 }
             }
         }
@@ -192,6 +227,32 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
         
     if port:
         match_stage["system.services.port"] = port
+
+    if waf:
+        waf_clean = waf.strip().lower()
+        if waf_clean in ["true", "detected", "any"]:
+            match_stage["waf.detected"] = True
+        elif waf_clean in ["false", "none", "no"]:
+            match_stage["$or"] = [
+                {"waf.detected": False},
+                {"waf": None},
+                {"waf.detected": {"$exists": False}}
+            ]
+        else:
+            match_stage["waf.firewall"] = {"$regex": re.escape(waf), "$options": "i"}
+
+    if lb:
+        lb_clean = lb.strip().lower()
+        if lb_clean in ["true", "detected", "any"]:
+            match_stage["load_balancer.detected"] = True
+        elif lb_clean in ["false", "none", "no"]:
+            match_stage["$or"] = [
+                {"load_balancer.detected": False},
+                {"load_balancer": None},
+                {"load_balancer.detected": {"$exists": False}}
+            ]
+        else:
+            match_stage["load_balancer.method"] = {"$regex": re.escape(lb), "$options": "i"}
 
     if status_val:
         if status_val == "scanned":
@@ -400,7 +461,8 @@ async def logout():
 async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "dashboard.html", {"user": user})
+    embedded = request.query_params.get("embedded") == "1"
+    return templates.TemplateResponse(request, "dashboard.html", {"user": user, "embedded": embedded})
 
 @app.get("/search")
 async def search(request: Request, q: str, user: dict = Depends(get_current_user)):
@@ -490,6 +552,26 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
             domain_data["systems"] = list(reversed(target_systems))[:2]
         if domain_data.get("web_applications"):
             domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == q]
+
+        # Scope WAF and Load Balancer to the specific subdomain being inspected
+        sub_obj = None
+        for s in (domain_data.get("infrastructure", {}).get("subdomains") or []):
+            if s.get("name", "").lower().strip() == q.lower().strip():
+                sub_obj = s
+                break
+        matching_app = next((w for w in (domain_data.get("web_applications") or []) if w.get("target") == q), None)
+
+        if "infrastructure" in domain_data:
+            domain_data["infrastructure"]["waf"] = (
+                (sub_obj and sub_obj.get("waf")) or
+                (matching_app and matching_app.get("waf")) or
+                None
+            )
+            domain_data["infrastructure"]["load_balancer"] = (
+                (sub_obj and sub_obj.get("load_balancer")) or
+                (matching_app and matching_app.get("load_balancer")) or
+                None
+            )
     else:
         # If looking at root domain, only show systems/webapps for the root domain itself
         if domain_data.get("systems"):
@@ -498,6 +580,29 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
             domain_data["systems"] = list(reversed(root_systems))[:2]
         if domain_data.get("web_applications"):
             domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == domain_name]
+
+    # Filter cloud_footprint to only show buckets discovered on this specific target (q) and deduplicate URLs
+    if domain_data.get("infrastructure", {}).get("cloud_footprint"):
+        cf = domain_data["infrastructure"]["cloud_footprint"]
+        target_lower = q.lower().strip()
+        scoped_cf = {}
+        for bucket_key in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"]:
+            items = cf.get(bucket_key) or []
+            seen_urls = set()
+            filtered = []
+            for b in items:
+                if not isinstance(b, dict):
+                    continue
+                src = (b.get("source_app") or "").lower().strip()
+                # Must match the specific target being viewed (or root if src is unset)
+                if src != target_lower and not (not src and target_lower == domain_name.lower().strip()):
+                    continue
+                url = (b.get("url") or b.get("raw") or b.get("name") or "").strip().lower().rstrip("/")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    filtered.append(b)
+            scoped_cf[bucket_key] = filtered
+        domain_data["infrastructure"]["cloud_footprint"] = scoped_cf
             
     return domain_data
 
@@ -530,6 +635,38 @@ def get_country_code(ip: str) -> str:
     except:
         return "US"
 
+@app.get("/api/filters/options")
+async def get_filter_options(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    # 1. Distinct technologies
+    raw_techs = await domains_col.distinct("web_applications.tech_stack")
+    techs = sorted(list(set([t.strip() for t in raw_techs if t and isinstance(t, str) and t.strip()])), key=lambda s: s.lower())
+
+    # 2. Distinct WAFs
+    wafs_infra = await domains_col.distinct("infrastructure.waf.firewall")
+    wafs_web = await domains_col.distinct("web_applications.waf.firewall")
+    all_wafs = sorted(list(set([
+        w.strip() for w in (wafs_infra + wafs_web)
+        if w and isinstance(w, str) and w.strip().lower() not in ["none", "null", "false"]
+    ])), key=lambda s: s.lower())
+
+    # 3. Distinct LB methods
+    lbs_infra = await domains_col.distinct("infrastructure.load_balancer.method")
+    lbs_web = await domains_col.distinct("web_applications.load_balancer.method")
+    all_lbs = sorted(list(set([
+        l.strip() for l in (lbs_infra + lbs_web)
+        if l and isinstance(l, str) and l.strip().lower() not in ["none", "null", "false"]
+    ])), key=lambda s: s.lower())
+
+    return {
+        "status": "success",
+        "technologies": techs,
+        "wafs": all_wafs,
+        "load_balancers": all_lbs
+    }
+
 @app.get("/api/subdomains")
 async def get_subdomains(
     page: int = 1,
@@ -539,6 +676,8 @@ async def get_subdomains(
     has_subdomains: Optional[str] = None,
     tech: Optional[str] = None,
     port: Optional[int] = None,
+    waf: Optional[str] = None,
+    lb: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -547,7 +686,7 @@ async def get_subdomains(
         raise HTTPException(status_code=401)
 
     root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
-    pipeline = get_flattened_pipeline(root_query, q, status_val, tech, port)
+    pipeline = get_flattened_pipeline(root_query, q, status_val, tech, port, waf, lb)
     
     # Total count (Aggregation)
     count_pipeline = pipeline + [{"$count": "total"}]
@@ -576,6 +715,8 @@ async def get_subdomains(
     for d in docs:
         system_info = d.get("system") or {}
         web_app_info = d.get("web_app") or {}
+        waf_info = d.get("waf") or {}
+        lb_info = d.get("load_balancer") or {}
         
         ip = system_info.get("ip", "N/A")
         tech_stack = web_app_info.get("tech_stack", [])
@@ -594,7 +735,17 @@ async def get_subdomains(
             "tech_str": ", ".join(tech_stack),
             "country_id": get_country_code(ip),
             "recon_date": d.get("recon_date", "N/A"),
-            "last_scanned": system_info.get("last_scanned", "Never")
+            "last_scanned": system_info.get("last_scanned", "Never"),
+            "waf": {
+                "detected": waf_info.get("detected", False),
+                "firewall": waf_info.get("firewall"),
+                "fqdns": waf_info.get("fqdns", [])
+            } if waf_info.get("detected") else None,
+            "load_balancer": {
+                "detected": lb_info.get("detected", False),
+                "method": lb_info.get("method"),
+                "fqdns": lb_info.get("fqdns", [])
+            } if lb_info.get("detected") else None
         })
 
     # Calculate total scanned assets globally (root + subdomains)
@@ -611,6 +762,9 @@ async def export_subdomains(
     status_val: Optional[str] = None,
     has_subdomains: Optional[str] = None,
     tech: Optional[str] = None,
+    port: Optional[int] = None,
+    waf: Optional[str] = None,
+    lb: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -618,8 +772,8 @@ async def export_subdomains(
     if not user:
         raise HTTPException(status_code=401)
     
-    root_query = get_query_filters(q, status_val, has_subdomains, tech, None)
-    pipeline = get_flattened_pipeline(root_query, q, status_val, tech)
+    root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
+    pipeline = get_flattened_pipeline(root_query, q, status_val, tech, port, waf, lb)
     
     # Sorting
     sort_dir_num = 1 if sort_dir == "asc" else -1
@@ -914,6 +1068,9 @@ async def get_leads(
     status_code: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = "desc",
+    limit: Optional[int] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -921,10 +1078,56 @@ async def get_leads(
     
     query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
             
-    cursor = leads_col.find(query).sort("timestamp", -1)
-    leads = await cursor.to_list(length=100)
+    is_asc = (order == "asc")
+    mongo_dir = 1 if is_asc else -1
+
+    cursor = leads_col.find(query)
+    if sort_by in ["size", "response_size", "length"]:
+        cursor = cursor.sort("response_size", mongo_dir)
+    elif sort_by in ["alphabetical", "target"]:
+        cursor = cursor.sort("target", mongo_dir)
+    elif sort_by == "title":
+        cursor = cursor.sort("title", mongo_dir)
+    elif sort_by in ["investigating_at", "time_added"]:
+        cursor = cursor.sort("investigating_at", mongo_dir)
+    else:
+        cursor = cursor.sort("timestamp", mongo_dir)
+
+    # Default to fetching all matching leads for the active filters on 1 page (up to 25,000)
+    fetch_limit = limit if (limit is not None and limit > 0) else 25000
+    leads = await cursor.to_list(length=fetch_limit)
     for lead in leads:
         lead["_id"] = str(lead["_id"])
+        lead["response_size"] = int(lead.get("response_size") or 0)
+    
+    if sort_by:
+        SEVERITY_WEIGHTS = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+        is_asc = (order == "asc")
+        if sort_by in ["size", "response_size", "length"]:
+            leads.sort(key=lambda l: l.get("response_size", 0), reverse=not is_asc)
+        elif sort_by in ["severity", "risk"]:
+            leads.sort(
+                key=lambda l: (
+                    SEVERITY_WEIGHTS.get(str(l.get("risk_level", "")).lower(), 0),
+                    l.get("response_size", 0),
+                    l.get("investigating_at") or l.get("timestamp") or ""
+                ),
+                reverse=not is_asc
+            )
+        elif sort_by in ["investigating_at", "time_added"]:
+            leads.sort(
+                key=lambda l: l.get("investigating_at") or l.get("timestamp") or "",
+                reverse=not is_asc
+            )
+        elif sort_by in ["alphabetical", "target"]:
+            leads.sort(key=lambda l: str(l.get("target", "")).lower(), reverse=not is_asc)
+        elif sort_by == "title":
+            leads.sort(key=lambda l: str(l.get("title", "")).lower(), reverse=not is_asc)
+        elif sort_by in ["time", "timestamp"]:
+            leads.sort(
+                key=lambda l: l.get("timestamp") or "",
+                reverse=not is_asc
+            )
     
     total_count = await leads_col.count_documents({})
     filtered_count = await leads_col.count_documents(query)
@@ -932,7 +1135,8 @@ async def get_leads(
     return {
         "leads": leads,
         "total_count": total_count,
-        "filtered_count": filtered_count
+        "filtered_count": filtered_count,
+        "displayed_count": len(leads)
     }
 
 async def apply_lead_mute(lead: dict, user: dict, request: Request):
@@ -991,6 +1195,8 @@ async def export_leads(
     status_code: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = "desc",
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -998,23 +1204,76 @@ async def export_leads(
     
     query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
             
-    cursor = leads_col.find(query).sort("timestamp", -1)
-    leads = await cursor.to_list(length=1000) # Increased limit for export
+    is_asc = (order == "asc")
+    mongo_dir = 1 if is_asc else -1
+
+    cursor = leads_col.find(query)
+    if sort_by in ["size", "response_size", "length"]:
+        cursor = cursor.sort("response_size", mongo_dir)
+    elif sort_by in ["alphabetical", "target"]:
+        cursor = cursor.sort("target", mongo_dir)
+    elif sort_by == "title":
+        cursor = cursor.sort("title", mongo_dir)
+    elif sort_by in ["investigating_at", "time_added"]:
+        cursor = cursor.sort("investigating_at", mongo_dir)
+    else:
+        cursor = cursor.sort("timestamp", mongo_dir)
+
+    leads = await cursor.to_list(length=25000) # Full export limit
+    for lead in leads:
+        lead["response_size"] = int(lead.get("response_size") or 0)
     
+    if sort_by:
+        SEVERITY_WEIGHTS = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+        is_asc = (order == "asc")
+        if sort_by in ["size", "response_size", "length"]:
+            leads.sort(key=lambda l: l.get("response_size", 0), reverse=not is_asc)
+        elif sort_by in ["severity", "risk"]:
+            leads.sort(
+                key=lambda l: (
+                    SEVERITY_WEIGHTS.get(str(l.get("risk_level", "")).lower(), 0),
+                    l.get("response_size", 0),
+                    l.get("investigating_at") or l.get("timestamp") or ""
+                ),
+                reverse=not is_asc
+            )
+        elif sort_by in ["investigating_at", "time_added"]:
+            leads.sort(
+                key=lambda l: l.get("investigating_at") or l.get("timestamp") or "",
+                reverse=not is_asc
+            )
+        elif sort_by in ["alphabetical", "target"]:
+            leads.sort(key=lambda l: str(l.get("target", "")).lower(), reverse=not is_asc)
+        elif sort_by == "title":
+            leads.sort(key=lambda l: str(l.get("title", "")).lower(), reverse=not is_asc)
+        elif sort_by in ["time", "timestamp"]:
+            leads.sort(
+                key=lambda l: l.get("timestamp") or "",
+                reverse=not is_asc
+            )
+
     data = []
     for l in leads:
-        data.append({
+        row = {
             "Detected Date": l.get("timestamp"),
+            "Time Added to Investigate": l.get("investigating_at") or l.get("timestamp") or "",
             "Status": l.get("status", "new").replace("_", " ").title(),
             "Risk": l.get("risk_level", "low").upper(),
             "Title": l.get("title"),
             "Target": l.get("target"),
+            "Response Size (Bytes)": l.get("response_size", 0),
             "Notes": l.get("notes", "")
-        })
+        }
+        if status != "investigating":
+            del row["Time Added to Investigate"]
+        data.append(row)
     
     if not data:
         # Create empty df with columns if no data
-        df = pd.DataFrame(columns=["Detected Date", "Status", "Risk", "Title", "Target", "Notes"])
+        cols = ["Detected Date", "Status", "Risk", "Title", "Target", "Response Size (Bytes)", "Notes"]
+        if status == "investigating":
+            cols.insert(1, "Time Added to Investigate")
+        df = pd.DataFrame(columns=cols)
     else:
         df = pd.DataFrame(data)
     
@@ -1032,7 +1291,10 @@ async def export_leads(
 @app.post("/api/leads/{lead_id}/status")
 async def update_lead_status(lead_id: str, request: Request, status: str = Form(...), user: dict = Depends(get_current_user)):
     check_analyst(user)
-    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"status": status}})
+    update_doc = {"status": status}
+    if status == "investigating":
+        update_doc["investigating_at"] = datetime.utcnow().isoformat()
+    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": update_doc})
     
     # Auto-mute if status is false_positive or benign
     if status in ["false_positive", "benign"]:
@@ -1047,6 +1309,20 @@ async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = D
     check_analyst(user)
     await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"notes": notes}})
     return {"status": "success"}
+
+@app.delete("/api/leads/{lead_id}")
+@app.post("/api/leads/{lead_id}/delete")
+async def delete_lead(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    result = await leads_col.delete_one({"_id": obj_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    await log_audit(user["username"], "DELETE_LEAD", f"Deleted alert {lead_id}", request)
+    return {"status": "success", "deleted": True}
 
 @app.post("/api/leads/bulk-delete")
 async def bulk_delete_leads(request: Request, user: dict = Depends(get_current_user)):
@@ -1139,7 +1415,528 @@ async def clear_notifications(user: dict = Depends(get_current_user)):
     check_analyst(user)
     # Mark 'new' leads as acknowledged
     await leads_col.update_many({"status": "new", "acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
-    return {"status": "success"}
+# --- Source Map Recovery Routes ---
+
+@app.get("/api/source-maps")
+async def get_source_maps(
+    target: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    query = {}
+    if target:
+        clean_t = target.lower().strip()
+        query["$or"] = [
+            {"target": clean_t},
+            {"target": {"$regex": re.escape(clean_t), "$options": "i"}}
+        ]
+    
+    cursor = source_maps_col.find(query, {
+        "target": 1,
+        "source_map_url": 1,
+        "map_name": 1,
+        "total_files": 1,
+        "app_files_count": 1,
+        "vendor_files_count": 1,
+        "has_embedded_source": 1,
+        "languages": 1,
+        "recovered_at": 1,
+        "zip_size": 1
+    }).sort("recovered_at", -1)
+    
+    maps = await cursor.to_list(length=300)
+    for m in maps:
+        m["_id"] = str(m["_id"])
+    return maps
+
+@app.get("/api/source-maps/{map_id}")
+async def get_source_map_details(
+    map_id: str,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+    
+    sm["_id"] = str(sm["_id"])
+    sm.pop("cached_files", None)
+    return sm
+
+@app.get("/api/source-maps/{map_id}/file")
+async def get_source_map_file(
+    map_id: str,
+    path: str,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+    
+    clean_req_path = os.path.normpath(path.lstrip("/")).replace("\\", "/")
+    if clean_req_path.startswith("..") or "/../" in clean_req_path:
+        raise HTTPException(status_code=400, detail="Invalid path traversal detected")
+
+    content = None
+    if "cached_files" in sm and clean_req_path in sm["cached_files"]:
+        content = sm["cached_files"][clean_req_path]
+    
+    if content is None:
+        src_dir = sm.get("src_dir") or os.path.join(sm.get("disk_dir", ""), "extracted")
+        disk_filepath = os.path.abspath(os.path.join(src_dir, clean_req_path))
+        
+        if os.path.commonpath([src_dir, disk_filepath]) != os.path.abspath(src_dir):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if os.path.exists(disk_filepath) and os.path.isfile(disk_filepath):
+            try:
+                with open(disk_filepath, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+        else:
+            raise HTTPException(status_code=404, detail="File not found in extracted source tree")
+    
+    from tools.source_map_unpacker import detect_language
+    lang = detect_language(clean_req_path)
+    
+    return {
+        "path": clean_req_path,
+        "language": lang,
+        "lines": content.count("\n") + 1,
+        "size": len(content.encode("utf-8")),
+        "content": content
+    }
+
+@app.get("/api/source-maps/{map_id}/download")
+async def download_source_map_zip(
+    map_id: str,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+    
+    zip_path = sm.get("zip_path")
+    if not zip_path or not os.path.exists(zip_path):
+        raise HTTPException(status_code=404, detail="ZIP archive not found on disk")
+    
+    filename = os.path.basename(zip_path)
+    return FileResponse(
+        path=zip_path,
+        filename=filename,
+        media_type="application/zip"
+    )
+
+@app.post("/api/source-maps/recover")
+async def recover_source_map(
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    body = await request.json()
+    url = body.get("url")
+    target = body.get("target")
+    lead_id = body.get("lead_id")
+    
+    # If URL is not explicitly passed, attempt to resolve it from the lead document
+    if not url and lead_id:
+        try:
+            lead = await leads_col.find_one({"_id": ObjectId(lead_id)})
+            if lead:
+                if not target:
+                    target = lead.get("target")
+                
+                # Check if this lead is already linked to a recovered map
+                existing_map_id = lead.get("recovered_source_map_id")
+                if existing_map_id:
+                    existing_sm = await source_maps_col.find_one({"_id": ObjectId(existing_map_id)})
+                    if existing_sm and existing_sm.get("total_files", 0) > 0:
+                        return {
+                            "status": "success",
+                            "id": str(existing_sm["_id"]),
+                            "total_files": existing_sm.get("total_files"),
+                            "app_files_count": existing_sm.get("app_files_count"),
+                            "languages": existing_sm.get("languages", [])
+                        }
+
+                candidate_url = lead.get("source_map_url") or lead.get("url")
+                if not candidate_url:
+                    text_blob = f"{lead.get('details', '')} {lead.get('description', '')}"
+                    m = re.search(r'Source Map URL:\s*(https?://[^\s\r\n]+)', text_blob, re.I)
+                    if not m:
+                        m = re.search(r'(https?://[^\s\r\n\'\"<>]+\.map[^\s\r\n\'\"<>]*)', text_blob, re.I)
+                    if m:
+                        candidate_url = m.group(1).rstrip(".,;:)'\"")
+                url = candidate_url
+        except Exception as e:
+            logger.warning(f"Error resolving source map URL for lead {lead_id}: {e}")
+
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing source map URL and could not resolve from lead details")
+    
+    clean_url = url.strip().rstrip(".,;:)'\"")
+    from tools.source_map_unpacker import SourceMapUnpacker
+    unpacker = SourceMapUnpacker()
+    result = await unpacker.unpack_url(clean_url, target=target, lead_id=lead_id)
+    if not result:
+        reason = unpacker.last_error or "Could not retrieve or parse source map"
+        raise HTTPException(status_code=500, detail=f"{reason} (URL: {clean_url})")
+    
+    return {
+        "status": "success",
+        "id": str(result["_id"]),
+        "total_files": result.get("total_files"),
+        "app_files_count": result.get("app_files_count"),
+        "languages": result.get("languages", [])
+    }
+
+@app.get("/api/source-maps/{map_id}/routes")
+async def get_source_map_routes(
+    map_id: str,
+    category: Optional[str] = None,
+    method: Optional[str] = None,
+    app_only: Optional[bool] = None,
+    q: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+
+    routes = sm.get("routes_analysis", [])
+    
+    # If not yet analyzed and files exist, analyze on demand
+    if not routes and sm.get("total_files", 0) > 0:
+        try:
+            from tools.source_code_analyzer import SourceCodeAnalyzer
+            analyzer = SourceCodeAnalyzer()
+            analysis = await analyzer.analyze_source_map_doc(sm)
+            routes = analysis.get("routes", [])
+            sm["routes_stats"] = analysis.get("stats")
+            sm["routes_count"] = analysis.get("stats", {}).get("total", 0)
+        except Exception as e:
+            logger.error(f"On-demand route analysis error for {map_id}: {e}")
+
+    # Filter
+    filtered = []
+    for r in routes:
+        if category and r.get("category") != category:
+            continue
+        if method and r.get("method", "").upper() != method.upper():
+            continue
+        if app_only is True and not r.get("is_app", False):
+            continue
+        if q:
+            query = q.lower()
+            if (query not in r.get("path", "").lower() and
+                query not in r.get("snippet", "").lower() and
+                query not in r.get("file", "").lower()):
+                continue
+        filtered.append(r)
+
+    stats = sm.get("routes_stats") or {
+        "total": len(routes),
+        "api_endpoints": sum(1 for r in routes if r.get("category") == "api_endpoint"),
+        "client_routes": sum(1 for r in routes if r.get("category") == "client_route"),
+        "external_urls": sum(1 for r in routes if r.get("category") == "external_url"),
+        "websocket_endpoints": sum(1 for r in routes if r.get("category") == "websocket"),
+        "app_routes_count": sum(1 for r in routes if r.get("is_app"))
+    }
+
+    return {
+        "map_id": str(sm["_id"]),
+        "target": sm.get("target"),
+        "stats": stats,
+        "filtered_count": len(filtered),
+        "routes": filtered
+    }
+
+@app.post("/api/source-maps/{map_id}/analyze")
+async def analyze_source_map(
+    map_id: str,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+
+    from tools.source_code_analyzer import SourceCodeAnalyzer
+    analyzer = SourceCodeAnalyzer()
+    analysis = await analyzer.analyze_source_map_doc(sm)
+
+    return {
+        "status": "success",
+        "map_id": str(sm["_id"]),
+        "stats": analysis["stats"],
+        "routes_count": analysis["stats"]["total"]
+    }
+
+@app.get("/api/source-maps/{map_id}/routes/export")
+async def export_source_map_routes(
+    map_id: str,
+    format: str = "json",
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+
+    routes = sm.get("routes_analysis", [])
+    target = sm.get("target", "target")
+    clean_target = re.sub(r'[^a-zA-Z0-9_.-]', '_', target)
+
+    if format.lower() == "csv":
+        import io, csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Category", "Method", "Path", "Target URL", "File", "Line", "Is Application Code", "Snippet"])
+        for r in routes:
+            writer.writerow([
+                r.get("category", ""),
+                r.get("method", ""),
+                r.get("path", ""),
+                r.get("target_url", ""),
+                r.get("file", ""),
+                r.get("line", ""),
+                "Yes" if r.get("is_app") else "No",
+                r.get("snippet", "")
+            ])
+        from fastapi.responses import Response
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={clean_target}_routes.csv"}
+        )
+    else:
+        from fastapi.responses import Response
+        return Response(
+            content=json.dumps({"target": target, "total": len(routes), "routes": routes}, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={clean_target}_routes.json"}
+        )
+
+@app.get("/api/source-maps/{map_id}/secrets")
+async def get_source_map_secrets(
+    map_id: str,
+    secret_type: Optional[str] = None,
+    app_only: Optional[bool] = None,
+    q: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+
+    secrets = sm.get("secrets_analysis", [])
+
+    filtered = []
+    for s in secrets:
+        if secret_type and s.get("type") != secret_type:
+            continue
+        if app_only is True and not s.get("is_app", False):
+            continue
+        if q:
+            query = q.lower()
+            if (query not in s.get("type", "").lower() and
+                query not in s.get("value", "").lower() and
+                query not in s.get("file", "").lower() and
+                query not in s.get("snippet", "").lower()):
+                continue
+        filtered.append(s)
+
+    stats = sm.get("secrets_stats") or {
+        "total": len(secrets),
+        "by_type": {},
+        "app_secrets_count": sum(1 for s in secrets if s.get("is_app"))
+    }
+
+    return {
+        "map_id": str(sm["_id"]),
+        "target": sm.get("target"),
+        "stats": stats,
+        "total": len(secrets),
+        "secrets_count": len(secrets),
+        "filtered_count": len(filtered),
+        "secrets": filtered
+    }
+
+@app.get("/api/source-maps/{map_id}/search")
+async def search_source_map_files(
+    map_id: str,
+    q: str = "",
+    case_sensitive: bool = False,
+    regex: bool = False,
+    app_only: bool = True,
+    limit: int = 300,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    clean_q = (q or "").strip()
+    if not clean_q:
+        return {"query": "", "total_matches": 0, "total_files": 0, "results": []}
+
+    sm = None
+    try:
+        sm = await source_maps_col.find_one({"_id": ObjectId(map_id)})
+    except Exception:
+        pass
+    if not sm:
+        sm = await source_maps_col.find_one({"$or": [{"source_map_url": map_id}, {"map_name": map_id}]})
+    if not sm:
+        raise HTTPException(status_code=404, detail="Source map not found")
+
+    src_dir = sm.get("src_dir") or os.path.join(sm.get("disk_dir", ""), "extracted")
+    if not os.path.exists(src_dir):
+        raise HTTPException(status_code=404, detail="Extracted source files not found on disk")
+
+    from tools.source_map_unpacker import is_application_source, detect_language
+
+    compiled_re = None
+    if regex:
+        try:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            compiled_re = re.compile(clean_q, flags)
+        except re.error as e:
+            raise HTTPException(status_code=400, detail=f"Invalid regular expression: {e}")
+    
+    clean_q_lower = clean_q.lower() if not case_sensitive else clean_q
+
+    file_matches = {}
+    total_matches = 0
+
+    for root, _, files in os.walk(src_dir):
+        for f in files:
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, src_dir).replace("\\", "/")
+
+            is_app = is_application_source(rel_path)
+            if app_only and not is_app:
+                continue
+
+            if f.endswith(('.zip', '.tar', '.gz', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot')):
+                continue
+
+            try:
+                with open(full_path, "r", encoding="utf-8", errors="ignore") as fh:
+                    for line_num, line in enumerate(fh, 1):
+                        matched = False
+
+                        if compiled_re:
+                            if compiled_re.search(line):
+                                matched = True
+                        elif case_sensitive:
+                            if clean_q in line:
+                                matched = True
+                        else:
+                            if clean_q_lower in line.lower():
+                                matched = True
+
+                        if matched:
+                            snippet = line.strip()
+                            if rel_path not in file_matches:
+                                file_matches[rel_path] = {
+                                    "path": rel_path,
+                                    "language": detect_language(rel_path),
+                                    "is_app": is_app,
+                                    "matches": []
+                                }
+                            file_matches[rel_path]["matches"].append({
+                                "line": line_num,
+                                "snippet": snippet[:240]
+                            })
+                            total_matches += 1
+                            if total_matches >= limit:
+                                break
+            except Exception:
+                pass
+
+            if total_matches >= limit:
+                break
+
+    results = list(file_matches.values())
+    results.sort(key=lambda x: (not x["is_app"], -len(x["matches"]), x["path"].lower()))
+
+    return {
+        "query": clean_q,
+        "case_sensitive": case_sensitive,
+        "regex": regex,
+        "app_only": app_only,
+        "total_matches": total_matches,
+        "total_files": len(results),
+        "hit_limit": total_matches >= limit,
+        "results": results
+    }
 
 # --- Domain Management Routes ---
 
@@ -1694,6 +2491,83 @@ async def scan_single_domain(domain_id: str, request: Request, user: dict = Depe
     await log_audit(user["username"], "SCAN_SINGLE_DOMAIN", f"Triggered single-target scan for {root_domain} (subdomain discovery bypassed)", request)
     return {"status": "success"}
 
+@app.post("/api/domains/{domain_id}/mutate-environments")
+async def mutate_domain_environments(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """
+    Run environment-based permutation discovery across all known subdomains for a domain.
+    Replaces tokens like prod/stage/dev/uat/test, performs fast DNS checks, and queues discoveries.
+    """
+    check_analyst(user)
+    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    root_domain = domain_doc["domain"]
+    if domain_doc.get("single_domain_only"):
+        raise HTTPException(status_code=400, detail="Cannot run subdomain mutation on a single-target domain")
+
+    try:
+        from tools.subdomain_mutator import EnvironmentMutationAgent
+        agent = EnvironmentMutationAgent()
+        result = await agent.mutate_and_discover_for_domain(root_domain, resolve_dns=True)
+        await log_audit(
+            user["username"],
+            "MUTATE_ENVIRONMENTS",
+            f"Environment mutation completed for {root_domain}: {result.get('live_found', 0)} live discovered out of {result.get('generated_candidates', 0)} candidates",
+            request
+        )
+        return {
+            "status": "success",
+            "root_domain": root_domain,
+            "seeds_count": result.get("seeds_count", 0),
+            "matching_seeds": result.get("matching_seeds", 0),
+            "generated_candidates": result.get("generated_candidates", 0),
+            "live_found": result.get("live_found", 0),
+            "live_hosts": result.get("live_hosts", []),
+            "queued_for_verification": result.get("queued_for_verification", 0)
+        }
+    except Exception as e:
+        logger.error(f"Error executing environment mutation for {root_domain}: {e}")
+        raise HTTPException(status_code=500, detail=f"Environment mutation error: {str(e)}")
+
+@app.post("/api/subdomains/mutate")
+async def test_subdomain_mutation(request: Request, user: dict = Depends(get_current_user)):
+    """
+    Test environment mutations for a specific seed subdomain without writing to the database.
+    """
+    check_analyst(user)
+    body = await request.json()
+    subdomain = body.get("subdomain")
+    root_domain = body.get("root_domain")
+    resolve_dns = body.get("resolve_dns", True)
+
+    if not subdomain or not root_domain:
+        raise HTTPException(status_code=400, detail="Missing required parameters: subdomain and root_domain")
+
+    try:
+        from tools.subdomain_mutator import SubdomainMutator, FastDnsResolver
+        mutator = SubdomainMutator()
+        tokens = mutator.detect_environment_tokens(subdomain, root_domain)
+        candidates = sorted(list(mutator.generate_mutations(subdomain, root_domain)))
+
+        live_results = {}
+        if resolve_dns and candidates:
+            resolver = FastDnsResolver()
+            live_results = await resolver.filter_live_candidates(candidates, root_domain)
+
+        return {
+            "status": "success",
+            "subdomain": subdomain,
+            "root_domain": root_domain,
+            "detected_tokens": [t["env"] + t["idx"] for t in tokens],
+            "total_candidates": len(candidates),
+            "candidates": candidates,
+            "live_count": len(live_results),
+            "live_candidates": live_results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/domains/bulk-scan-now")
 async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
@@ -2084,7 +2958,173 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
         if len(results) >= 60:
             break
             
-    return {"results": results[:60], "root_domains": root_summaries}
+    active_domains_count = await domains_col.count_documents({"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}})
+    return {"results": results[:60], "root_domains": root_summaries, "active_domains_count": active_domains_count}
+
+def build_tool_tasks(tool_key: str, domain_doc: dict, target: str, priority_val: int, created_at_val: datetime, is_run_all: bool = False) -> list:
+    root_domain = domain_doc["domain"]
+    target = (target or root_domain).strip()
+    is_single = domain_doc.get("single_domain_only", False)
+    
+    tasks = []
+    
+    if tool_key == "subdomain_discovery":
+        if is_single:
+            if is_run_all:
+                return []
+            raise HTTPException(status_code=400, detail=f"'{root_domain}' is configured as a single-domain target. Subdomain discovery cannot be run on it.")
+        tasks.append({
+            "root_domain": root_domain,
+            "target": root_domain,
+            "task_type": "discovery",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["alive_check", "subdomain_alive_check"]:
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "verification",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "port_scanner":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "scan",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["osint_collector", "osint_agent"]:
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "osint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "archive_hunter":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "archive_urls",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "waf_detector":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "waf_detect",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "lb_detector":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "lb_detect",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "tech_fingerprinter":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "tech_fingerprint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "http",
+            "port": 80,
+            "task_type": "tech_fingerprint",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "directory_hunter":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "directory_hunt",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "screenshot_agent":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "protocol": "https",
+            "port": 443,
+            "task_type": "screenshot",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key == "bypass_403":
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "bypass_403",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["js_miner", "dynamic_js_collector", "dynamic_js_recon"]:
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "url": f"https://{target}",
+            "task_type": "dynamic_js_extract",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["cloud_storage_auditor", "cloud_storage_audit", "cloud_hunter"]:
+        tasks.append({
+            "root_domain": root_domain,
+            "target": target,
+            "task_type": "cloud_storage_audit",
+            "status": "pending",
+            "priority": priority_val,
+            "created_at": created_at_val
+        })
+        
+    elif tool_key in ["whois_lookup", "loop_orchestrator"]:
+        pass
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported tool key: {tool_key}")
+        
+    return tasks
 
 @app.post("/api/tools/{tool_key}/run")
 async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depends(get_current_user)):
@@ -2098,7 +3138,113 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     domain_id = body.get("domain_id")
     target = body.get("target")
     top_of_queue = bool(body.get("top_of_queue", False))
+    run_all = bool(body.get("run_all", False)) or domain_id == "all"
     
+    priority_val = 10 if top_of_queue else 0
+    created_at_val = datetime.utcnow() - timedelta(days=365) if top_of_queue else datetime.utcnow()
+    priority_txt = " (Top of Queue)" if top_of_queue else ""
+    
+    # -------------------------------------------------------------
+    # CASE A: Run tool across ALL active domains
+    # -------------------------------------------------------------
+    if run_all:
+        cursor = domains_col.find({"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}})
+        eligible_domains = await cursor.to_list(length=None)
+        
+        if not eligible_domains:
+            return {
+                "status": "warning",
+                "message": "No active domains found to run this tool on (all domains on hold or blacklisted).",
+                "tasks_queued": 0,
+                "domains_count": 0,
+                "tool_key": tool_key,
+                "top_of_queue": top_of_queue
+            }
+            
+        if tool_key == "whois_lookup":
+            await domains_col.update_many(
+                {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}},
+                {"$set": {"whois_complete": False}}
+            )
+            msg = f"Reset WHOIS status for {len(eligible_domains)} active domain(s) to trigger immediate lookup"
+            if top_of_queue:
+                msg += " (Priority flag noted)"
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered WHOIS lookup on all active domains ({len(eligible_domains)} domains){priority_txt}", request)
+            return {
+                "status": "success",
+                "message": msg,
+                "tasks_queued": len(eligible_domains),
+                "domains_count": len(eligible_domains),
+                "tool_key": tool_key,
+                "top_of_queue": top_of_queue
+            }
+            
+        elif tool_key == "loop_orchestrator":
+            tasks_to_create = []
+            for d_doc in eligible_domains:
+                r_domain = d_doc["domain"]
+                is_single = d_doc.get("single_domain_only", False)
+                await domains_col.update_one(
+                    {"_id": d_doc["_id"]},
+                    {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
+                )
+                if is_single:
+                    await tasks_col.delete_many({"root_domain": r_domain})
+                    tasks_to_create.extend([
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val}
+                    ])
+                else:
+                    tasks_to_create.append({
+                        "root_domain": r_domain,
+                        "target": r_domain,
+                        "task_type": "discovery",
+                        "status": "pending",
+                        "priority": priority_val,
+                        "created_at": created_at_val
+                    })
+            if tasks_to_create:
+                await tasks_col.insert_many(tasks_to_create)
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered full loop scan across all active domains ({len(eligible_domains)} domains){priority_txt}", request)
+            return {
+                "status": "success",
+                "message": f"Successfully queued {len(tasks_to_create)} task(s) to restart scan loop across {len(eligible_domains)} active domain(s){priority_txt}",
+                "tasks_queued": len(tasks_to_create),
+                "domains_count": len(eligible_domains),
+                "tool_key": tool_key,
+                "top_of_queue": top_of_queue
+            }
+            
+        else:
+            tasks_to_create = []
+            targeted_domains_count = 0
+            for d_doc in eligible_domains:
+                r_domain = d_doc["domain"]
+                t_list = build_tool_tasks(tool_key, d_doc, r_domain, priority_val, created_at_val, is_run_all=True)
+                if t_list:
+                    tasks_to_create.extend(t_list)
+                    targeted_domains_count += 1
+                    
+            if tasks_to_create:
+                await tasks_col.insert_many(tasks_to_create)
+                
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered {tool_key} on all active domains ({targeted_domains_count} domains, {len(tasks_to_create)} tasks){priority_txt}", request)
+            return {
+                "status": "success",
+                "message": f"Successfully queued {len(tasks_to_create)} task(s) across {targeted_domains_count} active domain(s){priority_txt}",
+                "tasks_queued": len(tasks_to_create),
+                "domains_count": targeted_domains_count,
+                "tool_key": tool_key,
+                "top_of_queue": top_of_queue
+            }
+
+    # -------------------------------------------------------------
+    # CASE B: Run tool on a SINGLE chosen domain / subdomain
+    # -------------------------------------------------------------
     if not domain_id:
         raise HTTPException(status_code=400, detail="domain_id is required")
         
@@ -2114,162 +3260,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     target = (target or root_domain).strip()
     is_single = domain_doc.get("single_domain_only", False)
     
-    priority_val = 10 if top_of_queue else 0
-    created_at_val = datetime.utcnow() - timedelta(days=365) if top_of_queue else datetime.utcnow()
-    
-    tasks_to_create = []
-    
-    if tool_key == "subdomain_discovery":
-        if is_single:
-            raise HTTPException(status_code=400, detail=f"'{root_domain}' is configured as a single-domain target. Subdomain discovery cannot be run on it.")
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": root_domain,
-            "task_type": "discovery",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key in ["alive_check", "subdomain_alive_check"]:
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "verification",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "port_scanner":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "scan",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key in ["osint_collector", "osint_agent"]:
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "osint",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "archive_hunter":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "archive_urls",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "waf_detector":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "waf_detect",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "lb_detector":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "lb_detect",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "tech_fingerprinter":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "protocol": "https",
-            "port": 443,
-            "task_type": "tech_fingerprint",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "protocol": "http",
-            "port": 80,
-            "task_type": "tech_fingerprint",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "directory_hunter":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "protocol": "https",
-            "port": 443,
-            "task_type": "directory_hunt",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "screenshot_agent":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "protocol": "https",
-            "port": 443,
-            "task_type": "screenshot",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "bypass_403":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "task_type": "bypass_403",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "js_miner":
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "url": f"https://{target}",
-            "task_type": "js_scrape",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key in ["dynamic_js_collector", "dynamic_js_recon"]:
-        tasks_to_create.append({
-            "root_domain": root_domain,
-            "target": target,
-            "url": f"https://{target}",
-            "task_type": "dynamic_js_extract",
-            "status": "pending",
-            "priority": priority_val,
-            "created_at": created_at_val
-        })
-        
-    elif tool_key == "whois_lookup":
+    if tool_key == "whois_lookup":
         await domains_col.update_one(
             {"_id": domain_doc["_id"]},
             {"$set": {"whois_complete": False}}
@@ -2278,7 +3269,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
         if top_of_queue:
             msg += " (Priority flag noted)"
         await log_audit(user["username"], "RUN_TOOL", f"Triggered WHOIS lookup on {root_domain}", request)
-        return {"status": "success", "message": msg, "tasks_queued": 1}
+        return {"status": "success", "message": msg, "tasks_queued": 1, "tool_key": tool_key, "target": target}
         
     elif tool_key == "loop_orchestrator":
         await domains_col.update_one(
@@ -2292,24 +3283,24 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                 {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val},
                 {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val},
                 {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val}
+                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val}
             ]
         else:
-            tasks_to_create.append({
+            tasks_to_create = [{
                 "root_domain": root_domain,
                 "target": root_domain,
                 "task_type": "discovery",
                 "status": "pending",
                 "priority": priority_val,
                 "created_at": created_at_val
-            })
+            }]
     else:
-        raise HTTPException(status_code=400, detail=f"Unsupported tool key: {tool_key}")
+        tasks_to_create = build_tool_tasks(tool_key, domain_doc, target, priority_val, created_at_val, is_run_all=False)
 
     if tasks_to_create:
         await tasks_col.insert_many(tasks_to_create)
         
-    priority_txt = " (Top of Queue)" if top_of_queue else ""
     await log_audit(user["username"], "RUN_TOOL", f"Triggered {tool_key} on {target} [{root_domain}]{priority_txt}", request)
     
     return {
@@ -2320,6 +3311,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
         "target": target,
         "top_of_queue": top_of_queue
     }
+
 
 @app.get("/api/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
@@ -2351,6 +3343,19 @@ async def toggle_scan_pause(request: Request, user: dict = Depends(get_current_u
     
     await log_audit(user["username"], "TOGGLE_SCAN_PAUSE", f"{'Paused' if new_state else 'Resumed'} all scanning activity", request)
     return {"status": "success", "scan_pause": new_state}
+
+@app.post("/api/settings/pause-scanning")
+async def pause_scanning(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    await settings_col.update_one(
+        {"key": "global_settings"},
+        {"$set": {"scan_pause": True}},
+        upsert=True
+    )
+    
+    await log_audit(user["username"], "PAUSE_SCANNING", "Stopped all scanning activity", request)
+    return {"status": "success", "scan_pause": True}
 
 @app.post("/api/settings/continue-scanning")
 async def continue_scanning(request: Request, user: dict = Depends(get_current_user)):

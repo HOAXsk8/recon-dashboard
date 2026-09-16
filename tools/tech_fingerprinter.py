@@ -324,22 +324,22 @@ class TechFingerprinterAgent(BaseAgent):
                             }
                         app_found = True
                         
-                        # Queue JS Scrape for this target
+                        # Queue Dynamic JS Extraction for this target
                         exists_js = await self.tasks_col.find_one({
                             "root_domain": root_domain,
                             "target": target,
-                            "task_type": "js_scrape"
+                            "task_type": "dynamic_js_extract"
                         })
                         if not exists_js:
                             await self.tasks_col.insert_one({
                                 "root_domain": root_domain,
                                 "target": target,
                                 "url": url,
-                                "task_type": "js_scrape",
+                                "task_type": "dynamic_js_extract",
                                 "status": "pending",
                                 "created_at": datetime.datetime.utcnow()
                             })
-                            logger.info(f"Queued JS SCRAPE for {url}")
+                            logger.info(f"Queued DYNAMIC JS EXTRACT for {url}")
                         break
                 
                 if not app_found:
@@ -365,16 +365,22 @@ class TechFingerprinterAgent(BaseAgent):
                         }
                     web_apps.append(new_app)
                     
-                    # Queue JS Scrape for NEW target
-                    await self.tasks_col.insert_one({
+                    # Queue Dynamic JS Extraction for NEW target
+                    exists_js_new = await self.tasks_col.find_one({
                         "root_domain": root_domain,
                         "target": target,
-                        "url": url,
-                        "task_type": "js_scrape",
-                        "status": "pending",
-                        "created_at": datetime.datetime.utcnow()
+                        "task_type": "dynamic_js_extract"
                     })
-                    logger.info(f"Queued JS SCRAPE for NEW app: {url}")
+                    if not exists_js_new:
+                        await self.tasks_col.insert_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "url": url,
+                            "task_type": "dynamic_js_extract",
+                            "status": "pending",
+                            "created_at": datetime.datetime.utcnow()
+                        })
+                        logger.info(f"Queued DYNAMIC JS EXTRACT for NEW app: {url}")
                 
                 await self.domains_col.update_one(
                     {"domain": root_domain},

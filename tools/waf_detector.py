@@ -121,49 +121,49 @@ class WafDetectorAgent(BaseAgent):
 
             waf_result = self.parse_wafw00f_result(raw)
 
-            # Change detection
-            domain_doc = await self.domains_col.find_one({"domain": root_domain})
-            old_waf = domain_doc.get("infrastructure", {}).get("waf", {}) if domain_doc else {}
-            old_firewall = old_waf.get("firewall")
-            new_firewall = waf_result.get("firewall")
+            # If WAF is detected, perform reverse DNS lookup using `dig -x` to obtain device FQDNs
+            waf_result["ips"] = []
+            waf_result["reverse_dns"] = {}
+            waf_result["fqdns"] = []
 
-            if old_waf and old_firewall != new_firewall:
-                if new_firewall and not old_firewall:
-                    title = f"WAF Newly Detected: {target}"
-                    description = f"A Web Application Firewall ({new_firewall}) was detected on {target} where none existed before."
-                    risk = "medium"
-                elif not new_firewall and old_firewall:
-                    title = f"WAF Removed: {target}"
-                    description = f"The WAF ({old_firewall}) previously detected on {target} is no longer present."
-                    risk = "high"
-                else:
-                    title = f"WAF Changed: {target}"
-                    description = f"WAF changed from {old_firewall} to {new_firewall} on {target}."
-                    risk = "medium"
+            if waf_result.get("detected"):
+                try:
+                    import socket
+                    loop = asyncio.get_event_loop()
+                    addr_info = await loop.getaddrinfo(target, None, type=socket.SOCK_STREAM)
+                    resolved_ips = []
+                    for item in addr_info:
+                        ip = item[4][0]
+                        if ip and not ip.startswith("127.") and ip not in resolved_ips:
+                            resolved_ips.append(ip)
+                    waf_result["ips"] = resolved_ips
 
-                details = (
-                    f"WAF detection result for {target}:\n"
-                    f"- Previous: {old_firewall or 'None'}\n"
-                    f"- Current: {new_firewall or 'None'}\n"
-                    f"- Manufacturer: {waf_result.get('manufacturer') or 'Unknown'}\n"
-                    f"- Confidence: {waf_result.get('confidence') or 'N/A'}"
+                    for ip in resolved_ips:
+                        try:
+                            fqdns = await self.reverse_dns_lookup(ip)
+                            if fqdns:
+                                waf_result["reverse_dns"][ip] = fqdns
+                                for f in fqdns:
+                                    if f not in waf_result["fqdns"]:
+                                        waf_result["fqdns"].append(f)
+                        except Exception as rdns_err:
+                            logger.debug(f"Reverse DNS error for WAF IP {ip}: {rdns_err}")
+                except Exception as dns_err:
+                    logger.debug(f"Error resolving IPs for WAF target {target}: {dns_err}")
+
+            if target.strip().lower() == root_domain.strip().lower():
+                await self.domains_col.update_one(
+                    {"domain": root_domain},
+                    {"$set": {"infrastructure.waf": waf_result}}
                 )
-                exploitation = (
-                    "### WAF Change Analysis\n\n"
-                    "1. **Verify Legitimacy**: Confirm this WAF change was intentional and authorised.\n"
-                    "2. **Coverage Gap**: If a WAF was removed, assess the increased exposure of web applications.\n"
-                    "3. **Bypass Research**: A WAF change may introduce new bypass opportunities or close existing ones."
-                )
-                await self.create_alert(title, description, target, risk, details, exploitation)
-
-            await self.domains_col.update_one(
-                {"domain": root_domain},
-                {"$set": {"infrastructure.waf": waf_result}}
-            )
-            if target != root_domain:
+            else:
                 await self.domains_col.update_one(
                     {"domain": root_domain, "infrastructure.subdomains.name": target},
                     {"$set": {"infrastructure.subdomains.$.waf": waf_result}}
+                )
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "web_applications.target": target},
+                    {"$set": {"web_applications.$.waf": waf_result}}
                 )
             logger.info(f"WAF scan complete for {target}: detected={waf_result['detected']}, firewall={waf_result['firewall']}")
 

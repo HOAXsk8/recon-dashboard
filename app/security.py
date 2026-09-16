@@ -44,7 +44,7 @@ def generate_totp_secret():
     return pyotp.random_base32()
 
 def get_totp_uri(secret: str, username: str):
-    return pyotp.totp.TOTP(secret).provisioning_uri(name=username, issuer_name="Netbytes.cloud")
+    return pyotp.totp.TOTP(secret).provisioning_uri(name=username, issuer_name="RDash")
 
 def validate_password(password: str):
     if len(password) < 8:

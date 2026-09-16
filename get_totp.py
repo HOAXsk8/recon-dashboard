@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Helper utility to generate the current TOTP token for logging into Recon Dashboard.
+Helper utility to generate the current TOTP token for logging into RDash.
 Works using standard library Python with zero external dependencies.
 """
 import sys
@@ -48,13 +48,13 @@ def main():
     remaining_seconds = 30 - int(time.time() % 30)
     
     print("\n=======================================================")
-    print("  Recon Dashboard - Local Admin Credentials")
+    print("  RDash - Local Admin Credentials")
     print("=======================================================")
     print(f"  Username     : {username}")
     print(f"  Password     : {password}")
     print(f"  TOTP Secret  : {secret}")
     print(f"  Current Code : {code}  ({remaining_seconds}s remaining)")
-    print(f"  TOTP URI     : otpauth://totp/Netbytes.cloud:{username}?secret={secret}&issuer=Netbytes.cloud")
+    print(f"  TOTP URI     : otpauth://totp/RDash:{username}?secret={secret}&issuer=RDash")
     print("=======================================================\n")
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Tools Monitoring - Netbytes.cloud{% endblock %}
+{% block title %}Tools Monitoring | RDash{% endblock %}
 
 {% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
 
@@ -29,15 +29,12 @@
                 </button>
             </div>
 
-            <!-- Global Scanning Controls -->
-            <button id="pause-btn" onclick="togglePause()" class="px-4 py-2 bg-tech-danger hover:opacity-90 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-danger hidden">
-                <svg id="pause-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span id="pause-text">Pause Scanning</span>
-            </button>
-            
-            <button id="continue-btn" onclick="continueScanning()" class="px-4 py-2 bg-tech-accent hover:opacity-90 text-tech-bg rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-accent shadow-lg shadow-tech-accent/20" title="Continue scanning from where it stopped or trigger next scan pass">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span id="continue-text">Continue Scanning</span>
+            <!-- Global Scanning Control (Single Dynamic Toggle Button) -->
+            <button id="scan-toggle-btn" onclick="toggleScanning()" class="px-4 py-2 bg-tech-danger hover:opacity-90 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-danger shadow-lg cursor-pointer" title="Stop Scanning">
+                <svg id="scan-toggle-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span id="scan-toggle-text">Stop Scanning</span>
             </button>
             
             <button onclick="fetchTools()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700 shadow-md">
@@ -100,57 +97,125 @@
 
         <!-- Domain Selection Form -->
         <div class="space-y-4 pt-2 border-t border-slate-800/80">
-            <div>
-                <label class="block text-xs font-black uppercase tracking-widest text-slate-300 mb-1.5">
-                    1. Select Target Domain from Workspace
+            <!-- Execution Scope Selector -->
+            <div class="space-y-2">
+                <label class="block text-xs font-black uppercase tracking-widest text-slate-300">
+                    1. Select Execution Scope
                 </label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                    </div>
-                    <input 
-                        type="text" 
-                        id="modal-domain-search" 
-                        oninput="handleDomainSearchInput(this.value)" 
-                        placeholder="Search domains (e.g. virginmedia.com)..." 
-                        autocomplete="off"
-                        class="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent transition-colors font-mono"
-                    />
-                    <button id="modal-search-clear" onclick="clearDomainSearch()" class="hidden absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-white">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                <div class="grid grid-cols-2 gap-3">
+                    <button 
+                        type="button" 
+                        id="scope-btn-single" 
+                        onclick="setExecutionScope('single')" 
+                        class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5"
+                    >
+                        <div class="flex items-center space-x-2">
+                            <svg class="w-4 h-4 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            <span class="text-xs font-black uppercase tracking-wider">Single Target</span>
+                        </div>
+                        <span class="text-[11px] text-slate-400 mt-1 leading-snug">Run on specific root domain or subdomain</span>
                     </button>
-                </div>
 
-                <!-- Quick Domain Chips -->
-                <div class="mt-2.5">
-                    <div class="text-[10px] font-mono uppercase text-slate-500 tracking-wider mb-1.5">Quick Select:</div>
-                    <div id="modal-quick-chips" class="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
-                        <span class="text-xs text-slate-600 font-mono">Loading active domains...</span>
-                    </div>
-                </div>
-
-                <!-- Live Search Results Dropdown -->
-                <div id="modal-search-results" class="hidden mt-2 bg-slate-900 border border-slate-800 rounded-xl max-h-48 overflow-y-auto divide-y divide-slate-800/50 shadow-2xl">
+                    <button 
+                        type="button" 
+                        id="scope-btn-all" 
+                        onclick="setExecutionScope('all')" 
+                        class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                    >
+                        <div class="flex items-center space-x-1.5 justify-between">
+                            <div class="flex items-center space-x-2 truncate">
+                                <svg class="w-4 h-4 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                <span class="text-xs font-black uppercase tracking-wider truncate">All Domains</span>
+                            </div>
+                            <span id="scope-all-count-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/30 shrink-0">0 active</span>
+                        </div>
+                        <span class="text-[11px] text-slate-400 mt-1 leading-snug">Broadcast across all active targets</span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Selected Target Details Box -->
-            <div id="modal-selected-target-box" class="hidden p-4 rounded-xl bg-slate-900/80 border border-tech-accent/40 space-y-3">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <span class="text-[10px] font-mono uppercase tracking-widest text-tech-accent font-bold">Selected Target</span>
-                        <div id="selected-domain-title" class="text-sm font-black text-white font-mono mt-0.5">domain.com</div>
+            <!-- CONTAINER A: Single Target Scope -->
+            <div id="modal-single-scope-container" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-black uppercase tracking-widest text-slate-300 mb-1.5">
+                        2. Choose Target Domain
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="modal-domain-search" 
+                            oninput="handleDomainSearchInput(this.value)" 
+                            placeholder="Search domains (e.g. virginmedia.com)..." 
+                            autocomplete="off"
+                            class="w-full pl-10 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent transition-colors font-mono"
+                        />
+                        <button id="modal-search-clear" onclick="clearDomainSearch()" class="hidden absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-white">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
                     </div>
-                    <span id="selected-domain-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">Root Scope</span>
+
+                    <!-- Quick Domain Chips -->
+                    <div class="mt-2.5">
+                        <div class="text-[10px] font-mono uppercase text-slate-500 tracking-wider mb-1.5">Quick Select:</div>
+                        <div id="modal-quick-chips" class="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                            <span class="text-xs text-slate-600 font-mono">Loading active domains...</span>
+                        </div>
+                    </div>
+
+                    <!-- Live Search Results Dropdown -->
+                    <div id="modal-search-results" class="hidden mt-2 bg-slate-900 border border-slate-800 rounded-xl max-h-48 overflow-y-auto divide-y divide-slate-800/50 shadow-2xl">
+                    </div>
                 </div>
 
-                <!-- Sub-target Selector (if target has subdomains / web apps) -->
-                <div id="modal-subtarget-wrapper" class="hidden space-y-1">
-                    <label class="block text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                        Target Specific Host / URL (Optional):
-                    </label>
-                    <select id="modal-subtarget-select" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-tech-accent">
-                    </select>
+                <!-- Selected Target Details Box -->
+                <div id="modal-selected-target-box" class="hidden p-4 rounded-xl bg-slate-900/80 border border-tech-accent/40 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] font-mono uppercase tracking-widest text-tech-accent font-bold">Selected Target</span>
+                            <div id="selected-domain-title" class="text-sm font-black text-white font-mono mt-0.5">domain.com</div>
+                        </div>
+                        <span id="selected-domain-badge" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">Root Scope</span>
+                    </div>
+
+                    <!-- Sub-target Selector (if target has subdomains / web apps) -->
+                    <div id="modal-subtarget-wrapper" class="hidden space-y-1">
+                        <label class="block text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                            Target Specific Host / URL (Optional):
+                        </label>
+                        <select id="modal-subtarget-select" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-tech-accent">
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONTAINER B: All Domains Broadcast Scope -->
+            <div id="modal-all-scope-container" class="hidden p-4 rounded-2xl bg-tech-panel/60 border border-tech-accent/30 space-y-3">
+                <div class="flex items-start space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-tech-accent/15 border border-tech-accent/30 flex items-center justify-center text-tech-accent shrink-0 mt-0.5">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <h4 class="text-xs font-black uppercase tracking-wider text-white">Broadcast Execution Mode</h4>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Active Only</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            This tool will be scheduled across every active domain in your workspace.
+                        </p>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] font-mono">
+                            <span class="flex items-center space-x-1.5 text-emerald-400 font-bold">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                <span id="modal-all-count-text">0 domains eligible</span>
+                            </span>
+                            <span class="flex items-center space-x-1.5 text-slate-500">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                                <span>On-hold & blacklisted automatically skipped</span>
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -177,6 +242,7 @@
             </div>
         </div>
 
+
         <!-- Modal Footer Actions -->
         <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-800">
             <button onclick="closeRunModal()" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-colors border border-slate-800">
@@ -198,9 +264,15 @@
     let availableDomains = [];
     let selectedDomainObj = null;
     let domainSearchTimeout = null;
+    let executionScope = 'single';
+    let activeDomainsCount = 0;
 
     // Tool Metadata and Descriptions
     const TOOL_METADATA = {
+        "cloud_storage_auditor": {
+            desc: "Discovers and audits cloud storage assets (AWS S3, Google Cloud, Azure Blob, DO Spaces) for public read, unauthenticated write, and dangling 404 bucket takeovers.",
+            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 00-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>'
+        },
         "alive_check": {
             desc: "Probes HTTP/HTTPS services across subdomains to verify alive hosts and response codes.",
             icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
@@ -216,10 +288,6 @@
         "directory_hunter": {
             desc: "High-speed directory, file, and sensitive resource discovery using ffuf with smart length filtering.",
             icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>'
-        },
-        "js_miner": {
-            desc: "Parses client-side JavaScript assets to extract hidden API routes, secrets, and sensitive tokens.",
-            icon: '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>'
         },
         "lb_detector": {
             desc: "Detects DNS load balancing, HTTP reverse proxy clusters, and server distribution setups.",
@@ -283,70 +351,88 @@
     }
 
     // --- Settings & Scanning Status ---
+    let isScanPaused = false;
+
     async function fetchSettings() {
         try {
             const resp = await fetch('/api/settings');
             const settings = await resp.json();
-            updatePauseUI(settings.scan_pause);
+            updateScanUI(settings.scan_pause);
         } catch (e) {
             console.error('Settings Fetch Error:', e);
         }
     }
 
-    function updatePauseUI(isPaused) {
-        const btn = document.getElementById('pause-btn');
-        const text = document.getElementById('pause-text');
-        const icon = document.getElementById('pause-icon');
+    function updateScanUI(isPaused) {
+        isScanPaused = !!isPaused;
+        const btn = document.getElementById('scan-toggle-btn');
+        if (!btn) return;
+        const text = document.getElementById('scan-toggle-text');
+        const icon = document.getElementById('scan-toggle-icon');
         
         btn.classList.remove('hidden');
-        if (isPaused) {
-            btn.classList.remove('bg-tech-danger', 'border-tech-danger');
-            btn.classList.add('bg-tech-success', 'border-tech-success');
-            text.innerText = 'Resume Scanning';
+        if (isScanPaused) {
+            // Stopped state -> Green button to Start Scanning
+            btn.className = "px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-emerald-500 shadow-lg shadow-emerald-900/30 cursor-pointer";
+            btn.title = "Start Scanning";
+            text.innerText = "Start Scanning";
             icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
         } else {
-            btn.classList.remove('bg-tech-success', 'border-tech-success');
-            btn.classList.add('bg-tech-danger', 'border-tech-danger');
-            text.innerText = 'Pause Scanning';
+            // Scanning state -> Red button to Stop Scanning
+            btn.className = "px-4 py-2 bg-tech-danger hover:bg-red-600 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-tech-danger shadow-lg shadow-red-900/30 cursor-pointer";
+            btn.title = "Stop Scanning";
+            text.innerText = "Stop Scanning";
             icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>';
         }
     }
 
-    async function togglePause() {
+    function updatePauseUI(isPaused) {
+        updateScanUI(isPaused);
+    }
+
+    async function toggleScanning() {
+        const btn = document.getElementById('scan-toggle-btn');
+        if (!btn || btn.disabled) return;
+        
+        btn.disabled = true;
+        const text = document.getElementById('scan-toggle-text');
+        text.innerText = isScanPaused ? 'Starting...' : 'Stopping...';
+
         try {
-            const resp = await fetch('/api/settings/toggle-pause', { method: 'POST' });
-            const result = await resp.json();
-            if (result.status === 'success') {
-                updatePauseUI(result.scan_pause);
+            if (isScanPaused) {
+                // Currently stopped -> Start scanning
+                const resp = await fetch('/api/settings/continue-scanning', { method: 'POST' });
+                const result = await resp.json();
+                if (result.status === 'success') {
+                    updateScanUI(false);
+                    fetchTools();
+                } else {
+                    alert('Error: ' + (result.detail || 'Failed to start scanning'));
+                    await fetchSettings();
+                }
+            } else {
+                // Currently scanning -> Stop scanning
+                const resp = await fetch('/api/settings/pause-scanning', { method: 'POST' });
+                const result = await resp.json();
+                if (result.status === 'success') {
+                    updateScanUI(true);
+                    fetchTools();
+                } else {
+                    alert('Error: ' + (result.detail || 'Failed to stop scanning'));
+                    await fetchSettings();
+                }
             }
         } catch (e) {
-            console.error('Toggle Error:', e);
+            console.error('Scan Toggle Error:', e);
+            alert('Error toggling scanning: ' + e.message);
+            await fetchSettings();
+        } finally {
+            btn.disabled = false;
         }
     }
 
-    async function continueScanning() {
-        const btn = document.getElementById('continue-btn');
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg><span>Resuming...</span>`;
-        try {
-            const resp = await fetch('/api/settings/continue-scanning', { method: 'POST' });
-            const result = await resp.json();
-            if (result.status === 'success') {
-                updatePauseUI(false);
-                fetchTools();
-                alert(result.message || 'Scanning continued successfully.');
-            } else {
-                alert('Error: ' + (result.detail || 'Failed to continue scanning'));
-            }
-        } catch (e) {
-            console.error('Continue Scan Error:', e);
-            alert('Error continuing scan: ' + e.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
-    }
+    const togglePause = toggleScanning;
+    const continueScanning = toggleScanning;
 
     // --- Tools Fetching & Rendering ---
     async function fetchTools() {
@@ -551,6 +637,47 @@
         container.innerHTML = html;
     }
 
+    // --- Scope Controls ---
+    function setExecutionScope(scope) {
+        executionScope = scope;
+        const singleBtn = document.getElementById('scope-btn-single');
+        const allBtn = document.getElementById('scope-btn-all');
+        const singleContainer = document.getElementById('modal-single-scope-container');
+        const allContainer = document.getElementById('modal-all-scope-container');
+        const runBtn = document.getElementById('modal-run-btn');
+        const runBtnText = document.getElementById('modal-run-btn-text');
+
+        if (scope === 'all') {
+            allBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
+            singleBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700';
+            
+            singleContainer.classList.add('hidden');
+            allContainer.classList.remove('hidden');
+
+            runBtn.disabled = false;
+            if (activeModalTool) {
+                runBtnText.innerText = `Run ${activeModalTool.name} on All Domains`;
+            } else {
+                runBtnText.innerText = 'Run on All Domains';
+            }
+        } else {
+            singleBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
+            allBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700';
+
+            singleContainer.classList.remove('hidden');
+            allContainer.classList.add('hidden');
+
+            if (activeModalTool) {
+                runBtnText.innerText = `Run ${activeModalTool.name}`;
+            } else {
+                runBtnText.innerText = 'Run Tool';
+            }
+
+            runBtn.disabled = !selectedDomainObj;
+        }
+        hideModalAlert();
+    }
+
     // --- Modal Logic & Targeted Execution ---
     async function openRunModal(toolKey) {
         const tool = currentTools.find(t => t.key === toolKey);
@@ -577,20 +704,20 @@
             statusBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-tech-danger/20 text-tech-danger border border-tech-danger/30';
         }
 
-        // Reset inputs
+        // Reset inputs & scope
         document.getElementById('modal-domain-search').value = '';
         document.getElementById('modal-search-clear').classList.add('hidden');
         document.getElementById('modal-search-results').classList.add('hidden');
         document.getElementById('modal-selected-target-box').classList.add('hidden');
         document.getElementById('modal-top-of-queue-checkbox').checked = false;
-        document.getElementById('modal-run-btn').disabled = true;
-        document.getElementById('modal-run-btn-text').innerText = `Run ${tool.name}`;
+        
+        setExecutionScope('single');
         hideModalAlert();
 
         // Show Modal
         document.getElementById('tool-run-modal').classList.remove('hidden');
 
-        // Pre-fetch domains for quick select chips
+        // Pre-fetch domains for quick select chips & active count
         await loadAvailableDomains();
     }
 
@@ -614,6 +741,14 @@
             const data = await resp.json();
             availableDomains = data.results || [];
             
+            if (data.active_domains_count !== undefined) {
+                activeDomainsCount = data.active_domains_count;
+                const badge = document.getElementById('scope-all-count-badge');
+                if (badge) badge.innerText = `${activeDomainsCount} active`;
+                const countText = document.getElementById('modal-all-count-text');
+                if (countText) countText.innerText = `${activeDomainsCount} domains eligible`;
+            }
+
             if (data.root_domains && data.root_domains.length > 0) {
                 renderQuickChips(data.root_domains);
             } else if (!query) {
@@ -769,7 +904,8 @@
     }
 
     async function executeToolRun() {
-        if (!activeModalTool || !selectedDomainObj) return;
+        if (!activeModalTool) return;
+        if (executionScope === 'single' && !selectedDomainObj) return;
 
         const runBtn = document.getElementById('modal-run-btn');
         const runText = document.getElementById('modal-run-btn-text');
@@ -778,16 +914,24 @@
         runBtn.disabled = true;
         runText.innerText = 'Queuing Job...';
 
-        const subtargetSelect = document.getElementById('modal-subtarget-select');
-        const targetVal = (subtargetSelect && subtargetSelect.value) ? subtargetSelect.value : (selectedDomainObj.target || selectedDomainObj.domain);
         const topOfQueue = document.getElementById('modal-top-of-queue-checkbox').checked;
 
         try {
-            const payload = {
-                domain_id: selectedDomainObj.id,
-                target: targetVal,
-                top_of_queue: topOfQueue
-            };
+            let payload = {};
+            if (executionScope === 'all') {
+                payload = {
+                    run_all: true,
+                    top_of_queue: topOfQueue
+                };
+            } else {
+                const subtargetSelect = document.getElementById('modal-subtarget-select');
+                const targetVal = (subtargetSelect && subtargetSelect.value) ? subtargetSelect.value : (selectedDomainObj.target || selectedDomainObj.domain);
+                payload = {
+                    domain_id: selectedDomainObj.id,
+                    target: targetVal,
+                    top_of_queue: topOfQueue
+                };
+            }
 
             const resp = await fetch(`/api/tools/${activeModalTool.key}/run`, {
                 method: 'POST',
@@ -797,10 +941,11 @@
 
             const result = await resp.json();
 
-            if (resp.ok && result.status === 'success') {
+            if (resp.ok && (result.status === 'success' || result.status === 'warning')) {
+                const alertClass = result.status === 'warning' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-tech-success/15 text-tech-success border-tech-success/30';
                 showModalAlert(
-                    `✓ ${result.message}`,
-                    'bg-tech-success/15 text-tech-success border-tech-success/30'
+                    `${result.status === 'warning' ? '⚠' : '✓'} ${result.message}`,
+                    alertClass
                 );
                 // Refresh status after a brief delay
                 setTimeout(() => {
@@ -820,6 +965,7 @@
             runText.innerText = originalText;
         }
     }
+
 
     function showModalAlert(msg, classes) {
         const banner = document.getElementById('modal-alert-banner');

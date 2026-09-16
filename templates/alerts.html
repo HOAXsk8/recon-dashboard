@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Alerts | Recon Dashboard{% endblock %}
+{% block title %}Alerts | RDash{% endblock %}
 
 {% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
 
@@ -9,7 +9,7 @@
     <div class="flex justify-between items-end">
         <div>
             <h1 class="text-3xl font-extrabold tracking-tight text-white uppercase">Hunting <span class="text-tech-accent">Leads</span></h1>
-            <p class="text-slate-500 text-sm mt-1">Showing <span id="filtered-count" class="text-tech-accent font-bold">0</span> of <span id="total-count" class="text-white font-bold">0</span> total findings</p>
+            <p class="text-slate-500 text-sm mt-1">Showing <span id="filtered-count" class="text-tech-accent font-bold">0</span> of <span id="total-count" class="text-white font-bold">0</span> total findings <span id="page-display-badge" class="ml-2 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-tech-accent/15 text-tech-accent border border-tech-accent/30 hidden">All matching alerts displayed on 1 page</span></p>
         </div>
         <div class="flex space-x-4">
             <button onclick="deleteAllLeads()" class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all flex items-center space-x-2 shadow-lg shadow-red-900/20">
@@ -23,9 +23,10 @@
         </div>
     </div>
 
-    <!-- Advanced Filters -->
-    <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-            <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+    <!-- Advanced Filters & Sorting Toolbar -->
+    <div class="space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+            <select id="filter-status" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
                 <option value="">Active Alerts</option>
                 <option value="new">New</option>
                 <option value="in_progress">In Progress</option>
@@ -36,49 +37,66 @@
                 <option value="muted">Muted / Suppressed</option>
                 <option value="all">All Statuses</option>
             </select>
-        <select id="filter-risk" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-            <option value="">All Risks</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-        </select>
-        <select id="filter-tool" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-            <option value="">All Tools</option>
-            <!-- Dynamically Populated -->
-        </select>
-        <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
-        <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
-        <input type="text" id="filter-status-code" oninput="debounceLeadsSearch()" placeholder="Status Code..." class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
-        <select id="filter-quick-time" onchange="applyQuickTime()" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-            <option value="24h" selected>Last 24 Hours</option>
-            <option value="">All Time</option>
-            <option value="1h">Last Hour</option>
-            <option value="4h">Last 4 Hours</option>
-            <option value="12h">Last 12 Hours</option>
-            <option value="1w">Last Week</option>
-            <option value="1m">Last Month</option>
-        </select>
-        <div class="flex space-x-2">
-            <input type="date" id="filter-start-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="Start Date">
-            <input type="date" id="filter-end-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-2 py-3 text-[10px] text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent w-1/2" title="End Date">
-        </div>
-        <div id="bulk-actions" class="hidden flex items-center space-x-2 animate-fade-in">
-            <select id="bulk-status-select" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
-                <option value="">Set Status...</option>
-                <option value="new">New</option>
-                <option value="in_progress">In Progress</option>
-                <option value="investigating">Send to investigate</option>
-                <option value="true_positive">True Positive</option>
-                <option value="false_positive">False Positive</option>
-                <option value="benign">Benign</option>
-                <option value="muted">Muted / Suppressed</option>
+            <select id="filter-risk" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                <option value="">All Risks</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
             </select>
-            <button onclick="bulkUpdateStatus()" class="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all" title="Apply Status">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-            </button>
-            <button onclick="bulkDelete()" class="p-3 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all" title="Delete Selected">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m3 4s.5-1 1-1h-4c.5 0 1 1 1 1"></path></svg>
-            </button>
+            <select id="filter-tool" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                <option value="">All Tools</option>
+                <!-- Dynamically Populated -->
+            </select>
+            <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+            <input type="text" id="filter-target" oninput="debounceLeadsSearch()" placeholder="Search Target..." class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+            <input type="text" id="filter-status-code" oninput="debounceLeadsSearch()" placeholder="Status Code..." class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
+            <select id="filter-quick-time" onchange="applyQuickTime()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                <option value="24h" selected>Last 24 Hours</option>
+                <option value="">All Time</option>
+                <option value="1h">Last Hour</option>
+                <option value="4h">Last 4 Hours</option>
+                <option value="12h">Last 12 Hours</option>
+                <option value="1w">Last Week</option>
+                <option value="1m">Last Month</option>
+            </select>
+            <select id="sort-select" onchange="handleSortSelectChange()" class="bg-tech-panel border border-tech-accent/40 rounded-xl px-3 py-3 text-sm text-tech-accent font-bold outline-none focus:ring-2 focus:ring-tech-accent shadow-sm" title="Sort hunting leads">
+                <option value="timestamp_desc">Date (Newest First)</option>
+                <option value="timestamp_asc">Date (Oldest First)</option>
+                <option value="size_desc">Size (Largest First)</option>
+                <option value="size_asc">Size (Smallest First)</option>
+                <option value="risk_desc">Risk (High to Low)</option>
+                <option value="risk_asc">Risk (Low to High)</option>
+                <option value="target_asc">Target (A-Z)</option>
+                <option value="title_asc">Title (A-Z)</option>
+            </select>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
+            <div class="flex items-center space-x-2">
+                <span class="text-xs text-slate-500 font-bold uppercase tracking-wider">Date Range:</span>
+                <input type="date" id="filter-start-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent" title="Start Date">
+                <span class="text-slate-600 text-xs font-bold">to</span>
+                <input type="date" id="filter-end-date" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent" title="End Date">
+            </div>
+
+            <div id="bulk-actions" class="hidden flex items-center space-x-2 animate-fade-in ml-auto">
+                <select id="bulk-status-select" class="bg-tech-panel border border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
+                    <option value="">Set Status...</option>
+                    <option value="new">New</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="investigating">Send to investigate</option>
+                    <option value="true_positive">True Positive</option>
+                    <option value="false_positive">False Positive</option>
+                    <option value="benign">Benign</option>
+                    <option value="muted">Muted / Suppressed</option>
+                </select>
+                <button onclick="bulkUpdateStatus()" class="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all" title="Apply Status">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </button>
+                <button onclick="bulkDelete()" class="p-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-all" title="Delete Selected">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v2m3 4s.5-1 1-1h-4c.5 0 1 1 1 1"></path></svg>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -92,15 +110,28 @@
             <table class="w-full text-left">
                 <thead class="bg-slate-900/50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                     <tr>
-                        <th class="px-6 py-4 w-10">
+                        <th class="px-5 py-4 w-10">
                             <input type="checkbox" id="select-all" onchange="toggleSelectAll()" class="rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
                         </th>
-                        <th class="px-4 py-4">Status</th>
-                        <th class="px-6 py-4">Risk</th>
-                        <th class="px-6 py-4">Title / Lead</th>
-                        <th class="px-6 py-4">Target</th>
-                        <th class="px-6 py-4">Detected</th>
-                        <th class="px-8 py-4 text-right">Actions</th>
+                        <th class="px-3 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('status')" title="Click to sort by Status">
+                            <span class="inline-flex items-center space-x-1"><span>Status</span><span id="sort-icon-status" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-4 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('risk')" title="Click to sort by Risk Level">
+                            <span class="inline-flex items-center space-x-1"><span>Risk</span><span id="sort-icon-risk" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-6 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('title')" title="Click to sort by Title">
+                            <span class="inline-flex items-center space-x-1"><span>Title / Lead</span><span id="sort-icon-title" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-5 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('target')" title="Click to sort by Target Domain">
+                            <span class="inline-flex items-center space-x-1"><span>Target</span><span id="sort-icon-target" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-4 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('size')" title="Click to sort by Response Size">
+                            <span class="inline-flex items-center space-x-1"><span class="text-tech-accent">Response Size</span><span id="sort-icon-size" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-4 py-4 cursor-pointer select-none hover:text-white transition-colors" onclick="toggleSort('timestamp')" title="Click to sort by Detection Date">
+                            <span class="inline-flex items-center space-x-1"><span>Detected</span><span id="sort-icon-timestamp" class="text-slate-600 text-[10px]">↕</span></span>
+                        </th>
+                        <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="leads-table-body" class="divide-y divide-slate-800">
@@ -120,32 +151,118 @@
                     <h2 id="modal-lead-title" class="text-2xl font-bold text-white">Lead Details</h2>
                 </div>
                 <div class="flex items-center space-x-3">
-                    <a id="modal-inspect-btn" href="#" target="_blank" class="px-3 py-1.5 bg-tech-accent/15 text-tech-accent hover:bg-tech-accent hover:text-tech-bg border border-tech-accent/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5" title="Inspect Target Domain">
+                    <button id="modal-inspect-btn" onclick="openDomainOverviewForCurrentLead()" class="px-3 py-1.5 bg-tech-accent/15 text-tech-accent hover:bg-tech-accent hover:text-tech-bg border border-tech-accent/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm" title="Inspect Target Domain in Overview Popup">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                        <span>Inspect Target Domain</span>
+                        <span>Domain Overview</span>
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                    </a>
+                    </button>
                     <button onclick="closeLeadModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
                         <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
             </div>
             
-            <div class="p-8 space-y-8">
+            <!-- Action Bar -->
+            <div class="px-8 py-4 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-500 mr-1 hidden sm:inline">Actions:</span>
+                    
+                    <!-- Send to Investigate -->
+                    <button onclick="setLeadStatusAction('investigating')" class="px-3.5 py-2 bg-blue-500/15 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Move this alert to the Investigate pipeline">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <span>Send to Investigate</span>
+                    </button>
+
+                    <!-- Mark as True Positive -->
+                    <button onclick="setLeadStatusAction('true_positive')" class="px-3.5 py-2 bg-red-500/15 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Mark as confirmed True Positive">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span>True Positive</span>
+                    </button>
+
+                    <!-- Mark as False Positive -->
+                    <button onclick="setLeadStatusAction('false_positive')" class="px-3.5 py-2 bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Mark as False Positive (auto-suppresses future alerts)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span>False Positive</span>
+                    </button>
+
+                    <!-- Mute -->
+                    <button onclick="muteFinding(activeLeadId)" class="px-3.5 py-2 bg-amber-500/15 hover:bg-amber-600 text-amber-400 hover:text-white border border-amber-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Suppress future alerts for this finding fingerprint">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                        <span>Mute</span>
+                    </button>
+
+                    <!-- Add Notes -->
+                    <button onclick="openInlineNotesEditor()" class="px-3.5 py-2 bg-indigo-500/15 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Add or edit analyst notes">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        <span id="modal-notes-btn-text">Add Notes</span>
+                    </button>
+
+                    <!-- View Recovered Source -->
+                    <button id="modal-view-source-btn" onclick="openSourceMapViewerForCurrentLead()" class="hidden px-3.5 py-2 bg-emerald-500/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 rounded-xl text-xs font-bold transition-all items-center space-x-1.5 shadow-sm active:scale-95" title="Decompile and inspect human-readable source code">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                        <span>View Recovered Source</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center space-x-2 ml-auto">
+                    <!-- Delete -->
+                    <button onclick="deleteCurrentLeadAction()" class="px-3.5 py-2 bg-rose-500/15 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Permanently delete this alert">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span>Delete</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="p-8 space-y-8 overflow-y-auto max-h-[calc(90vh-140px)]">
+                <!-- Toast Notification Banner within modal -->
+                <div id="modal-alert-toast" class="hidden px-4 py-3 rounded-xl border flex items-center justify-between text-xs font-bold transition-all">
+                    <span id="modal-alert-toast-msg"></span>
+                    <button onclick="document.getElementById('modal-alert-toast').classList.add('hidden')" class="ml-4 opacity-70 hover:opacity-100">&times;</button>
+                </div>
+
+                <!-- Source Map Recovery Callout Card -->
+                <div id="modal-source-map-card" class="hidden bg-emerald-950/30 border border-emerald-500/40 rounded-2xl p-5 space-y-3 shadow-lg shadow-emerald-950/20">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center space-x-3">
+                            <span class="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                            </span>
+                            <div>
+                                <h4 class="text-sm font-bold text-emerald-400">Recovered Source Code Available</h4>
+                                <p id="modal-source-map-summary" class="text-xs text-slate-400 mt-0.5 font-mono"></p>
+                            </div>
+                        </div>
+                        <button onclick="openSourceMapViewerForCurrentLead()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all flex items-center space-x-1.5 shadow-md active:scale-95 flex-shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                            <span>Browse Source Tree</span>
+                            <svg class="w-3.5 h-3.5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="space-y-4">
+                    <div class="space-y-6">
                         <div>
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Target Asset</h4>
-                            <a id="modal-target" href="#" target="_blank" class="text-lg font-mono text-tech-accent hover:underline inline-flex items-center space-x-1.5" title="Inspect Target Domain in Dashboard"></a>
+                            <button id="modal-target" type="button" onclick="openDomainOverviewForCurrentLead()" class="text-lg font-mono text-tech-accent hover:underline inline-flex items-center space-x-1.5 text-left" title="Inspect Target Domain Overview"></button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Detection Time</h4>
+                                <p id="modal-time" class="text-slate-300"></p>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Response Size</h4>
+                                <p id="modal-size" class="text-slate-300 font-mono text-sm"></p>
+                            </div>
                         </div>
                         <div>
-                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Detection Time</h4>
-                            <p id="modal-time" class="text-slate-300"></p>
-                        </div>
-                        <div>
-                            <h4 class="text-xs font-bold text-slate-500 uppercase mb-1">Current Status</h4>
+                            <div class="flex items-center justify-between mb-1">
+                                <h4 class="text-xs font-bold text-slate-500 uppercase">Current Status</h4>
+                                <span id="modal-status-badge" class="px-2 py-0.5 rounded text-[10px] font-black uppercase"></span>
+                            </div>
                             <div class="flex space-x-2">
-                                <select id="modal-status-select" onchange="updateLeadStatus()" class="block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent">
+                                <select id="modal-status-select" onchange="updateLeadStatus()" class="block w-full bg-tech-bg border border-slate-700 rounded-lg px-4 py-2 text-white outline-none focus:ring-2 focus:ring-tech-accent text-sm">
                                     <option value="new">New</option>
                                     <option value="in_progress">In Progress</option>
                                     <option value="investigating">Send to investigate</option>
@@ -154,16 +271,34 @@
                                     <option value="benign">Benign</option>
                                     <option value="muted">Muted / Suppressed</option>
                                 </select>
-                                <button onclick="muteFinding(activeLeadId)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 transition-all flex items-center space-x-2" title="Suppress future alerts for this finding">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                                    <span>Mute</span>
-                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Analyst Notes Card -->
+                        <div class="bg-slate-900/40 p-5 rounded-2xl border border-slate-800 space-y-3" id="modal-notes-card">
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-xs font-bold text-slate-400 uppercase flex items-center">
+                                    <svg class="w-4 h-4 mr-1.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                    Analyst Notes
+                                </h4>
+                                <button onclick="openInlineNotesEditor()" class="text-xs text-tech-accent hover:underline font-bold" id="modal-notes-toggle-btn">Add / Edit Note</button>
+                            </div>
+                            <div id="modal-notes-view" class="text-slate-300 whitespace-pre-wrap font-sans bg-tech-bg/50 p-3.5 rounded-xl border border-slate-800/50 min-h-[4rem] text-xs leading-relaxed">
+                                <span class="text-slate-500 italic">No notes added yet.</span>
+                            </div>
+                            <div id="modal-notes-edit-box" class="hidden space-y-3">
+                                <textarea id="modal-inline-notes-textarea" rows="4" class="w-full bg-tech-bg border border-slate-700 rounded-xl p-3 text-xs text-white outline-none focus:ring-2 focus:ring-tech-accent resize-y font-sans leading-relaxed" placeholder="Enter analyst notes, findings or verification remarks..."></textarea>
+                                <div class="flex justify-end space-x-2">
+                                    <button onclick="closeInlineNotesEditor()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-400 transition-all">Cancel</button>
+                                    <button onclick="saveInlineModalNotes()" class="px-4 py-1.5 bg-tech-accent text-tech-bg rounded-lg text-xs font-bold hover:opacity-90 transition-all">Save Notes</button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50 overflow-hidden">
+
+                    <div class="bg-slate-900/50 p-6 rounded-2xl border border-slate-800/50 overflow-hidden flex flex-col">
                         <h4 class="text-xs font-bold text-slate-500 uppercase mb-3">Technical Details</h4>
-                        <div id="modal-details" class="text-sm text-slate-400 leading-relaxed break-words prose prose-invert prose-sm max-w-none"></div>
+                        <div id="modal-details" class="text-sm text-slate-400 leading-relaxed break-words prose prose-invert prose-sm max-w-none flex-grow"></div>
                     </div>
                 </div>
 
@@ -206,6 +341,172 @@
     let leadsSearchTimeout;
     let filteredCount = 0;
     let isGlobalSelectionActive = false;
+    let currentSortBy = 'timestamp';
+    let currentSortOrder = 'desc';
+    let currentRenderToken = 0;
+
+    function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) return '<span class="text-slate-600">-</span>';
+        const num = Number(bytes);
+        if (isNaN(num)) return '<span class="text-slate-600">-</span>';
+        if (num === 0) return '<span class="text-slate-500 font-mono text-xs">0 B</span>';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(num) / Math.log(k));
+        const formatted = (num / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + ' ' + sizes[i];
+        let badgeColor = 'text-slate-300 bg-slate-800/60 border-slate-700/60';
+        if (num > 100 * 1024) {
+            badgeColor = 'text-purple-300 bg-purple-950/50 border-purple-800/60 font-bold';
+        } else if (num > 10 * 1024) {
+            badgeColor = 'text-cyan-300 bg-cyan-950/50 border-cyan-800/60 font-semibold';
+        } else if (num > 1024) {
+            badgeColor = 'text-emerald-300 bg-emerald-950/50 border-emerald-800/60';
+        }
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-mono ${badgeColor}" title="${num.toLocaleString()} bytes">${formatted}</span>`;
+    }
+
+    function isSourceMapLead(lead) {
+        if (!lead) return false;
+        if (lead.recovered_source_map_id) return true;
+        if (typeof lead.title === 'string' && lead.title.toLowerCase().includes('source map')) return true;
+        if (typeof lead.details === 'string' && lead.details.includes('.map')) return true;
+        if (typeof lead.description === 'string' && lead.description.includes('.map')) return true;
+        if (lead.details && typeof lead.details === 'object') {
+            try {
+                if (JSON.stringify(lead.details).includes('.map')) return true;
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    function createLeadRow(lead) {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-slate-800/40 transition-colors cursor-pointer group';
+        row.onclick = () => openLeadModal(lead._id);
+        
+        const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
+        const riskText = (lead.risk_level || 'UNKNOWN').toUpperCase();
+        
+        let statusBadge = 'bg-slate-800 text-slate-500';
+        if (lead.status === 'new') statusBadge = 'bg-blue-500/10 text-blue-500';
+        else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
+        else if (lead.status === 'investigating') statusBadge = 'bg-cyan-500/10 text-cyan-400';
+        else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
+        else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
+        else if (lead.status === 'benign') statusBadge = 'bg-slate-500/10 text-slate-400';
+        else if (lead.status === 'muted') statusBadge = 'bg-slate-700 text-slate-400';
+        
+        const isSourceMap = isSourceMapLead(lead);
+        
+        row.innerHTML = `
+            <td class="px-5 py-4">
+                <input type="checkbox" value="${lead._id}" onchange="updateBulkUI()" onclick="event.stopPropagation()" class="lead-checkbox rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
+            </td>
+            <td class="px-3 py-4">
+                <span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${statusBadge}">${(lead.status || '').replace('_', ' ')}</span>
+            </td>
+            <td class="px-4 py-4">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2.5 h-2.5 rounded-full ${riskColor} ${lead.risk_level === 'high' ? 'animate-pulse' : ''}"></span>
+                    <span class="text-xs font-bold text-slate-300">${riskText}</span>
+                </div>
+            </td>
+            <td class="px-6 py-4">
+                <div class="flex flex-col">
+                    <div class="flex items-center space-x-2 flex-wrap">
+                        <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title || 'Untitled Lead'}</span>
+                        ${isSourceMap ? `
+                            <span onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}')" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer shadow-sm" title="Explore Human-Readable Source Code">
+                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                                <span>Source Available</span>
+                            </span>
+                            ${lead.source_map_secrets_count ? `
+                            <span onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}'); setTimeout(() => setSourceMapMode('secrets'), 100);" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500 hover:text-white transition-all cursor-pointer shadow-sm" title="${lead.source_map_secrets_count} exposed secrets & tokens">
+                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                                <span>${lead.source_map_secrets_count} Secrets</span>
+                            </span>
+                            ` : ''}
+                        ` : ''}
+                    </div>
+                    <span class="text-xs text-slate-500 line-clamp-1">${lead.description || ''}</span>
+                </div>
+            </td>
+            <td class="px-5 py-4 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); openDomainOverviewModal('${lead.target}')" title="Inspect Target Domain Overview">${lead.target || ''}</td>
+            <td class="px-4 py-4">
+                ${formatBytes(lead.response_size)}
+            </td>
+            <td class="px-4 py-4 text-xs text-slate-500 whitespace-nowrap">${lead.timestamp ? new Date(lead.timestamp).toLocaleString() : ''}</td>
+            <td class="px-6 py-4 text-right flex justify-end space-x-1.5">
+                ${isSourceMap ? `
+                <button onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}')" class="p-2 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-white rounded-lg transition-all border border-emerald-500/30 shadow-sm" title="Explore Human-Readable Source Code">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                </button>
+                ` : ''}
+                <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="View Alert Details">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                </button>
+                <button onclick="event.stopPropagation(); openDomainOverviewModal('${lead.target}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all inline-flex items-center justify-center" title="Inspect Target Domain Overview">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                </button>
+                <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="Add Notes">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                </button>
+                <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white text-slate-400 rounded-lg transition-all" title="Mute/Suppress Finding">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                </button>
+            </td>
+        `;
+        return row;
+    }
+
+    function toggleSort(field) {
+        if (currentSortBy === field) {
+            currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSortBy = field;
+            // Default risk, size, and timestamp to descending (highest/largest/newest first)
+            currentSortOrder = (field === 'size' || field === 'timestamp' || field === 'risk') ? 'desc' : 'asc';
+        }
+        syncSortSelect();
+        fetchLeads();
+    }
+
+    function handleSortSelectChange() {
+        const val = document.getElementById('sort-select').value;
+        const parts = val.split('_');
+        currentSortBy = parts[0];
+        currentSortOrder = parts[1] || 'desc';
+        updateSortIcons();
+        fetchLeads();
+    }
+
+    function updateSortIcons() {
+        const fields = ['status', 'risk', 'title', 'target', 'size', 'timestamp'];
+        fields.forEach(f => {
+            const icon = document.getElementById(`sort-icon-${f}`);
+            if (!icon) return;
+            if (currentSortBy === f) {
+                icon.textContent = currentSortOrder === 'asc' ? '▲' : '▼';
+                icon.className = 'text-tech-accent text-[11px] font-black';
+            } else {
+                icon.textContent = '↕';
+                icon.className = 'text-slate-600 text-[10px]';
+            }
+        });
+    }
+
+    function syncSortSelect() {
+        const select = document.getElementById('sort-select');
+        if (!select) return;
+        const matchVal = `${currentSortBy}_${currentSortOrder}`;
+        for (let opt of select.options) {
+            if (opt.value === matchVal) {
+                select.value = matchVal;
+                break;
+            }
+        }
+        updateSortIcons();
+    }
 
     function debounceLeadsSearch() {
         clearTimeout(leadsSearchTimeout);
@@ -230,7 +531,9 @@
             target: target,
             status_code: statusCode,
             start_date: startDate,
-            end_date: endDate
+            end_date: endDate,
+            sort_by: currentSortBy,
+            order: currentSortOrder
         });
         
         window.location.href = `/api/leads/export?${params.toString()}`;
@@ -270,9 +573,10 @@
 
     async function fetchLeads(preciseStart = null) {
         const tbody = document.getElementById('leads-table-body');
-        tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="py-20 text-center"><div class="inline-block animate-spin w-8 h-8 border-4 border-tech-accent border-t-transparent rounded-full"></div></td></tr>';
         
         clearGlobalSelection();
+        updateSortIcons();
 
         let status = document.getElementById('filter-status').value;
         if (status === 'all') status = ''; 
@@ -294,80 +598,59 @@
                 target: target,
                 status_code: statusCode,
                 start_date: startDate,
-                end_date: endDate
+                end_date: endDate,
+                sort_by: currentSortBy,
+                order: currentSortOrder,
+                limit: 0
             });
             const resp = await fetch(`/api/leads?${params.toString()}`);
             const data = await resp.json();
             const leads = data.leads || [];
             currentLeads = leads;
             filteredCount = data.filtered_count || 0;
+            const displayedCount = data.displayed_count !== undefined ? data.displayed_count : leads.length;
             
             document.getElementById('total-count').textContent = data.total_count || 0;
             document.getElementById('filtered-count').textContent = filteredCount;
+
+            const pageBadge = document.getElementById('page-display-badge');
+            if (pageBadge) {
+                if (displayedCount > 0) {
+                    pageBadge.textContent = `All ${displayedCount.toLocaleString()} matching displayed on 1 page`;
+                    pageBadge.classList.remove('hidden');
+                } else {
+                    pageBadge.classList.add('hidden');
+                }
+            }
             
             tbody.innerHTML = '';
             if (leads.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center text-slate-500 italic">No hunting leads identified yet.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="py-20 text-center text-slate-500 italic">No hunting leads identified yet.</td></tr>';
                 return;
             }
 
-            leads.forEach(lead => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-slate-800/40 transition-colors cursor-pointer group';
-                row.onclick = () => openLeadModal(lead._id);
-                
-                const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
-                const riskText = lead.risk_level.toUpperCase();
-                
-                let statusBadge = 'bg-slate-800 text-slate-500';
-                if (lead.status === 'new') statusBadge = 'bg-blue-500/10 text-blue-500';
-                else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
-                else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
-                else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
-                else if (lead.status === 'benign') statusBadge = 'bg-slate-500/10 text-slate-400';
-                else if (lead.status === 'muted') statusBadge = 'bg-slate-700 text-slate-400';
-                
-                row.innerHTML = `
-                    <td class="px-6 py-5">
-                        <input type="checkbox" value="${lead._id}" onchange="updateBulkUI()" onclick="event.stopPropagation()" class="lead-checkbox rounded border-slate-700 bg-tech-bg text-tech-accent focus:ring-tech-accent">
-                    </td>
-                    <td class="px-4 py-5">
-                        <span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${statusBadge}">${lead.status.replace('_', ' ')}</span>
-                    </td>
-                    <td class="px-6 py-5">
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 rounded-full ${riskColor} ${lead.risk_level === 'high' ? 'animate-pulse' : ''}"></span>
-                            <span class="text-xs font-bold text-slate-300">${riskText}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-5">
-                        <div class="flex flex-col">
-                            <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title}</span>
-                            <span class="text-xs text-slate-500 line-clamp-1">${lead.description}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-5 font-mono text-xs text-tech-accent hover:underline cursor-pointer" onclick="event.stopPropagation(); window.open('/dashboard?inspect=' + encodeURIComponent('${lead.target}') + '&q=' + encodeURIComponent('${lead.target}'), '_blank')">${lead.target}</td>
-                    <td class="px-6 py-5 text-xs text-slate-500">${new Date(lead.timestamp).toLocaleString()}</td>
-                    <td class="px-8 py-5 text-right flex justify-end space-x-1.5">
-                        <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="View Alert Details">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
-                        </button>
-                        <a href="/dashboard?inspect=${encodeURIComponent(lead.target)}&q=${encodeURIComponent(lead.target)}" target="_blank" onclick="event.stopPropagation()" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all inline-flex items-center justify-center" title="Inspect Target Domain">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                        </a>
-                        <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="Add Notes">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                        </button>
-                        <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white text-slate-400 rounded-lg transition-all" title="Mute/Suppress Finding">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
+            const thisRenderToken = ++currentRenderToken;
+            let renderIndex = 0;
+            const CHUNK_SIZE = 150;
+
+            function renderChunk() {
+                if (thisRenderToken !== currentRenderToken) return;
+                const fragment = document.createDocumentFragment();
+                const endIndex = Math.min(renderIndex + CHUNK_SIZE, leads.length);
+                for (; renderIndex < endIndex; renderIndex++) {
+                    const lead = leads[renderIndex];
+                    const row = createLeadRow(lead);
+                    fragment.appendChild(row);
+                }
+                tbody.appendChild(fragment);
+                if (renderIndex < leads.length) {
+                    requestAnimationFrame(renderChunk);
+                }
+            }
+            renderChunk();
         } catch (e) {
             console.error(e);
-            tbody.innerHTML = '<tr><td colspan="7" class="py-20 text-center text-red-500">Failed to load leads.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="py-20 text-center text-red-500">Failed to load leads.</td></tr>';
         }
     }
 
@@ -516,19 +799,175 @@
         }
     }
 
+    function updateModalStatusBadge(status) {
+        const badge = document.getElementById('modal-status-badge');
+        if (!badge) return;
+        let badgeClass = 'bg-slate-800 text-slate-500 border border-slate-700';
+        if (status === 'new') badgeClass = 'bg-blue-500/15 text-blue-400 border border-blue-500/30';
+        else if (status === 'in_progress') badgeClass = 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30';
+        else if (status === 'investigating') badgeClass = 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
+        else if (status === 'true_positive') badgeClass = 'bg-red-500/15 text-red-400 border border-red-500/30';
+        else if (status === 'false_positive') badgeClass = 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+        else if (status === 'benign') badgeClass = 'bg-slate-500/15 text-slate-400 border border-slate-500/30';
+        else if (status === 'muted') badgeClass = 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+        
+        badge.className = `px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider ${badgeClass}`;
+        badge.textContent = (status || 'unknown').replace('_', ' ');
+    }
+
+    function showModalToast(msg, type = 'success') {
+        const toast = document.getElementById('modal-alert-toast');
+        const toastMsg = document.getElementById('modal-alert-toast-msg');
+        if (!toast || !toastMsg) return;
+        
+        toastMsg.innerHTML = msg;
+        toast.className = 'px-4 py-3 rounded-xl border flex items-center justify-between text-xs font-bold transition-all mb-4 ' +
+            (type === 'success' ? 'bg-tech-success/15 text-tech-success border-tech-success/30 shadow-lg shadow-green-950/30' :
+             type === 'danger' ? 'bg-tech-danger/15 text-tech-danger border-tech-danger/30 shadow-lg shadow-red-950/30' :
+             type === 'info' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30 shadow-lg shadow-blue-950/30' :
+             'bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-lg shadow-amber-950/30');
+        toast.classList.remove('hidden');
+        
+        setTimeout(() => {
+            if (toast) toast.classList.add('hidden');
+        }, 4500);
+    }
+
+    async function setLeadStatusAction(newStatus) {
+        if (!activeLeadId) return;
+        try {
+            const resp = await fetch("/api/leads/" + activeLeadId + "/status", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: "status=" + newStatus
+            });
+            if (resp.ok) {
+                const lead = currentLeads.find(l => l._id === activeLeadId);
+                if (lead) lead.status = newStatus;
+                document.getElementById('modal-status-select').value = newStatus;
+                updateModalStatusBadge(newStatus);
+                
+                let label = newStatus.replace('_', ' ').toUpperCase();
+                if (newStatus === 'investigating') {
+                    showModalToast(`Lead moved to <a href="/investigate" class="underline font-black ml-1 text-white hover:text-tech-accent">Investigate pipeline &rarr;</a>`, 'info');
+                } else if (newStatus === 'false_positive') {
+                    showModalToast(`Marked as <strong>False Positive</strong>. Future alerts for this finding suppressed.`, 'success');
+                } else if (newStatus === 'true_positive') {
+                    showModalToast(`Marked as <strong>True Positive</strong>.`, 'danger');
+                } else {
+                    showModalToast(`Status updated to <strong>${label}</strong>.`, 'success');
+                }
+                fetchLeads();
+            } else {
+                alert("Failed to update status.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error updating status.");
+        }
+    }
+
+    async function deleteCurrentLeadAction() {
+        if (!activeLeadId) return;
+        if (!confirm("Are you sure you want to permanently delete this alert? This action cannot be undone.")) return;
+        
+        try {
+            const resp = await fetch("/api/leads/" + activeLeadId, {
+                method: 'DELETE'
+            });
+            if (resp.ok) {
+                closeLeadModal();
+                fetchLeads();
+            } else {
+                // Fallback to bulk delete
+                const fallbackResp = await fetch("/api/leads/bulk-delete", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: [activeLeadId] })
+                });
+                if (fallbackResp.ok) {
+                    closeLeadModal();
+                    fetchLeads();
+                } else {
+                    alert("Failed to delete alert.");
+                }
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error deleting alert.");
+        }
+    }
+
+    function openInlineNotesEditor() {
+        const lead = currentLeads.find(l => l._id === activeLeadId);
+        const textarea = document.getElementById('modal-inline-notes-textarea');
+        if (textarea) textarea.value = (lead && lead.notes) ? lead.notes : '';
+        document.getElementById('modal-notes-view').classList.add('hidden');
+        document.getElementById('modal-notes-edit-box').classList.remove('hidden');
+        if (textarea) textarea.focus();
+        
+        const notesCard = document.getElementById('modal-notes-card');
+        if (notesCard) notesCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function closeInlineNotesEditor() {
+        document.getElementById('modal-notes-edit-box').classList.add('hidden');
+        document.getElementById('modal-notes-view').classList.remove('hidden');
+    }
+
+    async function saveInlineModalNotes() {
+        if (!activeLeadId) return;
+        const textarea = document.getElementById('modal-inline-notes-textarea');
+        const notes = textarea ? textarea.value : '';
+        
+        try {
+            const resp = await fetch("/api/leads/" + activeLeadId + "/notes", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: "notes=" + encodeURIComponent(notes)
+            });
+            
+            if (resp.ok) {
+                const lead = currentLeads.find(l => l._id === activeLeadId);
+                if (lead) lead.notes = notes;
+                
+                const view = document.getElementById('modal-notes-view');
+                if (view) {
+                    if (notes.trim()) {
+                        view.innerHTML = `<span class="text-slate-200">${notes.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+                    } else {
+                        view.innerHTML = `<span class="text-slate-500 italic">No notes added yet.</span>`;
+                    }
+                }
+                closeInlineNotesEditor();
+                showModalToast("Analyst notes saved successfully.", "success");
+            } else {
+                alert("Failed to save notes.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error saving notes.");
+        }
+    }
+
     function openLeadModal(leadId) {
         const lead = currentLeads.find(l => l._id === leadId);
         if (!lead) return;
         
         activeLeadId = leadId;
-        const inspectUrl = `/dashboard?inspect=${encodeURIComponent(lead.target)}&q=${encodeURIComponent(lead.target)}`;
         document.getElementById('modal-lead-title').textContent = lead.title;
         const targetLink = document.getElementById('modal-target');
         targetLink.textContent = lead.target;
-        targetLink.href = inspectUrl;
-        const inspectBtn = document.getElementById('modal-inspect-btn');
-        if (inspectBtn) inspectBtn.href = inspectUrl;
         document.getElementById('modal-time').textContent = new Date(lead.timestamp).toLocaleString();
+        const modalSize = document.getElementById('modal-size');
+        if (modalSize) {
+            const sizeVal = lead.response_size;
+            if (sizeVal !== undefined && sizeVal !== null) {
+                modalSize.innerHTML = `${formatBytes(sizeVal)} <span class="text-slate-500 text-xs ml-1 font-mono">(${Number(sizeVal).toLocaleString()} B)</span>`;
+            } else {
+                modalSize.innerHTML = '<span class="text-slate-500 text-xs font-mono">0 B</span>';
+            }
+        }
         // Configure marked to open links in new tab
         const renderer = {
             link(token) {
@@ -543,21 +982,84 @@
         };
         marked.use({ renderer });
 
-        document.getElementById('modal-details').innerHTML = marked.parse(lead.details);
+        const detailsStr = typeof lead.details === 'string' ? lead.details : (lead.details ? '```json\n' + JSON.stringify(lead.details, null, 2) + '\n```' : 'No technical details provided.');
+        document.getElementById('modal-details').innerHTML = marked.parse(detailsStr);
         document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
         
         document.getElementById('modal-status-select').value = lead.status;
+        updateModalStatusBadge(lead.status);
+
+        // Update Analyst Notes display
+        const notesView = document.getElementById('modal-notes-view');
+        if (notesView) {
+            if (lead.notes && lead.notes.trim()) {
+                notesView.innerHTML = `<span class="text-slate-200">${lead.notes.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>`;
+            } else {
+                notesView.innerHTML = `<span class="text-slate-500 italic">No notes added yet.</span>`;
+            }
+        }
+        closeInlineNotesEditor();
+        const toast = document.getElementById('modal-alert-toast');
+        if (toast) toast.classList.add('hidden');
         
         const indicator = document.getElementById('modal-risk-indicator');
         indicator.className = 'w-4 h-4 rounded-full ' + (lead.risk_level === 'high' ? 'bg-red-500 animate-pulse' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500');
         
+        // Handle Source Map recovery controls
+        const isSourceMap = isSourceMapLead(lead);
+        const sourceBtn = document.getElementById('modal-view-source-btn');
+        const sourceCard = document.getElementById('modal-source-map-card');
+        const sourceSummary = document.getElementById('modal-source-map-summary');
+
+        if (isSourceMap) {
+            if (sourceBtn) {
+                sourceBtn.classList.remove('hidden');
+                sourceBtn.classList.add('flex');
+            }
+            if (sourceCard) {
+                sourceCard.classList.remove('hidden');
+                if (sourceSummary) {
+                    if (lead.recovered_source_map_id) {
+                        const routesInfo = lead.source_map_routes_count ? ` • ${lead.source_map_routes_count} Routes & APIs Discovered` : '';
+                        sourceSummary.textContent = `Original source files extracted & indexed for ${lead.target}${routesInfo}. Click Browse to inspect reconstructed source code & routes.`;
+                    } else {
+                        sourceSummary.textContent = `Source map detected on ${lead.target}. Click Browse to decompile and view reconstructed source files.`;
+                    }
+                }
+            }
+        } else {
+            if (sourceBtn) {
+                sourceBtn.classList.add('hidden');
+                sourceBtn.classList.remove('flex');
+            }
+            if (sourceCard) {
+                sourceCard.classList.add('hidden');
+            }
+        }
+
         document.getElementById('lead-modal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
     }
 
+    function openSourceMapViewerForCurrentLead() {
+        const lead = currentLeads.find(l => l._id === activeLeadId);
+        if (!lead) return;
+        openSourceMapViewerForLead(lead._id, lead.target);
+    }
+
+    function openDomainOverviewForCurrentLead() {
+        const lead = currentLeads.find(l => l._id === activeLeadId);
+        if (lead && lead.target) {
+            openDomainOverviewModal(lead.target);
+        }
+    }
+
     function closeLeadModal() {
         document.getElementById('lead-modal').classList.add('hidden');
-        document.body.style.overflow = 'auto';
+        const domainModal = document.getElementById('domain-overview-modal');
+        if (!domainModal || domainModal.classList.contains('hidden')) {
+            document.body.style.overflow = 'auto';
+        }
         activeLeadId = null;
     }
 
@@ -592,6 +1094,7 @@
                 const lead = currentLeads.find(l => l._id === activeLeadId);
                 if (lead) lead.notes = notes;
                 closeNotesModal();
+                fetchLeads();
             }
         } catch (e) {
             console.error(e);
@@ -601,20 +1104,7 @@
     async function updateLeadStatus() {
         if (!activeLeadId) return;
         const newStatus = document.getElementById('modal-status-select').value;
-        
-        try {
-            const resp = await fetch("/api/leads/" + activeLeadId + "/status", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: "status=" + newStatus
-            });
-            
-            if (resp.ok) {
-                fetchLeads();
-            }
-        } catch (e) {
-            console.error(e);
-        }
+        setLeadStatusAction(newStatus);
     }
 
     async function muteFinding(id) {
@@ -627,7 +1117,13 @@
             });
             
             if (resp.ok) {
-                if (activeLeadId === leadId) closeLeadModal();
+                const lead = currentLeads.find(l => l._id === leadId);
+                if (lead) lead.status = 'muted';
+                if (activeLeadId === leadId) {
+                    document.getElementById('modal-status-select').value = 'muted';
+                    updateModalStatusBadge('muted');
+                    showModalToast("Alert muted and future occurrences suppressed.", "warning");
+                }
                 fetchLeads();
             }
         } catch (e) {
@@ -673,6 +1169,11 @@
     });
     window.addEventListener('keydown', (e) => { 
         if (e.key === 'Escape') {
+            const domainModal = document.getElementById('domain-overview-modal');
+            if (domainModal && !domainModal.classList.contains('hidden')) {
+                closeDomainOverviewModal();
+                return;
+            }
             closeLeadModal(); 
             closeNotesModal();
         }

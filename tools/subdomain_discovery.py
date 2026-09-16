@@ -1,7 +1,14 @@
+import os
+import sys
 import asyncio
 import datetime
 import logging
-from base_agent import BaseAgent, logger
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from base_agent import BaseAgent, logger
+except ImportError:
+    from tools.base_agent import BaseAgent, logger
 
 WORDLIST_PATH = "/app/wordlists/subdomains-top5000.txt"
 
@@ -112,6 +119,26 @@ class SubdomainDiscoveryAgent(BaseAgent):
                     all_found.add(cleaned_sub)
                 else:
                     logger.warning(f"Discarding out-of-scope subdomain discovery result: {sub} for {root_domain}")
+
+            # Step 3: Environment Permutation Discovery (prod <-> stage <-> dev <-> uat <-> test)
+            try:
+                from subdomain_mutator import SubdomainMutator, FastDnsResolver
+                mutator = SubdomainMutator()
+                env_seeds = [s for s in all_found if mutator.detect_environment_tokens(s, root_domain)]
+                if env_seeds:
+                    logger.info(f"Subdomain Discovery: Detected {len(env_seeds)} environment seed subdomains. Generating permutations...")
+                    mutations = mutator.mutate_batch(env_seeds, root_domain)
+                    # Filter out already known hosts
+                    new_mutations = {m for m in mutations if m not in all_found and self.is_in_scope(m, root_domain)}
+                    if new_mutations:
+                        logger.info(f"Subdomain Discovery: Resolving {len(new_mutations)} environment permutations via Fast DNS...")
+                        resolver = FastDnsResolver()
+                        live_mutations = await resolver.filter_live_candidates(new_mutations, root_domain)
+                        if live_mutations:
+                            logger.info(f"Subdomain Discovery: Found {len(live_mutations)} LIVE environment mutated subdomains: {list(live_mutations.keys())}")
+                            all_found.update(live_mutations.keys())
+            except Exception as mut_err:
+                logger.warning(f"Subdomain Discovery: Environment mutation step skipped due to error: {mut_err}")
 
             for sub in all_found:
                 # Add to verification queue

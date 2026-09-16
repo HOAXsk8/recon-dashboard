@@ -181,6 +181,38 @@ class PortScannerAgent(BaseAgent):
                                 "created_at": datetime.datetime.utcnow()
                             })
                             logger.info(f"Queued tech fingerprint for {target}:{svc['port']}")
+
+                # Trigger WAF and Load Balancer detection once per target for web subdomains
+                if target != root_domain:
+                    exists_waf = await self.tasks_col.find_one({
+                        "root_domain": root_domain,
+                        "target": target,
+                        "task_type": "waf_detect"
+                    })
+                    if not exists_waf:
+                        await self.tasks_col.insert_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "task_type": "waf_detect",
+                            "status": "pending",
+                            "created_at": datetime.datetime.utcnow()
+                        })
+                        logger.info(f"Queued WAF detection for subdomain {target}")
+
+                    exists_lb = await self.tasks_col.find_one({
+                        "root_domain": root_domain,
+                        "target": target,
+                        "task_type": "lb_detect"
+                    })
+                    if not exists_lb:
+                        await self.tasks_col.insert_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "task_type": "lb_detect",
+                            "status": "pending",
+                            "created_at": datetime.datetime.utcnow()
+                        })
+                        logger.info(f"Queued Load Balancer detection for subdomain {target}")
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},
