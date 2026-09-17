@@ -42,6 +42,15 @@ COMPOUND_MODIFIERS = [
     "np", "nonprod", "internal", "int", "ext", "dmz", "corp", "priv", "pub"
 ]
 
+# Common high-value environment affixes for cross-mutation
+COMMON_AFFIXES = [
+    "dev", "stage", "staging", "stg", "test", "testing", "uat", "qa", "internal", "corp", "admin", "prod", "api", "vpn", "demo", "sandbox"
+]
+
+COMMON_SERVICES = {
+    "api", "app", "auth", "portal", "admin", "vpn", "mail", "gw", "gateway", "edge", "login", "sso", "dashboard", "web", "node", "cdn", "status"
+}
+
 # Regex pattern matching environment tokens delimited by dots, hyphens, underscores, or string boundaries.
 # Captures:
 # Group 1: Leading delimiter or boundary (^, ., -, _)
@@ -59,9 +68,9 @@ ENV_TOKEN_REGEX = re.compile(
 
 class SubdomainMutator:
     """
-    Subdomain permutation engine specialized in environment tokens.
-    Identifies environment markers (prod, dev, stage, etc.) and generates
-    intelligent cross-environment permutations for DNS resolution.
+    Subdomain permutation engine specialized in environment tokens and infrastructure affixes.
+    Identifies environment markers (prod, dev, stage, etc.), appends high-probability enterprise
+    affixes, permutes numbers, and generates cross-environment permutations for fast DNS resolution.
     """
 
     def __init__(self, custom_environments: Optional[List[str]] = None):
@@ -104,10 +113,13 @@ class SubdomainMutator:
             })
         return matches
 
-    def generate_mutations(self, hostname: str, root_domain: str, max_mutations: int = 250) -> Set[str]:
+    def generate_mutations(self, hostname: str, root_domain: str, max_mutations: int = 150) -> Set[str]:
         """
-        Generate all permutations for a single subdomain by replacing matched environment
-        tokens with the enterprise dictionary. Preserves delimiter conventions and numbering.
+        Generate permutations for a subdomain by:
+        1. Replacing matched environment tokens (prod <-> stage <-> dev <-> uat <-> test).
+        2. Permuting with common environment affixes (e.g. dev-api, api-dev, api.dev).
+        3. Mutating numbers (e.g. api1 -> api2, app -> app1).
+        4. Mutating delimiters (- <-> .).
         """
         clean_host = hostname.lower().strip().rstrip(".")
         clean_root = root_domain.lower().strip().rstrip(".")
@@ -119,13 +131,14 @@ class SubdomainMutator:
         if clean_host == clean_root or not clean_host.endswith(f".{clean_root}"):
             return set()
 
-        sub_part = clean_host[:-len(f".{clean_root}")]
-        matches = self.detect_environment_tokens(clean_host, clean_root)
-        if not matches:
+        sub_part = clean_host[:-len(f".{clean_root}")].strip(".")
+        if not sub_part:
             return set()
 
         candidates: Set[str] = set()
 
+        # 1. Environment Token Substitutions
+        matches = self.detect_environment_tokens(clean_host, clean_root)
         for match in matches:
             matched_env = match["env"]
             idx = match["idx"]
@@ -134,26 +147,23 @@ class SubdomainMutator:
             span = match["span"]
 
             for target_env in self.environments:
-                # Don't generate identical token
                 if target_env.lower() == matched_env.lower() and not idx:
                     continue
 
-                # 1. Standard 1-to-1 replacement preserving index (e.g. prod1 -> dev1)
+                # Standard 1-to-1 replacement
                 replacement = f"{pre_delim}{target_env}{idx}{post_delim}"
                 new_sub_part = sub_part[:span[0]] + replacement + sub_part[span[1]:]
-                # Normalize double dots or delimiters if any
                 new_sub_part = re.sub(r'\.{2,}', '.', new_sub_part).strip('.')
-                candidate = f"{new_sub_part}.{clean_root}"
-                candidates.add(candidate)
+                candidates.add(f"{new_sub_part}.{clean_root}")
 
-                # 2. If original had an index (e.g. prod1), also test un-indexed (dev)
+                # Un-indexed if original had an index
                 if idx:
                     unindexed_repl = f"{pre_delim}{target_env}{post_delim}"
                     unindexed_sub = sub_part[:span[0]] + unindexed_repl + sub_part[span[1]:]
                     unindexed_sub = re.sub(r'\.{2,}', '.', unindexed_sub).strip('.')
                     candidates.add(f"{unindexed_sub}.{clean_root}")
 
-                # 3. Handle multi-tier non-prod injections (e.g., stage.priority.o2 -> stage.np.priority.o2)
+                # Multi-tier compound injection
                 if target_env in ["dev", "stage", "test", "uat", "qa"]:
                     if post_delim == "." or pre_delim == ".":
                         compound_repl = f"{pre_delim}{target_env}.np{post_delim}"
@@ -161,25 +171,88 @@ class SubdomainMutator:
                         comp_sub = re.sub(r'\.{2,}', '.', comp_sub).strip('.')
                         candidates.add(f"{comp_sub}.{clean_root}")
 
-        # Remove the original hostname itself
+        # 2. Affix and Tier Mutations (for subdomains or core labels)
+        labels = sub_part.split(".")
+        first_label = labels[0]
+
+        if len(first_label) <= 18:
+            for affix in COMMON_AFFIXES:
+                if affix in first_label:
+                    continue
+                # Hyphenated prefix and suffix
+                candidates.add(f"{affix}-{sub_part}.{clean_root}")
+                candidates.add(f"{first_label}-{affix}.{clean_root}" if len(labels) == 1 else f"{first_label}-{affix}.{'.'.join(labels[1:])}.{clean_root}")
+                # Dot tier
+                candidates.add(f"{first_label}.{affix}.{clean_root}" if len(labels) == 1 else f"{first_label}.{affix}.{'.'.join(labels[1:])}.{clean_root}")
+                candidates.add(f"{affix}.{sub_part}.{clean_root}")
+
+        # 3. Number Mutations
+        num_match = re.search(r'(\d+)$', first_label)
+        if num_match:
+            num = int(num_match.group(1))
+            prefix = first_label[:num_match.start()]
+            for offset in [-1, 1, 2]:
+                new_num = num + offset
+                if new_num >= 0:
+                    cand_first = f"{prefix}{new_num}"
+                    cand_sub = ".".join([cand_first] + labels[1:])
+                    candidates.add(f"{cand_sub}.{clean_root}")
+            if prefix:
+                cand_sub = ".".join([prefix] + labels[1:])
+                candidates.add(f"{cand_sub}.{clean_root}")
+        elif first_label in COMMON_SERVICES:
+            for n in [1, 2]:
+                cand_sub = ".".join([f"{first_label}{n}"] + labels[1:])
+                candidates.add(f"{cand_sub}.{clean_root}")
+
+        # 4. Delimiter Variations (- <-> .)
+        if "-" in sub_part:
+            dot_variant = sub_part.replace("-", ".")
+            candidates.add(f"{dot_variant}.{clean_root}")
+        if "." in sub_part and len(labels) == 2:
+            dash_variant = sub_part.replace(".", "-")
+            candidates.add(f"{dash_variant}.{clean_root}")
+
+        # Remove the original hostname itself and enforce scope
         candidates.discard(clean_host)
+        cleaned_candidates = set()
+        for c in candidates:
+            c_clean = c.lower().strip().rstrip(".")
+            if c_clean != clean_host and c_clean.endswith(f".{clean_root}"):
+                cleaned_candidates.add(c_clean)
 
-        # Enforce max limit per seed to avoid denial of service
-        if len(candidates) > max_mutations:
-            candidates = set(list(candidates)[:max_mutations])
+        if len(cleaned_candidates) > max_mutations:
+            return set(list(cleaned_candidates)[:max_mutations])
 
-        return candidates
+        return cleaned_candidates
 
-    def mutate_batch(self, hostnames: Iterable[str], root_domain: str) -> Set[str]:
+    def mutate_batch(self, hostnames: Iterable[str], root_domain: str, max_total: int = 500) -> Set[str]:
         """
         Generate deduplicated candidate mutations for a collection of subdomains.
+        Prioritizes high-probability seeds and enforces a max_total budget for rapid DNS resolution.
         """
         all_candidates: Set[str] = set()
         clean_root = root_domain.lower().strip().rstrip(".")
-        for host in hostnames:
-            mutated = self.generate_mutations(host, clean_root)
+        clean_seeds = {h.lower().strip().rstrip(".") for h in hostnames if h}
+
+        def seed_priority(h: str):
+            has_env = bool(self.detect_environment_tokens(h, clean_root))
+            first_label = h.split(".")[0] if "." in h else h
+            is_common = first_label in COMMON_SERVICES
+            return (0 if has_env else (1 if is_common else 2), len(h))
+
+        sorted_seeds = sorted(clean_seeds, key=seed_priority)
+
+        for host in sorted_seeds:
+            mutated = self.generate_mutations(host, clean_root, max_mutations=80)
             all_candidates.update(mutated)
-        return all_candidates
+            if len(all_candidates) >= max_total * 2:
+                break
+
+        # Filter out existing seeds
+        filtered = [c for c in all_candidates if c not in clean_seeds]
+
+        return set(filtered[:max_total])
 
 
 class FastDnsResolver:

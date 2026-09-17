@@ -379,13 +379,13 @@
                     row.className = 'hover:bg-slate-800/40 transition-colors group cursor-pointer';
                     row.onclick = () => openDetails(item.domain);
                     
-                    const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-md text-[10px] text-slate-400">${t}</span>`).join(' ');
-                    const wafBadge = item.waf?.detected ? `<span class="px-1.5 py-0.5 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-md text-[9px] font-bold" title="WAF: ${item.waf.firewall || 'Detected'}">🛡️ ${item.waf.firewall || 'WAF'}</span>` : '';
-                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/10 border border-purple-500/30 text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.method || 'Detected'}">⚖️ LB</span>` : '';
+                    const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded-md text-[10px] text-slate-300 font-medium">${t}</span>`).join(' ');
+                    const wafBadge = item.waf?.detected ? `<span class="px-1.5 py-0.5 bg-sky-500/15 border border-sky-500/30 text-sky-400 rounded-md text-[9px] font-bold" title="WAF: ${item.waf.firewall || 'Detected'}">🛡️ ${item.waf.firewall || 'WAF'}</span>` : '';
+                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.method || 'Detected'}">⚖️ LB</span>` : '';
                     const infraBadges = [wafBadge, lbBadge].filter(Boolean).join(' ');
                     
                     const isSubdomain = item.subdomain_count === 0 && item.domain.split('.').length > 2;
-                    const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
+                    const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/15 border border-tech-accent/30 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
 
                     row.innerHTML = `
                         <td class="px-8 py-5">
@@ -398,13 +398,13 @@
                                         <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${item.domain}')">${item.domain}</span>
                                         ${typeBadge}
                                     </div>
-                                    <span class="text-xs text-slate-500 font-mono">${item.ip}</span>
+                                    <span class="text-xs text-slate-400 font-mono">${item.ip}</span>
                                 </div>
                             </div>
                         </td>
                         <td class="px-6 py-5">
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.scanned ? 'bg-tech-success/10 text-tech-success' : 'bg-slate-800 text-slate-500'}">
-                                <span class="w-1.5 h-1.5 mr-1.5 rounded-full ${item.scanned ? 'bg-tech-success' : 'bg-slate-500'}"></span>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${item.scanned ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-300 border border-slate-700'}">
+                                <span class="w-1.5 h-1.5 mr-1.5 rounded-full ${item.scanned ? 'bg-emerald-400' : 'bg-slate-400'}"></span>
                                 ${item.scanned ? `Last Scan: ${formatLastScan(item.last_scanned)}` : 'Pending'}
                             </span>
                         </td>
@@ -1453,7 +1453,10 @@
                                     </div>
                                     <div>
                                         <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b border-slate-700 pb-2">
-                                            <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Discovered Files / Dirs</h4>
+                                            <h4 class="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                                <span>Discovered Files & Directories</span>
+                                                ${app.discovered_directories?.length ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-indigo-400 border border-slate-700">${app.discovered_directories.length} Dirs Scanned</span>` : ''}
+                                            </h4>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <!-- Status Filter/Delete -->
                                                 <input type="number" id="status-select-sensitive_files" placeholder="Status" class="w-14 h-6 bg-tech-bg border border-slate-700 rounded text-[10px] px-1 text-white outline-none" title="Filter by HTTP status code">
@@ -1484,8 +1487,11 @@
                                                     : '';
                                                 return `
                                                 <div class="flex justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-800/50 group finding-item-sensitive_files" data-fid="${fid}">
-                                                    <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors">${f.path}</a>
-                                                    <div class="flex items-center gap-2">
+                                                    <div class="flex items-center gap-2 overflow-hidden">
+                                                        ${f.directory ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0" title="Discovered inside directory /${f.directory}/">📁 /${f.directory}/</span>` : ''}
+                                                        <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-300 hover:text-tech-accent transition-colors truncate">${f.path}</a>
+                                                    </div>
+                                                    <div class="flex items-center gap-2 shrink-0">
                                                         <span class="text-xs font-bold ${f.status < 400 ? 'text-tech-success' : 'text-slate-500'}">${f.status}</span>
                                                         ${lengthDisplay ? `
                                                             <span onclick="document.getElementById('length-select-sensitive_files').value = ${f.length}" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-tech-accent hover:border-tech-accent border border-slate-700 cursor-pointer transition-colors" title="Click to fill length filter (${f.length} bytes)">

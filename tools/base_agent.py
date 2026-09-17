@@ -5,6 +5,7 @@ import logging
 import urllib.parse
 import hashlib
 from motor.motor_asyncio import AsyncIOMotorClient
+from typing import Optional, Dict, Any
 
 # --- Configuration ---
 MONGO_ROOT_PASSWORD = os.getenv("MONGO_ROOT_PASSWORD")
@@ -155,11 +156,84 @@ class BaseAgent:
             logger.error(f"Error checking global pause: {e}")
         return False
 
-    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None):
+    def classify_alert_type(self, title: str, alert_type: Optional[str] = None) -> str:
+        if alert_type:
+            return alert_type
+        t = (title or "").lower()
+        # Directory & File Hunter
+        if "critical file exposed" in t or ("sensitive discovery" in t and any(p in t for p in [".env", ".git", ".aws", "credentials", "dump.sql", "id_rsa", "backup.zip"])):
+            return "sensitive_files_critical"
+        if "high-risk file exposed" in t or "config" in t or "admin" in t or "login" in t or ".htpasswd" in t or "passwd" in t:
+            return "sensitive_files_high"
+        if "diagnostic" in t or "actuator" in t or "swagger" in t or "openapi" in t or "phpinfo" in t or "metrics" in t:
+            return "sensitive_files_diagnostic"
+        if "sensitive discovery" in t or "file exposed" in t:
+            return "sensitive_files_critical"
+
+        # JS Collector
+        if "hardcoded" in t or "credential" in t:
+            return "js_hardcoded_secrets"
+        if "unclaimed" in t or "takeover" in t:
+            return "js_cloud_storage_takeover"
+        if "exposed source map" in t or "source map" in t:
+            return "js_source_maps"
+        if "jwt token" in t or "exposed jwt" in t:
+            return "js_jwt_tokens"
+        if "cloud storage leak" in t or ("cloud storage" in t and "public" in t):
+            if "writable" in t:
+                return "cloud_storage_writable"
+            return "js_cloud_storage_leaks"
+
+        # Cloud Storage Auditor
+        if "publicly writable" in t:
+            return "cloud_storage_writable"
+        if "publicly listable" in t:
+            return "cloud_storage_listable"
+
+        # 403 Bypass
+        if "403 bypass" in t:
+            return "bypass_403_success"
+
+        # OSINT
+        if "email spoofing" in t or "dmarc" in t or "spf" in t:
+            return "osint_email_spoofing"
+        if "exposed public" in t and "bucket" in t:
+            return "osint_public_buckets"
+
+        # Port Scanner
+        if "port change" in t:
+            return "port_scanner_changes"
+
+        # Tech Fingerprinter
+        if "technology stack changed" in t or "tech stack" in t:
+            return "tech_stack_changes"
+        if "security header regression" in t or "header regression" in t:
+            return "security_header_regressions"
+
+        # Archive Hunter
+        if "historical archive leak" in t or "archive" in t:
+            return "archive_historical_leaks"
+
+        return "general_alert"
+
+    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None, alert_type=None):
         """
-        Create a new alert (lead) with fingerprint-based deduplication.
+        Create a new alert (lead) with fingerprint-based deduplication and alert setting checks.
         Prevents repeats even if the user deletes the lead.
         """
+        alert_key = self.classify_alert_type(title, alert_type)
+
+        # Check if this alert type is disabled in Global Settings
+        try:
+            settings = await self.settings_col.find_one({"key": "global_settings"})
+            if settings and "alerts" in settings:
+                alerts_cfg = settings["alerts"]
+                if alerts_cfg.get(alert_key) is False:
+                    logger.info(f"Skipping alert because '{alert_key}' is disabled in Settings: {title} on {target}")
+                    return False
+        except Exception as e:
+            logger.error(f"Error checking alert settings: {e}")
+
         # Create a unique fingerprint based on target, title, and optional extra_key (e.g. source map URL or secret)
         fingerprint_input = f"{target}|{title}|{extra_key}" if extra_key else f"{target}|{title}"
         fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()
@@ -190,7 +264,8 @@ class BaseAgent:
             "exploitation_suggestions": exploitation_suggestions,
             "fingerprint": fingerprint,
             "acknowledged": False,
-            "response_size": int(response_size) if response_size is not None else 0
+            "response_size": int(response_size) if response_size is not None else 0,
+            "alert_type": alert_key
         }
         
         await self.leads_col.insert_one(lead_doc)

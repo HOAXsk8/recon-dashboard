@@ -15,7 +15,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
     <script>
+        // Apply saved theme early before render to prevent dark/light flash
+        const savedEarlyTheme = localStorage.getItem('theme');
+        if (savedEarlyTheme === 'light') {
+            document.documentElement.classList.remove('dark');
+        } else {
+            document.documentElement.classList.add('dark');
+        }
+
         // Apply saved sidebar collapse state before render to avoid flash
         if (localStorage.getItem('sidebar_collapsed') === 'true') {
             document.documentElement.classList.add('sidebar-collapsed');
@@ -27,9 +39,9 @@
                 extend: {
                     colors: {
                         tech: {
-                            bg: '#0f172a',
-                            panel: '#1e293b',
-                            accent: '#38bdf8',
+                            bg: 'rgb(var(--color-tech-bg-rgb) / <alpha-value>)',
+                            panel: 'rgb(var(--color-tech-panel-rgb) / <alpha-value>)',
+                            accent: 'rgb(var(--color-tech-accent-rgb) / <alpha-value>)',
                             danger: '#ef4444',
                             success: '#22c55e'
                         }
@@ -38,11 +50,598 @@
             }
         }
     </script>
-    <style type="text/tailwindcss">
-        @layer base {
-            body { @apply bg-white dark:bg-tech-bg text-slate-900 dark:text-slate-100 transition-colors duration-200; }
+    <style>
+        :root {
+            --color-tech-bg-rgb: 255 255 255; /* canvas / button contrast white */
+            --color-tech-panel-rgb: 255 255 255; /* pure white cards */
+            --color-tech-accent-rgb: 2 132 199; /* sky-600 */
+        }
+
+        html.dark {
+            --color-tech-bg-rgb: 15 23 42; /* slate-900 #0f172a */
+            --color-tech-panel-rgb: 30 41 59; /* slate-800 #1e293b */
+            --color-tech-accent-rgb: 56 189 248; /* sky-400 #38bdf8 */
+        }
+
+        /* ==========================================================================
+           CYBER DARK THEME CONTRAST SYSTEM (HIGH READABILITY)
+           ========================================================================== */
+        html.dark body {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+
+        /* Elevate low-contrast text-slate classes in Dark Mode */
+        html.dark .text-slate-500 {
+            color: #94a3b8 !important; /* 5.5:1 contrast against #0f172a / #1e293b */
+        }
+        html.dark .text-slate-600 {
+            color: #cbd5e1 !important; /* was invisible #475569 on dark background */
+        }
+        html.dark .text-slate-700 {
+            color: #cbd5e1 !important;
+        }
+
+        /* Dark Mode Table Headers: Crisp light slate, prominent & legible */
+        html.dark thead th {
+            color: #e2e8f0 !important;
+            font-weight: 800 !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        html.dark thead th span[id^="sort-icon-"] {
+            color: #94a3b8 !important;
+        }
+
+        /* Dark Mode Form Labels & Section Headers */
+        html.dark label.text-slate-500,
+        html.dark label.text-slate-400,
+        html.dark span.text-slate-500.uppercase,
+        html.dark h4.text-slate-500.uppercase {
+            color: #cbd5e1 !important;
+        }
+
+        /* Dark Mode Inactive Tabs & Buttons */
+        html.dark .tab-btn:not(.text-tech-accent):not([class*="bg-tech-accent"]):not([class*="bg-purple"]):not(.border-tech-accent) {
+            color: #cbd5e1 !important;
+        }
+        html.dark .tab-btn:not(.text-tech-accent):not([class*="bg-tech-accent"]):not([class*="bg-purple"]):hover {
+            color: #ffffff !important;
+        }
+        html.dark button.bg-slate-800,
+        html.dark .bg-slate-800.text-slate-300,
+        html.dark .bg-slate-800.text-slate-400 {
+            color: #f8fafc !important;
+            border-color: #475569 !important;
+        }
+        html.dark button.bg-slate-800:hover {
+            background-color: #334155 !important;
+            border-color: #64748b !important;
+            color: #ffffff !important;
+        }
+
+        /* Dark Mode Table Actions */
+        html.dark td button,
+        html.dark td a,
+        html.dark td button.text-slate-400,
+        html.dark td a.text-slate-400 {
+            color: #cbd5e1 !important;
+        }
+        html.dark td button svg,
+        html.dark td a svg {
+            color: inherit !important;
+        }
+        html.dark td button:hover,
+        html.dark td a:hover {
+            color: #38bdf8 !important;
+            background-color: #1e293b !important;
+        }
+        html.dark button[onclick*="clearAllFilters"],
+        html.dark button[onclick*="clearFilters"] {
+            color: #38bdf8 !important;
+            font-weight: 700 !important;
+        }
+
+        /* Dark Mode Form Inputs & Selects */
+        html.dark select,
+        html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        html.dark textarea {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border: 1px solid #475569 !important;
+        }
+        html.dark select option {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+        }
+        html.dark input::placeholder,
+        html.dark textarea::placeholder,
+        html.dark .placeholder-slate-600::placeholder {
+            color: #64748b !important;
+            opacity: 1;
+        }
+
+        /* Dark Mode Status / Risk Badge Colors: bright and vibrant */
+        html.dark .text-blue-500 {
+            color: #60a5fa !important;
+        }
+        html.dark .text-yellow-500 {
+            color: #facc15 !important;
+        }
+        html.dark .text-red-500 {
+            color: #f87171 !important;
+        }
+        html.dark .text-green-500 {
+            color: #4ade80 !important;
+        }
+        html.dark .bg-slate-800.text-slate-500 {
+            color: #cbd5e1 !important;
+        }
+
+        /* ==========================================================================
+           MODERN DAYLIGHT (LIGHT) THEME SYSTEM (HIGH CONTRAST & WCAG AA)
+           ========================================================================== */
+        html:not(.dark) body {
+            background-color: #f8fafc !important; /* soft cool slate-50 canvas */
+            color: #0f172a !important;
+        }
+
+        /* Sidebar in Daylight Mode */
+        html:not(.dark) #sidebar {
+            background-color: #ffffff !important;
+            border-right: 1px solid #e2e8f0 !important;
+            box-shadow: 2px 0 12px -2px rgba(15, 23, 42, 0.04) !important;
+        }
+        html:not(.dark) #sidebar .sidebar-header,
+        html:not(.dark) #sidebar .border-t,
+        html:not(.dark) #sidebar .border-b {
+            border-color: #e2e8f0 !important;
+        }
+        html:not(.dark) #sidebar .sidebar-link {
+            color: #334155 !important;
+            font-weight: 600;
+        }
+        html:not(.dark) #sidebar .sidebar-link:hover {
+            background-color: #f1f5f9 !important;
+            color: #0284c7 !important;
+        }
+        html:not(.dark) #sidebar .sidebar-link:hover .sidebar-text {
+            color: #0284c7 !important;
+        }
+        html:not(.dark) #sidebar .sidebar-link:hover svg {
+            color: #0284c7 !important;
+        }
+        html:not(.dark) #sidebar .sidebar-text {
+            color: #334155 !important;
+            font-weight: 600;
+        }
+        html:not(.dark) #sidebar-toggle-btn {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #sidebar-toggle-btn:hover {
+            background-color: #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) .sidebar-tooltip {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+
+        /* Panels & Cards in Daylight Mode */
+        html:not(.dark) .bg-tech-panel,
+        html:not(.dark) [class*="bg-tech-panel/"] {
+            background-color: #ffffff !important;
+            border-color: #e2e8f0 !important;
+            box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
+        }
+
+        /* Sub-wells, pills, and nested dark backgrounds */
+        html:not(.dark) .bg-slate-900:not(pre):not(code):not([class*="language-"]):not(.keep-dark),
+        html:not(.dark) [class*="bg-slate-900/"]:not(pre):not(code):not([class*="language-"]):not(.keep-dark),
+        html:not(.dark) .bg-slate-950:not(pre):not(code):not([class*="language-"]):not(.keep-dark):not(#domain-overview-modal) {
+            background-color: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+        }
+        html:not(.dark) .bg-slate-800:not(pre):not(code):not(.peer):not([class*="language-"]):not(.keep-dark),
+        html:not(.dark) [class*="bg-slate-800/"]:not(pre):not(code):not(.peer):not([class*="language-"]):not(.keep-dark) {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) .hover\:bg-slate-800:hover,
+        html:not(.dark) .hover\:bg-slate-700:hover {
+            background-color: #e2e8f0 !important;
+        }
+
+        /* Borders across the application */
+        html:not(.dark) .border-slate-800,
+        html:not(.dark) [class*="border-slate-800"],
+        html:not(.dark) .border-slate-700,
+        html:not(.dark) [class*="border-slate-700"] {
+            border-color: #cbd5e1 !important;
+        }
+        html:not(.dark) .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+        html:not(.dark) [class*="divide-slate-800"] > :not([hidden]) ~ :not([hidden]),
+        html:not(.dark) .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+            border-color: #e2e8f0 !important;
+        }
+
+        /* High-Contrast Light Mode Typography */
+        html:not(.dark) h1,
+        html:not(.dark) h2,
+        html:not(.dark) h3,
+        html:not(.dark) h4,
+        html:not(.dark) h5,
+        html:not(.dark) h6,
+        html:not(.dark) h1.text-white,
+        html:not(.dark) h2.text-white,
+        html:not(.dark) h3.text-white,
+        html:not(.dark) h4.text-white,
+        html:not(.dark) h5.text-white,
+        html:not(.dark) p.text-white,
+        html:not(.dark) span.text-white:not([class*="bg-"]):not(button *),
+        html:not(.dark) div.text-white:not([class*="bg-"]):not(button *) {
+            color: #0f172a !important;
+        }
+        html:not(.dark) .text-slate-100,
+        html:not(.dark) .text-slate-200,
+        html:not(.dark) .text-slate-300 {
+            color: #0f172a !important;
+        }
+        html:not(.dark) .text-slate-400 {
+            color: #334155 !important; /* 7.5:1 contrast on white */
+        }
+        html:not(.dark) .text-slate-500 {
+            color: #334155 !important; /* 7.5:1 contrast on white */
+        }
+        html:not(.dark) .text-slate-600 {
+            color: #1e293b !important; /* 11:1 contrast on white */
+        }
+        html:not(.dark) .text-slate-700 {
+            color: #0f172a !important;
+        }
+        html:not(.dark) .text-tech-accent {
+            color: #0284c7 !important;
+        }
+
+        /* Light Mode Table Headers */
+        html:not(.dark) thead th {
+            color: #0f172a !important;
+            font-weight: 800 !important;
+            background-color: #f1f5f9 !important;
+            border-bottom: 2px solid #cbd5e1 !important;
+        }
+        html:not(.dark) thead th span[id^="sort-icon-"] {
+            color: #475569 !important;
+        }
+
+        /* Light Mode Inactive Tabs & Secondary Buttons */
+        html:not(.dark) .tab-btn:not(.text-tech-accent):not([class*="bg-tech-accent"]):not([class*="bg-purple"]):not(.border-tech-accent) {
+            color: #334155 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) .tab-btn:not(.text-tech-accent):not([class*="bg-tech-accent"]):not([class*="bg-purple"]):hover {
+            color: #0284c7 !important;
+        }
+        html:not(.dark) button.bg-slate-800,
+        html:not(.dark) .bg-slate-800.text-slate-300,
+        html:not(.dark) .bg-slate-800.text-slate-400 {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+            border: 1px solid #cbd5e1 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) button.bg-slate-800:hover {
+            background-color: #e2e8f0 !important;
+            border-color: #94a3b8 !important;
+            color: #0f172a !important;
+        }
+
+        /* Light Mode Table action buttons & icons */
+        html:not(.dark) td button,
+        html:not(.dark) td a,
+        html:not(.dark) td button.text-slate-400,
+        html:not(.dark) td a.text-slate-400 {
+            color: #334155 !important;
+        }
+        html:not(.dark) td button svg,
+        html:not(.dark) td a svg {
+            color: inherit !important;
+        }
+        html:not(.dark) td button:hover,
+        html:not(.dark) td a:hover {
+            color: #0284c7 !important;
+            background-color: #e2e8f0 !important;
+        }
+        html:not(.dark) button[onclick*="clearAllFilters"],
+        html:not(.dark) button[onclick*="clearFilters"] {
+            color: #0284c7 !important;
+            font-weight: 700 !important;
+        }
+
+        /* Light Mode Form Labels & Section Titles */
+        html:not(.dark) label.text-slate-500,
+        html:not(.dark) label.text-slate-400,
+        html:not(.dark) span.text-slate-500.uppercase,
+        html:not(.dark) h4.text-slate-500.uppercase {
+            color: #1e293b !important;
+            font-weight: 700 !important;
+        }
+
+        /* Light Mode Badges & Pills: Rich, saturated colors for high contrast (no pale text on light) */
+        html:not(.dark) .text-red-300,
+        html:not(.dark) .text-red-400,
+        html:not(.dark) .text-red-500,
+        html:not(.dark) .text-rose-300,
+        html:not(.dark) .text-rose-400,
+        html:not(.dark) .text-rose-500 {
+            color: #991b1b !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-red-500/"],
+        html:not(.dark) [class*="bg-red-950/"],
+        html:not(.dark) [class*="bg-rose-500/"],
+        html:not(.dark) [class*="bg-rose-950/"] {
+            background-color: #fee2e2 !important;
+            border-color: #fca5a5 !important;
+        }
+
+        html:not(.dark) .text-orange-300,
+        html:not(.dark) .text-orange-400,
+        html:not(.dark) .text-orange-500 {
+            color: #9a3412 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-orange-500/"],
+        html:not(.dark) [class*="bg-orange-950/"] {
+            background-color: #ffedd5 !important;
+            border-color: #fdba74 !important;
+        }
+
+        html:not(.dark) .text-amber-300,
+        html:not(.dark) .text-amber-400,
+        html:not(.dark) .text-yellow-400,
+        html:not(.dark) .text-yellow-500 {
+            color: #92400e !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-amber-500/"],
+        html:not(.dark) [class*="bg-yellow-500/"],
+        html:not(.dark) [class*="bg-amber-950/"] {
+            background-color: #fef3c7 !important;
+            border-color: #fcd34d !important;
+        }
+
+        html:not(.dark) .text-emerald-300,
+        html:not(.dark) .text-emerald-400,
+        html:not(.dark) .text-green-400,
+        html:not(.dark) .text-green-500,
+        html:not(.dark) .text-tech-success {
+            color: #065f46 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-emerald-500/"],
+        html:not(.dark) [class*="bg-green-500/"],
+        html:not(.dark) [class*="bg-tech-success/"] {
+            background-color: #d1fae5 !important;
+            border-color: #6ee7b7 !important;
+        }
+
+        html:not(.dark) .text-blue-300,
+        html:not(.dark) .text-blue-400,
+        html:not(.dark) .text-blue-500 {
+            color: #1e40af !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-blue-500/"] {
+            background-color: #dbeafe !important;
+            border-color: #93c5fd !important;
+        }
+
+        html:not(.dark) .text-sky-300,
+        html:not(.dark) .text-sky-400,
+        html:not(.dark) .text-cyan-300,
+        html:not(.dark) .text-cyan-400 {
+            color: #0369a1 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-sky-500/"],
+        html:not(.dark) [class*="bg-cyan-500/"] {
+            background-color: #e0f2fe !important;
+            border-color: #7dd3fc !important;
+        }
+
+        html:not(.dark) .text-purple-300,
+        html:not(.dark) .text-purple-400 {
+            color: #6b21a8 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-purple-500/"] {
+            background-color: #f3e8ff !important;
+            border-color: #d8b4fe !important;
+        }
+
+        html:not(.dark) .text-teal-300,
+        html:not(.dark) .text-teal-400 {
+            color: #115e59 !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) [class*="bg-teal-500/"] {
+            background-color: #ccfbf1 !important;
+            border-color: #5eead4 !important;
+        }
+
+        /* Protect solid colored buttons so their text remains crisp white */
+        html:not(.dark) button.bg-tech-accent,
+        html:not(.dark) button.bg-tech-danger,
+        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-red"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]),
+        html:not(.dark) button[class*="bg-gradient"],
+        html:not(.dark) a.bg-tech-accent,
+        html:not(.dark) a.bg-tech-danger,
+        html:not(.dark) .badge-white-text {
+            color: #ffffff !important;
+        }
+        html:not(.dark) button.bg-tech-accent *,
+        html:not(.dark) button.bg-tech-danger *,
+        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-red"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]) *,
+        html:not(.dark) button[class*="bg-gradient"] *,
+        html:not(.dark) a.bg-tech-accent *,
+        html:not(.dark) a.bg-tech-danger * {
+            color: #ffffff !important;
+        }
+
+        /* High contrast stat pills & badges in Light Mode */
+        html:not(.dark) [class*="bg-red-500/"] span,
+        html:not(.dark) [class*="bg-rose-500/"] span {
+            color: #991b1b !important;
+        }
+        html:not(.dark) [class*="bg-orange-500/"] span {
+            color: #9a3412 !important;
+        }
+        html:not(.dark) [class*="bg-amber-500/"] span,
+        html:not(.dark) [class*="bg-yellow-500/"] span {
+            color: #92400e !important;
+        }
+        html:not(.dark) [class*="bg-emerald-500/"] span,
+        html:not(.dark) [class*="bg-green-500/"] span {
+            color: #065f46 !important;
+        }
+        html:not(.dark) [class*="bg-purple-500/"] span {
+            color: #6b21a8 !important;
+        }
+        html:not(.dark) [class*="bg-sky-500/"] span,
+        html:not(.dark) [class*="bg-blue-500/"] span,
+        html:not(.dark) [class*="bg-cyan-500/"] span {
+            color: #0369a1 !important;
+        }
+
+        /* Light Mode Form Inputs & Controls */
+        html:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        html:not(.dark) select,
+        html:not(.dark) textarea {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            border: 1px solid #cbd5e1 !important;
+            box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.03);
+        }
+        html:not(.dark) select option {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) input:focus,
+        html:not(.dark) select:focus,
+        html:not(.dark) textarea:focus {
+            border-color: #0284c7 !important;
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
+        }
+        html:not(.dark) input::placeholder,
+        html:not(.dark) textarea::placeholder,
+        html:not(.dark) .placeholder-slate-600::placeholder {
+            color: #64748b !important;
+            opacity: 1;
+        }
+
+        /* Checkbox switch toggles */
+        html:not(.dark) input[type="checkbox"] + div.bg-slate-800 {
+            background-color: #cbd5e1 !important;
+        }
+        html:not(.dark) input[type="checkbox"]:checked + div.bg-slate-800 {
+            background-color: #0284c7 !important;
+        }
+
+        /* High-contrast Terminal & Code Blocks (Preserve dark terminal theme for PoCs) */
+        html:not(.dark) pre,
+        html:not(.dark) pre code,
+        html:not(.dark) [class*="language-"],
+        html:not(.dark) .terminal-window,
+        html:not(.dark) pre.bg-slate-950,
+        html:not(.dark) div.font-mono.bg-slate-950,
+        html:not(.dark) .prism-editor,
+        html:not(.dark) .keep-dark {
+            background-color: #0b1120 !important;
+            border: 1px solid #1e293b !important;
+            color: #f8fafc !important;
+        }
+        html:not(.dark) pre * {
+            color: inherit;
+        }
+        html:not(.dark) code:not(pre code) {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+            border: 1px solid #e2e8f0 !important;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.375rem;
+        }
+
+        /* Modals & Overlays */
+        html:not(.dark) #domain-overview-modal,
+        html:not(.dark) .modal-backdrop,
+        html:not(.dark) [id$="-modal"] {
+            background-color: rgba(15, 23, 42, 0.45) !important;
+            backdrop-filter: blur(8px) !important;
+        }
+        html:not(.dark) #domain-overview-modal > div,
+        html:not(.dark) [id$="-modal"] > div {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.15) !important;
+        }
+
+        /* Markdown Editor & Rendered Preview in Daylight Mode */
+        html:not(.dark) #pane-write,
+        html:not(.dark) #pane-preview {
+            background-color: #ffffff !important;
+        }
+        html:not(.dark) #pane-write {
+            border-right: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #finding-notes {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #notes-rendered-preview {
+            color: #334155 !important;
+        }
+        html:not(.dark) #notes-rendered-preview h1,
+        html:not(.dark) #notes-rendered-preview h2,
+        html:not(.dark) #notes-rendered-preview h3,
+        html:not(.dark) #notes-rendered-preview h4,
+        html:not(.dark) #notes-rendered-preview h5,
+        html:not(.dark) #notes-rendered-preview strong {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #notes-rendered-preview p,
+        html:not(.dark) #notes-rendered-preview li {
+            color: #334155 !important;
+        }
+        html:not(.dark) #notes-rendered-preview a {
+            color: #0284c7 !important;
+        }
+        html:not(.dark) #notes-rendered-preview pre {
+            background-color: #0b1120 !important;
+            color: #f8fafc !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        /* Footer */
+        html:not(.dark) footer {
+            border-color: #e2e8f0 !important;
+            color: #64748b !important;
         }
     </style>
+
     <style>
         /* Smooth transitions for sidebar */
         #sidebar {
@@ -147,6 +746,14 @@
                     </div>
                     <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Alerts</div>
                 </a>
+                <a href="/findings" class="sidebar-link flex items-center justify-between px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Findings">
+                    <div class="flex items-center space-x-3 min-w-0">
+                        <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Findings</span>
+                    </div>
+                    <span id="sidebar-findings-badge" class="sidebar-alert-badge-full hidden px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-black">0</span>
+                    <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Findings</div>
+                </a>
                 <a href="/investigate" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Investigate">
                     <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                     <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Investigate</span>
@@ -172,9 +779,14 @@
                     <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Live Logs</span>
                     <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Live Logs</div>
                 </a>
+                <a href="/settings" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Settings">
+                    <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Settings</span>
+                    <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Settings</div>
+                </a>
                 {% if user.role == 'admin' %}
                     <a href="/admin" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Admin">
-                        <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                         <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Admin</span>
                         <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Admin</div>
                     </a>
@@ -184,12 +796,6 @@
 
         <!-- Sidebar Footer -->
         <div class="p-3 border-t border-slate-800 space-y-2">
-            <button onclick="toggleDarkMode()" class="sidebar-link flex items-center space-x-3 w-full px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-colors text-slate-400 hover:text-white group relative" title="Appearance">
-                <svg id="sun-icon" class="w-5 h-5 hidden group-hover:text-tech-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M16.071 16.071l.707.707M7.757 7.757l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path></svg>
-                <svg id="moon-icon" class="w-5 h-5 hidden group-hover:text-tech-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-                <span class="sidebar-text text-sm font-medium whitespace-nowrap">Appearance</span>
-                <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Appearance</div>
-            </button>
             {% if user %}
             <a href="/logout" class="sidebar-link flex items-center space-x-3 px-4 py-2.5 rounded-xl text-tech-danger hover:bg-tech-danger/10 transition-colors group relative" title="Logout">
                 <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
@@ -248,6 +854,20 @@
             } catch (e) {
                 console.error('Failed to fetch notification count', e);
             }
+
+            try {
+                const fResp = await fetch('/api/findings/stats/summary');
+                if (fResp.ok) {
+                    const fData = await fResp.json();
+                    const fBadge = document.getElementById('sidebar-findings-badge');
+                    if (fBadge && fData.total > 0) {
+                        fBadge.textContent = fData.total > 99 ? '99+' : fData.total;
+                        fBadge.classList.remove('hidden');
+                    } else if (fBadge) {
+                        fBadge.classList.add('hidden');
+                    }
+                }
+            } catch (fe) {}
         }
 
         async function clearNotifications() {
@@ -269,20 +889,24 @@
 
         function toggleDarkMode() {
             const html = document.documentElement;
-            html.classList.toggle('dark');
-            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+            const isDark = html.classList.toggle('dark');
+            const theme = isDark ? 'dark' : 'light';
+            localStorage.setItem('theme', theme);
             updateIcons();
+            if (typeof applyThemeUI === 'function') {
+                applyThemeUI(theme);
+            }
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { theme } }));
         }
 
         function updateIcons() {
             const isDark = document.documentElement.classList.contains('dark');
-            document.getElementById('sun-icon').classList.toggle('hidden', !isDark);
-            document.getElementById('moon-icon').classList.toggle('hidden', isDark);
+            const sunIcon = document.getElementById('sun-icon');
+            const moonIcon = document.getElementById('moon-icon');
+            if (sunIcon) sunIcon.classList.toggle('hidden', !isDark);
+            if (moonIcon) moonIcon.classList.toggle('hidden', isDark);
         }
 
-        if (localStorage.getItem('theme') === 'light') {
-            document.documentElement.classList.remove('dark');
-        }
         updateIcons();
     </script>
 

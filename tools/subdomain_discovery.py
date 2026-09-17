@@ -120,25 +120,27 @@ class SubdomainDiscoveryAgent(BaseAgent):
                 else:
                     logger.warning(f"Discarding out-of-scope subdomain discovery result: {sub} for {root_domain}")
 
-            # Step 3: Environment Permutation Discovery (prod <-> stage <-> dev <-> uat <-> test)
+            # Step 3: Automated Domain Permutation & Mutation Engine (Environments, affixes, numbers, delimiters)
             try:
-                from subdomain_mutator import SubdomainMutator, FastDnsResolver
+                try:
+                    from subdomain_mutator import SubdomainMutator, FastDnsResolver
+                except ImportError:
+                    from tools.subdomain_mutator import SubdomainMutator, FastDnsResolver
+
                 mutator = SubdomainMutator()
-                env_seeds = [s for s in all_found if mutator.detect_environment_tokens(s, root_domain)]
-                if env_seeds:
-                    logger.info(f"Subdomain Discovery: Detected {len(env_seeds)} environment seed subdomains. Generating permutations...")
-                    mutations = mutator.mutate_batch(env_seeds, root_domain)
-                    # Filter out already known hosts
+                if all_found:
+                    logger.info(f"Subdomain Discovery: Generating domain permutations for {len(all_found)} discovered hosts on {root_domain}...")
+                    mutations = mutator.mutate_batch(all_found, root_domain, max_total=500)
                     new_mutations = {m for m in mutations if m not in all_found and self.is_in_scope(m, root_domain)}
                     if new_mutations:
-                        logger.info(f"Subdomain Discovery: Resolving {len(new_mutations)} environment permutations via Fast DNS...")
+                        logger.info(f"Subdomain Discovery: Resolving {len(new_mutations)} permutation candidates via Fast DNS...")
                         resolver = FastDnsResolver()
                         live_mutations = await resolver.filter_live_candidates(new_mutations, root_domain)
                         if live_mutations:
-                            logger.info(f"Subdomain Discovery: Found {len(live_mutations)} LIVE environment mutated subdomains: {list(live_mutations.keys())}")
+                            logger.info(f"Subdomain Discovery: Found {len(live_mutations)} LIVE permutation/mutated subdomains: {list(live_mutations.keys())}")
                             all_found.update(live_mutations.keys())
             except Exception as mut_err:
-                logger.warning(f"Subdomain Discovery: Environment mutation step skipped due to error: {mut_err}")
+                logger.warning(f"Subdomain Discovery: Domain permutation step skipped due to error: {mut_err}")
 
             for sub in all_found:
                 # Add to verification queue

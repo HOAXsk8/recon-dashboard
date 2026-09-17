@@ -173,6 +173,12 @@
                         <span>Send to Investigate</span>
                     </button>
 
+                    <!-- Send to Findings -->
+                    <button id="modal-send-to-findings-btn" onclick="promoteAlertToFinding(activeLeadId)" class="px-3.5 py-2 bg-purple-500/15 hover:bg-purple-600 text-purple-400 hover:text-white border border-purple-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Promote this confirmed alert to Findings">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        <span id="modal-send-findings-text">Send to Findings</span>
+                    </button>
+
                     <!-- Mark as True Positive -->
                     <button onclick="setLeadStatusAction('true_positive')" class="px-3.5 py-2 bg-red-500/15 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm active:scale-95" title="Mark as confirmed True Positive">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -387,14 +393,14 @@
         const riskColor = lead.risk_level === 'high' ? 'bg-red-500' : lead.risk_level === 'medium' ? 'bg-orange-500' : 'bg-green-500';
         const riskText = (lead.risk_level || 'UNKNOWN').toUpperCase();
         
-        let statusBadge = 'bg-slate-800 text-slate-500';
-        if (lead.status === 'new') statusBadge = 'bg-blue-500/10 text-blue-500';
-        else if (lead.status === 'in_progress') statusBadge = 'bg-yellow-500/10 text-yellow-500';
-        else if (lead.status === 'investigating') statusBadge = 'bg-cyan-500/10 text-cyan-400';
-        else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/10 text-red-500';
-        else if (lead.status === 'false_positive') statusBadge = 'bg-green-500/10 text-green-500';
-        else if (lead.status === 'benign') statusBadge = 'bg-slate-500/10 text-slate-400';
-        else if (lead.status === 'muted') statusBadge = 'bg-slate-700 text-slate-400';
+        let statusBadge = 'bg-slate-800 text-slate-300 border border-slate-700';
+        if (lead.status === 'new') statusBadge = 'bg-blue-500/20 text-blue-400 border border-blue-500/40';
+        else if (lead.status === 'in_progress') statusBadge = 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        else if (lead.status === 'investigating') statusBadge = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40';
+        else if (lead.status === 'true_positive') statusBadge = 'bg-red-500/20 text-red-400 border border-red-500/40';
+        else if (lead.status === 'false_positive') statusBadge = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
+        else if (lead.status === 'benign') statusBadge = 'bg-slate-800 text-slate-300 border border-slate-700';
+        else if (lead.status === 'muted') statusBadge = 'bg-slate-800/80 text-slate-400 border border-slate-700/60';
         
         const isSourceMap = isSourceMapLead(lead);
         
@@ -450,6 +456,9 @@
                 </button>
                 <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="Add Notes">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                </button>
+                <button onclick="event.stopPropagation(); promoteAlertToFinding('${lead._id}')" class="p-2 ${lead.promoted_to_finding_id ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'hover:bg-purple-500 hover:text-white text-slate-400'} rounded-lg transition-all" title="${lead.promoted_to_finding_id ? 'Promoted to Findings (Click to view)' : 'Promote to Confirmed Finding'}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                 </button>
                 <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white text-slate-400 rounded-lg transition-all" title="Mute/Suppress Finding">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
@@ -1037,6 +1046,21 @@
             }
         }
 
+        // Findings promotion button state
+        const findingsBtn = document.getElementById('modal-send-to-findings-btn');
+        const findingsText = document.getElementById('modal-send-findings-text');
+        if (findingsBtn && findingsText) {
+            if (lead.promoted_to_finding_id) {
+                findingsText.textContent = 'View in Findings';
+                findingsBtn.classList.remove('bg-purple-500/15', 'text-purple-400');
+                findingsBtn.classList.add('bg-purple-600', 'text-white');
+            } else {
+                findingsText.textContent = 'Send to Findings';
+                findingsBtn.classList.remove('bg-purple-600', 'text-white');
+                findingsBtn.classList.add('bg-purple-500/15', 'text-purple-400');
+            }
+        }
+
         document.getElementById('lead-modal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
     }
@@ -1128,6 +1152,45 @@
             }
         } catch (e) {
             console.error(e);
+        }
+    }
+
+    async function promoteAlertToFinding(id) {
+        const leadId = id || activeLeadId;
+        if (!leadId) return;
+
+        const lead = currentLeads.find(l => l._id === leadId);
+        if (lead && lead.promoted_to_finding_id) {
+            window.location.href = `/findings?id=${lead.promoted_to_finding_id}`;
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/findings/from-alert/${leadId}`, {
+                method: 'POST'
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                if (lead) {
+                    lead.promoted_to_finding_id = data.finding_id;
+                    lead.status = 'true_positive';
+                }
+                const findingsText = document.getElementById('modal-send-findings-text');
+                const findingsBtn = document.getElementById('modal-send-to-findings-btn');
+                if (findingsText) findingsText.textContent = 'View in Findings';
+                if (findingsBtn) {
+                    findingsBtn.classList.remove('bg-purple-500/15', 'text-purple-400');
+                    findingsBtn.classList.add('bg-purple-600', 'text-white');
+                }
+                showModalToast(`Alert promoted to <strong>Findings</strong>! <a href="/findings?id=${data.finding_id}" class="underline font-black ml-1 text-white hover:text-tech-accent">Open Finding &rarr;</a>`, 'success');
+                fetchNotificationCount();
+                fetchLeads();
+            } else {
+                alert(data.detail || "Failed to promote alert to finding.");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error communicating with server.");
         }
     }
 

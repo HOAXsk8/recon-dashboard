@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime, timedelta
 import re
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -1058,6 +1058,18 @@ async def investigate_page(request: Request, user: dict = Depends(get_current_us
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse(request, "investigate.html", {"user": user})
 
+@app.get("/findings", response_class=HTMLResponse)
+async def findings_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "findings.html", {"user": user})
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse(request, "settings.html", {"user": user})
+
 @app.get("/api/leads")
 async def get_leads(
     status: Optional[str] = None,
@@ -1415,6 +1427,425 @@ async def clear_notifications(user: dict = Depends(get_current_user)):
     check_analyst(user)
     # Mark 'new' leads as acknowledged
     await leads_col.update_many({"status": "new", "acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
+
+# --- Findings Management Routes ---
+
+@app.get("/api/findings/stats/summary")
+async def get_findings_stats(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    total = await findings_col.count_documents({})
+    critical = await findings_col.count_documents({"severity": "critical"})
+    high = await findings_col.count_documents({"severity": "high"})
+    medium = await findings_col.count_documents({"severity": "medium"})
+    low = await findings_col.count_documents({"severity": "low"})
+    info = await findings_col.count_documents({"severity": "info"})
+    
+    confirmed = await findings_col.count_documents({"status": "confirmed"})
+    in_progress = await findings_col.count_documents({"status": "in_progress"})
+    remediated = await findings_col.count_documents({"status": "remediated"})
+    draft = await findings_col.count_documents({"status": "draft"})
+    
+    return {
+        "total": total,
+        "critical": critical,
+        "high": high,
+        "medium": medium,
+        "low": low,
+        "info": info,
+        "confirmed": confirmed,
+        "in_progress": in_progress,
+        "remediated": remediated,
+        "draft": draft
+    }
+
+@app.get("/api/findings")
+async def get_findings(
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    target: Optional[str] = None,
+    root_domain: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: Optional[str] = "updated_at",
+    order: Optional[str] = "desc",
+    limit: Optional[int] = 200,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    query = {}
+    if severity and severity != "all":
+        query["severity"] = severity.lower()
+    if status and status != "all":
+        query["status"] = status.lower()
+    if category and category != "all":
+        query["category"] = category
+    if target:
+        query["target"] = {"$regex": re.escape(target.strip()), "$options": "i"}
+    if root_domain:
+        query["root_domain"] = root_domain.strip().lower()
+    if search:
+        s = re.escape(search.strip())
+        query["$or"] = [
+            {"title": {"$regex": s, "$options": "i"}},
+            {"target": {"$regex": s, "$options": "i"}},
+            {"category": {"$regex": s, "$options": "i"}},
+            {"notes": {"$regex": s, "$options": "i"}},
+            {"cve_id": {"$regex": s, "$options": "i"}},
+            {"cwe_id": {"$regex": s, "$options": "i"}}
+        ]
+
+    is_asc = (order == "asc")
+    mongo_dir = 1 if is_asc else -1
+
+    cursor = findings_col.find(query)
+    if sort_by in ["created_at", "time"]:
+        cursor = cursor.sort("created_at", mongo_dir)
+    elif sort_by == "title":
+        cursor = cursor.sort("title", mongo_dir)
+    elif sort_by == "target":
+        cursor = cursor.sort("target", mongo_dir)
+    else:
+        cursor = cursor.sort("updated_at", mongo_dir)
+
+    findings = await cursor.to_list(length=limit or 200)
+    for f in findings:
+        f["_id"] = str(f["_id"])
+
+    if sort_by == "severity":
+        SEV_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+        findings.sort(key=lambda x: SEV_ORDER.get(str(x.get("severity", "")).lower(), 0), reverse=not is_asc)
+
+    return findings
+
+@app.get("/api/findings/{finding_id}")
+async def get_finding(finding_id: str, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    try:
+        oid = ObjectId(finding_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid finding ID")
+    finding = await findings_col.find_one({"_id": oid})
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    finding["_id"] = str(finding["_id"])
+    return finding
+
+@app.post("/api/findings")
+async def create_finding(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    data = await request.json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    target = (data.get("target") or "").strip()
+    root_domain = (data.get("root_domain") or "").strip().lower()
+    if not root_domain and target:
+        m = re.search(r"https?://([^/:]+)", target)
+        host = m.group(1) if m else target.split("/")[0].split(":")[0]
+        parts = host.split(".")
+        if len(parts) >= 2:
+            root_domain = ".".join(parts[-2:]).lower()
+        else:
+            root_domain = host.lower()
+
+    now = datetime.utcnow().isoformat()
+    doc = {
+        "title": title,
+        "severity": (data.get("severity") or "medium").lower(),
+        "status": (data.get("status") or "draft").lower(),
+        "category": data.get("category") or "General Security",
+        "target": target,
+        "root_domain": root_domain,
+        "cvss_score": data.get("cvss_score"),
+        "cve_id": data.get("cve_id"),
+        "cwe_id": data.get("cwe_id"),
+        "notes": data.get("notes") or "",
+        "alert_id": data.get("alert_id"),
+        "created_by": user["username"],
+        "created_at": now,
+        "updated_at": now,
+        "updated_by": user["username"]
+    }
+    res = await findings_col.insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+    await log_audit(user["username"], "CREATE_FINDING", f"Created finding: {title} on {target}", request)
+    return doc
+
+@app.put("/api/findings/{finding_id}")
+async def update_finding(finding_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    try:
+        oid = ObjectId(finding_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid finding ID")
+
+    data = await request.json()
+    now = datetime.utcnow().isoformat()
+    update_fields = {"updated_at": now, "updated_by": user["username"]}
+
+    for k in ["title", "severity", "status", "category", "target", "root_domain", "cvss_score", "cve_id", "cwe_id", "notes"]:
+        if k in data:
+            update_fields[k] = data[k]
+
+    res = await findings_col.update_one({"_id": oid}, {"$set": update_fields})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    await log_audit(user["username"], "UPDATE_FINDING", f"Updated finding {finding_id}", request)
+    updated_doc = await findings_col.find_one({"_id": oid})
+    updated_doc["_id"] = str(updated_doc["_id"])
+    return updated_doc
+
+@app.delete("/api/findings/{finding_id}")
+async def delete_finding(finding_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    try:
+        oid = ObjectId(finding_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid finding ID")
+    res = await findings_col.delete_one({"_id": oid})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    await log_audit(user["username"], "DELETE_FINDING", f"Deleted finding {finding_id}", request)
+    return {"status": "success", "deleted": True}
+
+@app.post("/api/findings/from-alert/{alert_id}")
+async def promote_alert_to_finding(alert_id: str, request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    try:
+        oid = ObjectId(alert_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid alert ID")
+
+    lead = await leads_col.find_one({"_id": oid})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    # If already promoted, return existing finding
+    if lead.get("promoted_to_finding_id"):
+        try:
+            existing = await findings_col.find_one({"_id": ObjectId(lead["promoted_to_finding_id"])})
+            if existing:
+                existing["_id"] = str(existing["_id"])
+                return {
+                    "status": "exists",
+                    "finding_id": str(existing["_id"]),
+                    "message": "Alert was already promoted to Finding",
+                    "finding": existing
+                }
+        except Exception:
+            pass
+
+    # Risk level mapping
+    risk = str(lead.get("risk_level", "medium")).lower()
+    severity_map = {
+        "critical": "critical",
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "info": "info"
+    }
+    severity = severity_map.get(risk, "medium")
+
+    title = lead.get("title") or "Vulnerability Finding"
+    target = lead.get("target") or ""
+    source = lead.get("source") or "Recon Scanner"
+    timestamp = lead.get("timestamp") or datetime.utcnow().isoformat()
+    description = lead.get("description") or "Identified during automated reconnaissance."
+    exploitation = lead.get("exploitation_suggestions") or ""
+    analyst_notes = lead.get("notes") or ""
+
+    # Parse details
+    raw_details = lead.get("details")
+    if isinstance(raw_details, dict):
+        import json
+        formatted_details = "```json\n" + json.dumps(raw_details, indent=2) + "\n```"
+    elif isinstance(raw_details, str) and raw_details.strip():
+        if "HTTP/" in raw_details or "GET " in raw_details or "POST " in raw_details:
+            formatted_details = "```http\n" + raw_details.strip() + "\n```"
+        elif raw_details.startswith("{") or raw_details.startswith("["):
+            formatted_details = "```json\n" + raw_details.strip() + "\n```"
+        elif "```" in raw_details:
+            formatted_details = raw_details
+        else:
+            formatted_details = "```http\n" + raw_details.strip() + "\n```"
+    else:
+        formatted_details = "*(No raw HTTP transaction captured)*"
+
+    # Category inference
+    cat = "Web Application Security"
+    title_lower = title.lower()
+    if "sql" in title_lower:
+        cat = "SQL Injection"
+    elif "xss" in title_lower:
+        cat = "Cross-Site Scripting (XSS)"
+    elif "ssrf" in title_lower:
+        cat = "Server-Side Request Forgery (SSRF)"
+    elif "idor" in title_lower or "access control" in title_lower:
+        cat = "Broken Access Control"
+    elif "source map" in title_lower or ".map" in title_lower:
+        cat = "Source Code Disclosure"
+    elif "file" in title_lower or "directory" in title_lower or "sensitive" in title_lower or "exposed" in title_lower:
+        cat = "Information Disclosure"
+    elif "cors" in title_lower:
+        cat = "CORS Misconfiguration"
+    elif "rce" in title_lower or "command" in title_lower:
+        cat = "Remote Code Execution (RCE)"
+
+    notes_parts = [
+        f"## Technical Overview",
+        f"- **Target URL / Asset**: `{target}`",
+        f"- **Origin Alert**: `{title}` (Source: `{source}`)",
+        f"- **Detection Timestamp**: `{timestamp}`",
+        f"- **Status**: Confirmed Vulnerability",
+        "",
+        f"### Description",
+        f"{description}",
+        "",
+        f"### Proof of Concept / Raw Details",
+        formatted_details,
+    ]
+
+    if exploitation:
+        notes_parts.extend([
+            "",
+            f"### Exploitation & Impact Analysis",
+            f"{exploitation}"
+        ])
+
+    if analyst_notes:
+        notes_parts.extend([
+            "",
+            f"### Analyst Notes (from Alerts)",
+            f"> {analyst_notes}"
+        ])
+
+    notes_parts.extend([
+        "",
+        f"### Remediation Recommendations",
+        f"1. Validate input and restrict access to privileged endpoints.",
+        f"2. Ensure least-privilege configurations and disable debug artifacts in production.",
+        f"3. Verify and re-test patch after deployment."
+    ])
+
+    markdown_notes = "\n".join(notes_parts)
+
+    root_domain = lead.get("root_domain") or ""
+    if not root_domain and target:
+        m = re.search(r"https?://([^/:]+)", target)
+        host = m.group(1) if m else target.split("/")[0].split(":")[0]
+        parts = host.split(".")
+        if len(parts) >= 2:
+            root_domain = ".".join(parts[-2:]).lower()
+        else:
+            root_domain = host.lower()
+
+    now = datetime.utcnow().isoformat()
+    finding_doc = {
+        "title": title,
+        "severity": severity,
+        "status": "confirmed",
+        "category": cat,
+        "target": target,
+        "root_domain": root_domain,
+        "cvss_score": None,
+        "cve_id": None,
+        "cwe_id": None,
+        "notes": markdown_notes,
+        "alert_id": alert_id,
+        "created_by": user["username"],
+        "created_at": now,
+        "updated_at": now,
+        "updated_by": user["username"]
+    }
+
+    res = await findings_col.insert_one(finding_doc)
+    finding_id = str(res.inserted_id)
+
+    # Link back in leads_col
+    await leads_col.update_one(
+        {"_id": oid},
+        {
+            "$set": {
+                "promoted_to_finding_id": finding_id,
+                "status": "true_positive"
+            }
+        }
+    )
+
+    await log_audit(user["username"], "PROMOTE_ALERT_TO_FINDING", f"Promoted alert {alert_id} ('{title}') to Finding {finding_id}", request)
+    return {
+        "status": "success",
+        "finding_id": finding_id,
+        "message": f"Successfully promoted alert to Finding #{finding_id[:8]}"
+    }
+
+@app.get("/api/findings/export")
+async def export_findings(
+    severity: Optional[str] = None,
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    target: Optional[str] = None,
+    root_domain: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+
+    query = {}
+    if severity and severity != "all":
+        query["severity"] = severity.lower()
+    if status and status != "all":
+        query["status"] = status.lower()
+    if category and category != "all":
+        query["category"] = category
+    if target:
+        query["target"] = {"$regex": re.escape(target.strip()), "$options": "i"}
+    if root_domain:
+        query["root_domain"] = root_domain.strip().lower()
+
+    cursor = findings_col.find(query).sort("updated_at", -1)
+    findings = await cursor.to_list(length=10000)
+
+    data = []
+    for f in findings:
+        data.append({
+            "Finding ID": str(f.get("_id")),
+            "Title": f.get("title"),
+            "Severity": str(f.get("severity", "medium")).upper(),
+            "Status": str(f.get("status", "draft")).replace("_", " ").title(),
+            "Category": f.get("category", "General Security"),
+            "Target": f.get("target"),
+            "Root Domain": f.get("root_domain", ""),
+            "CVSS": f.get("cvss_score") or "",
+            "CVE": f.get("cve_id") or "",
+            "CWE": f.get("cwe_id") or "",
+            "Created By": f.get("created_by", ""),
+            "Created At": f.get("created_at", ""),
+            "Updated At": f.get("updated_at", ""),
+            "Notes": f.get("notes", "")
+        })
+
+    if not data:
+        cols = ["Finding ID", "Title", "Severity", "Status", "Category", "Target", "Root Domain", "CVSS", "CVE", "CWE", "Created By", "Created At", "Updated At", "Notes"]
+        df = pd.DataFrame(columns=cols)
+    else:
+        df = pd.DataFrame(data)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Confirmed Findings')
+
+    output.seek(0)
+    headers = {
+        'Content-Disposition': f'attachment; filename="confirmed_findings_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    }
+    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 # --- Source Map Recovery Routes ---
 
 @app.get("/api/source-maps")
@@ -3313,6 +3744,41 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     }
 
 
+DEFAULT_ALERT_SETTINGS = {
+    # Directory & File Hunter
+    "sensitive_files_critical": True,
+    "sensitive_files_high": True,
+    "sensitive_files_diagnostic": True,
+    # Dynamic JS Collector
+    "js_hardcoded_secrets": True,
+    "js_cloud_storage_leaks": True,
+    "js_cloud_storage_takeover": True,
+    "js_source_maps": True,
+    "js_jwt_tokens": True,
+    # Cloud Storage Auditor
+    "cloud_storage_writable": True,
+    "cloud_storage_listable": True,
+    # 403 Bypass
+    "bypass_403_success": True,
+    # OSINT Agent
+    "osint_email_spoofing": True,
+    "osint_public_buckets": True,
+    # Port Scanner
+    "port_scanner_changes": True,
+    # Tech Fingerprinter
+    "tech_stack_changes": True,
+    "security_header_regressions": True,
+    # Historical Archive Hunter
+    "archive_historical_leaks": True
+}
+
+DEFAULT_SCANNING_SETTINGS = {
+    "auto_permutator": True,
+    "auto_file_search": True,
+    "auto_unpack_sourcemaps": True,
+    "rate_delay_ms": 0
+}
+
 @app.get("/api/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     if not user:
@@ -3320,12 +3786,103 @@ async def get_settings(user: dict = Depends(get_current_user)):
     
     settings = await settings_col.find_one({"key": "global_settings"})
     if not settings:
-        # Default settings
-        settings = {"key": "global_settings", "scan_pause": False}
+        settings = {
+            "key": "global_settings",
+            "scan_pause": False,
+            "theme": "dark",
+            "alerts": DEFAULT_ALERT_SETTINGS.copy(),
+            "scanning": DEFAULT_SCANNING_SETTINGS.copy()
+        }
         await settings_col.insert_one(settings)
-    
+    else:
+        # Ensure all alert default keys exist
+        if "alerts" not in settings or not isinstance(settings["alerts"], dict):
+            settings["alerts"] = DEFAULT_ALERT_SETTINGS.copy()
+        else:
+            for k, v in DEFAULT_ALERT_SETTINGS.items():
+                if k not in settings["alerts"]:
+                    settings["alerts"][k] = v
+
+        if "scanning" not in settings or not isinstance(settings["scanning"], dict):
+            settings["scanning"] = DEFAULT_SCANNING_SETTINGS.copy()
+        else:
+            for k, v in DEFAULT_SCANNING_SETTINGS.items():
+                if k not in settings["scanning"]:
+                    settings["scanning"][k] = v
+
+        if "theme" not in settings:
+            settings["theme"] = "dark"
+
+    # Fetch stats for maintenance cards
+    from app.database import db
+    fingerprints_col = db["alert_fingerprints"]
+    suppressed_count = await fingerprints_col.count_documents({"status": "suppressed"})
+    processing_tasks_count = await tasks_col.count_documents({"status": "processing"})
+    pending_tasks_count = await tasks_col.count_documents({"status": "pending"})
+
     settings["_id"] = str(settings["_id"])
+    settings["suppressed_fingerprints_count"] = suppressed_count
+    settings["processing_tasks_count"] = processing_tasks_count
+    settings["pending_tasks_count"] = pending_tasks_count
     return settings
+
+@app.put("/api/settings")
+async def update_settings(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    data = await request.json()
+    update_doc = {}
+
+    if "alerts" in data and isinstance(data["alerts"], dict):
+        update_doc["alerts"] = data["alerts"]
+
+    if "scanning" in data and isinstance(data["scanning"], dict):
+        update_doc["scanning"] = data["scanning"]
+
+    if "theme" in data:
+        update_doc["theme"] = "dark" if data["theme"] == "dark" else "light"
+
+    if "scan_pause" in data:
+        update_doc["scan_pause"] = bool(data["scan_pause"])
+
+    if update_doc:
+        await settings_col.update_one(
+            {"key": "global_settings"},
+            {"$set": update_doc},
+            upsert=True
+        )
+        await log_audit(user["username"], "UPDATE_SETTINGS", "Updated global system settings", request)
+
+    return {"status": "success", "settings": update_doc}
+
+@app.post("/api/settings/reset-alerts")
+async def reset_alerts_settings(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    await settings_col.update_one(
+        {"key": "global_settings"},
+        {"$set": {"alerts": DEFAULT_ALERT_SETTINGS.copy()}},
+        upsert=True
+    )
+    await log_audit(user["username"], "RESET_ALERT_SETTINGS", "Reset all alert settings to defaults", request)
+    return {"status": "success", "alerts": DEFAULT_ALERT_SETTINGS}
+
+@app.post("/api/settings/unmute-all-fingerprints")
+async def unmute_all_fingerprints(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    from app.database import db
+    fingerprints_col = db["alert_fingerprints"]
+    res = await fingerprints_col.delete_many({"status": "suppressed"})
+    await log_audit(user["username"], "UNMUTE_ALL_FINGERPRINTS", f"Unmuted {res.deleted_count} suppressed alert fingerprints", request)
+    return {"status": "success", "unmuted_count": res.deleted_count}
+
+@app.post("/api/settings/recover-stuck-tasks")
+async def recover_stuck_tasks(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    res = await tasks_col.update_many(
+        {"status": "processing"},
+        {"$set": {"status": "pending", "recovered_at": datetime.utcnow()}}
+    )
+    await log_audit(user["username"], "RECOVER_STUCK_TASKS", f"Recovered {res.modified_count} stuck tasks to pending", request)
+    return {"status": "success", "recovered_count": res.modified_count}
 
 @app.post("/api/settings/toggle-pause")
 async def toggle_scan_pause(request: Request, user: dict = Depends(get_current_user)):

@@ -14,10 +14,91 @@ from base_agent import BaseAgent, logger
 DIR_WORDLIST = "/app/wordlists/common-dirs.txt"
 FILE_WORDLIST = "/app/wordlists/common-files.txt"
 
+# Curated high-impact sensitive files scanned across EVERY discovered directory
+CURATED_SENSITIVE_FILES = [
+    # Environment & Secrets
+    ".env", ".env.local", ".env.production", ".env.dev", ".env.stage", ".env.backup", ".env.old",
+    ".git/config", ".git/HEAD", ".gitignore", ".htaccess", ".htpasswd", ".DS_Store", ".npmrc",
+    "web.config", "web.config.bak", "settings.py", "settings.json", "secrets.json", "credentials.json",
+    "parameters.yml", "database.yml", "config.json", "config.php", "config.php.bak", "config.yaml",
+    "config.yml", "configuration.php", "appsettings.json", "appsettings.Development.json",
+    
+    # Backups & Dumps
+    "backup.zip", "backup.tar.gz", "backup.tgz", "backup.sql", "dump.sql", "db.sql", "database.sql",
+    "database.sqlite", "data.sql", "site.zip", "app.zip", "old.zip", "archive.zip", "1.zip", "temp.zip",
+    "backup.bak", "backup.old", "db.sqlite3", "dump.tar.gz",
+    
+    # Admin & Portals
+    "admin.php", "admin.html", "admin.jsp", "admin.aspx", "login.php", "login.html", "login.jsp",
+    "auth.php", "dashboard.php", "dashboard.html", "users.php", "manage.php", "portal.php",
+    "control.php", "master.php", "panel.php", "root.php", "console",
+    
+    # APIs & Schemas
+    "swagger.json", "swagger.yaml", "openapi.json", "openapi.yaml", "api.json", "schema.json",
+    "swagger-ui.html", "api-docs", "graphql", "graphiql",
+    
+    # Diagnostics & Internal
+    "phpinfo.php", "info.php", "version.txt", "readme.txt", "readme.md", "changelog.txt",
+    "robots.txt", "sitemap.xml", "health", "healthz", "metrics", "actuator/health", "actuator/env",
+    "actuator", "server-status", "debug", "test.php", "test.html",
+    
+    # Common entrypoints & assets
+    "index.php", "index.html", "main.js", "app.js", "api.php", "upload.php", "download.php"
+]
+
 class DirectoryHunterAgent(BaseAgent):
     def __init__(self):
         super().__init__("directory_hunter", "Directory & File Hunter")
         self.alert_hashes_col = self.db["alert_hashes"]
+
+    def build_curated_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None) -> str:
+        """
+        Build a high-speed targeted file wordlist for a discovered directory.
+        Merges curated sensitive files, directory-contextual filenames, and technology-adaptive extensions.
+        Writes to a temporary file and returns the file path.
+        """
+        words = list(CURATED_SENSITIVE_FILES)
+        base_label = d_clean.split("/")[-1].lower() if d_clean else ""
+
+        # Contextual filenames matching the directory name
+        if base_label:
+            words.extend([
+                f"{base_label}.php", f"{base_label}.html", f"{base_label}.json",
+                f"{base_label}.js", f"{base_label}.bak", f"{base_label}.zip",
+                f"{base_label}.sql", f"{base_label}.txt", f"{base_label}.xml"
+            ])
+
+        # Technology-specific extensions
+        tech_str = " ".join(str(t).lower() for t in (tech_stack or []))
+        if "php" in tech_str or "wordpress" in tech_str:
+            words.extend([
+                "wp-config.php.bak", "wp-config.php~", "readme.html", "license.txt",
+                "xmlrpc.php", "functions.php", "db.php", "connect.php"
+            ])
+        if "asp" in tech_str or "iis" in tech_str or "windows" in tech_str:
+            words.extend([
+                "web.config", "web.config.bak", "global.asax", "default.aspx", "index.aspx"
+            ])
+        if "spring" in tech_str or "java" in tech_str or "tomcat" in tech_str:
+            words.extend([
+                "actuator/env", "actuator/health", "actuator/heapdump", "actuator/mappings",
+                "application.properties", "application.yml", "pom.xml"
+            ])
+        if "node" in tech_str or "express" in tech_str:
+            words.extend(["package.json", "package-lock.json", ".npmrc", "server.js", "app.js"])
+        if "python" in tech_str or "django" in tech_str or "flask" in tech_str:
+            words.extend(["settings.py", "wsgi.py", "requirements.txt", ".env"])
+
+        # Deduplicate while preserving order
+        deduped = list(dict.fromkeys(words))
+        wl_path = f"/tmp/curated_wl_{os.getpid()}_{base_label or 'root'}.txt"
+        try:
+            with open(wl_path, "w") as f:
+                f.write("\n".join(deduped) + "\n")
+            return wl_path
+        except Exception as e:
+            logger.debug(f"Error writing curated wordlist: {e}")
+            return FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else "wordlists/common-files.txt"
 
     async def probe_soft_404_lengths(self, base_url: str):
         """
@@ -82,10 +163,10 @@ class DirectoryHunterAgent(BaseAgent):
 
         return [item for item in items if item.get("length", 0) not in catch_all_lengths]
 
-    async def run_ffuf_recursive(self, base_url, task_id=None):
+    async def run_ffuf_recursive(self, base_url, task_id=None, tech_stack=None):
         logger.info(f"Phase 1: Recursive directory mapping on {base_url}")
         
-        discovered_dirs = set([""]) # Start with root
+        discovered_dirs = set([""]) # Always start with root
         results = []
         
         dir_wl = DIR_WORDLIST if os.path.exists(DIR_WORDLIST) else "wordlists/common-dirs.txt"
@@ -93,8 +174,8 @@ class DirectoryHunterAgent(BaseAgent):
             logger.warning(f"Wordlist {dir_wl} not found, skipping directory mapping.")
             return results, discovered_dirs
 
-        # Pre-flight probe for soft-404 baseline lengths
-        baseline_lengths = await self.probe_soft_404_lengths(base_url)
+        # Pre-flight probe for root soft-404 baseline lengths
+        root_baseline = await self.probe_soft_404_lengths(base_url)
 
         # Phase 1: Map directory structure recursively
         cmd = [
@@ -102,8 +183,8 @@ class DirectoryHunterAgent(BaseAgent):
             "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac",
             "-recursion", "-recursion-depth", "2", "-t", "40"
         ]
-        if baseline_lengths:
-            cmd.extend(["-fs", ",".join(str(l) for l in baseline_lengths)])
+        if root_baseline:
+            cmd.extend(["-fs", ",".join(str(l) for l in root_baseline)])
         
         try:
             stdout, _ = await self.run_command(cmd, timeout=600)
@@ -115,8 +196,10 @@ class DirectoryHunterAgent(BaseAgent):
                         for r in res_list:
                             full_url = r['url']
                             rel_path = full_url.replace(base_url, "").lstrip("/")
+                            # Track discovered item
                             results.append({
-                                "path": rel_path, 
+                                "path": rel_path,
+                                "directory": "",
                                 "status": r['status'],
                                 "length": r.get('length', 0),
                                 "words": r.get('words', 0)
@@ -126,33 +209,38 @@ class DirectoryHunterAgent(BaseAgent):
             logger.error(f"Recursive directory hunt error: {e}")
 
         # Filter duplicate lengths from Phase 1 before choosing candidate directories for Phase 2
-        filtered_p1 = self.filter_duplicate_lengths(results, baseline_lengths=baseline_lengths, threshold=3)
+        filtered_p1 = self.filter_duplicate_lengths(results, baseline_lengths=root_baseline, threshold=3)
         for r in filtered_p1:
-            discovered_dirs.add(r["path"])
+            clean_d = r["path"].strip("/")
+            # If path doesn't look like a file with a known static extension, treat as directory
+            if not re.search(r'\.(html|htm|js|css|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|map)$', clean_d, re.I):
+                discovered_dirs.add(clean_d)
 
-        logger.info(f"Discovered {len(discovered_dirs)} total directories/paths (after length filter). Starting Phase 2: File discovery.")
+        logger.info(f"Discovered {len(discovered_dirs)} total directories on {base_url}. Starting Phase 2: File search in each directory.")
+
+        # Phase 2: Exhaustive File Search inside EVERY discovered directory
+        full_file_wl = FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else "wordlists/common-files.txt"
+        has_full_wl = os.path.exists(full_file_wl)
         
-        # Phase 2: File discovery on prioritized directories to avoid exponential wildcard traps
-        file_wl = FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else "wordlists/common-files.txt"
-        if not os.path.exists(file_wl):
-            return filtered_p1, discovered_dirs
+        # Priority keywords that warrant the full dictionary
+        priority_keywords = [
+            "admin", "api", "login", "auth", "config", "backup", "v1", "v2",
+            "upload", "portal", "test", "dev", "private", "internal", "secret"
+        ]
 
-        # Prioritize root + top candidate directories (up to 12 max)
-        priority_keywords = ["admin", "api", "login", "auth", "config", "backup", "v1", "v2", "upload", "portal", "test", "dev"]
-        selected_dirs = [""]  # Always include root
-        for d in sorted(discovered_dirs, key=lambda x: (len(x.split("/")), x)):
-            d_clean = d.strip("/")
-            if not d_clean:
-                continue
-            if "/" not in d_clean or any(kw in d_clean.lower() for kw in priority_keywords):
-                if d_clean not in selected_dirs:
-                    selected_dirs.append(d_clean)
-            if len(selected_dirs) >= 12:
-                break
+        # Sort: Root first, then priority directories, then remaining directories
+        def dir_priority(d: str):
+            d_lower = d.lower()
+            if not d:
+                return (0, 0)
+            if any(kw in d_lower for kw in priority_keywords):
+                return (1, len(d.split("/")))
+            return (2, len(d.split("/")))
 
-        logger.info(f"Phase 2: Scanning {len(selected_dirs)} prioritized directories for files on {base_url}.")
+        all_dirs = sorted(list(discovered_dirs), key=dir_priority)
 
-        for d_path in selected_dirs:
+        for d_path in all_dirs:
+            # Heartbeat update to prevent task timeouts during multi-directory searches
             if task_id:
                 try:
                     await self.tasks_col.update_one(
@@ -163,17 +251,30 @@ class DirectoryHunterAgent(BaseAgent):
                     pass
 
             target_url = f"{base_url}/{d_path}".rstrip("/")
-            logger.info(f"Scanning for files in: {target_url}")
-            
+            logger.info(f"Phase 2: Searching files in directory: {target_url or '/'}")
+
+            # Per-directory baseline soft-404 detection
+            dir_baseline = await self.probe_soft_404_lengths(target_url)
+
+            # Determine whether to use full dictionary or curated targeted dictionary
+            is_priority = (not d_path) or any(kw in d_path.lower() for kw in priority_keywords)
+            temp_wl_to_cleanup = None
+
+            if is_priority and has_full_wl:
+                active_wl = full_file_wl
+            else:
+                active_wl = self.build_curated_wordlist_for_dir(d_path, tech_stack)
+                temp_wl_to_cleanup = active_wl
+
             cmd_file = [
-                "ffuf", "-w", file_wl, "-u", f"{target_url}/FUZZ",
+                "ffuf", "-w", active_wl, "-u", f"{target_url}/FUZZ",
                 "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-t", "40"
             ]
-            if baseline_lengths:
-                cmd_file.extend(["-fs", ",".join(str(l) for l in baseline_lengths)])
-            
+            if dir_baseline:
+                cmd_file.extend(["-fs", ",".join(str(l) for l in dir_baseline)])
+
             try:
-                stdout_f, _ = await self.run_command(cmd_file, timeout=45)
+                stdout_f, _ = await self.run_command(cmd_file, timeout=60)
                 if stdout_f:
                     for line in stdout_f.splitlines():
                         try:
@@ -183,44 +284,82 @@ class DirectoryHunterAgent(BaseAgent):
                                 f_url = r['url']
                                 f_rel_path = f_url.replace(base_url, "").lstrip("/")
                                 results.append({
-                                    "path": f_rel_path, 
+                                    "path": f_rel_path,
+                                    "directory": d_path,
                                     "status": r['status'],
                                     "length": r.get('length', 0),
                                     "words": r.get('words', 0)
                                 })
                         except: continue
             except Exception as e:
-                logger.error(f"File hunt error for {target_url}: {e}")
+                logger.error(f"File search error for directory {target_url}: {e}")
+            finally:
+                if temp_wl_to_cleanup and temp_wl_to_cleanup.startswith("/tmp/"):
+                    try:
+                        os.remove(temp_wl_to_cleanup)
+                    except Exception:
+                        pass
 
-        # Deduplicate results by path
+        # Deduplicate results by path while preserving directory metadata
         unique_results = {}
         for r in results:
-            unique_results[r['path']] = {
-                "status": r['status'],
-                "length": r.get('length', 0),
-                "words": r.get('words', 0)
-            }
-            
+            p = r['path']
+            if p not in unique_results or (not unique_results[p].get("directory") and r.get("directory")):
+                unique_results[p] = {
+                    "directory": r.get("directory", ""),
+                    "status": r['status'],
+                    "length": r.get('length', 0),
+                    "words": r.get('words', 0)
+                }
+
         all_items = [{"path": k, **v} for k, v in unique_results.items()]
         # Final pass: exclude duplicate response lengths across all results
-        final_filtered = self.filter_duplicate_lengths(all_items, baseline_lengths=baseline_lengths, threshold=3)
+        final_filtered = self.filter_duplicate_lengths(all_items, baseline_lengths=root_baseline, threshold=3)
         return final_filtered, discovered_dirs
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
         full_discovery_url = f"{url}/{item['path']}".replace("//", "/").replace(":/", "://")
-        
+        path_lower = item['path'].lower()
         title = f"Sensitive Discovery: {item['path']}"
         risk = "medium"
-        
-        # Escalate risk for sensitive patterns
-        sensitive_patterns = [".env", "config", "backup", ".git", ".sql", "admin", "login", "password", "secret", "private"]
-        if any(p in item['path'].lower() for p in sensitive_patterns):
+
+        # Categorize sensitivity risk
+        critical_patterns = [
+            ".env", ".git", ".aws", "credentials", "id_rsa", "master.key", 
+            "dump.sql", "backup.zip", "database.sqlite", "backup.tar", "database.sql"
+        ]
+        high_patterns = [
+            "config", "web.config", "settings.py", "backup", "secret", "private", 
+            "admin", "login", "password", ".htpasswd", ".htaccess", "shadow", "passwd"
+        ]
+        medium_patterns = [
+            "swagger", "openapi", "actuator", "phpinfo", "info.php", "metrics", "healthz"
+        ]
+
+        if any(p in path_lower for p in critical_patterns):
             risk = "high"
-        
-        description = f"New web path found: {item['path']} ({item['status']}, {item.get('length', 0)}B)"
-        details = f"A new directory/file was discovered at {full_discovery_url} with status code {item['status']} (length: {item.get('length', 0)} bytes)."
-        exploitation = f"### Exploitation Guidance\n\n1. **Verify Exposure**: Navigate to [{full_discovery_url}]({full_discovery_url}) to see what data is exposed.\n2. **Check Content**: If it's a directory, check for directory listing. If it's a file, check for sensitive configuration, credentials, or source code.\n3. **Context**: This was found on {target} as part of the {root_domain} infrastructure."
+            title = f"CRITICAL File Exposed: {item['path']}"
+        elif any(p in path_lower for p in high_patterns):
+            risk = "high"
+            title = f"High-Risk File Exposed: {item['path']}"
+        elif any(p in path_lower for p in medium_patterns):
+            risk = "medium"
+            title = f"Diagnostic/API Endpoint Exposed: {item['path']}"
+
+        dir_info = f" inside directory `/{item.get('directory')}/`" if item.get('directory') else ""
+        description = f"Web path discovered{dir_info}: {item['path']} (HTTP {item['status']}, {item.get('length', 0)}B)"
+        details = (
+            f"A sensitive file or path was discovered at {full_discovery_url} with HTTP status {item['status']} "
+            f"and response size {item.get('length', 0)} bytes."
+        )
+        exploitation = (
+            f"### Verification & Exploitation Guidance\n\n"
+            f"1. **Navigate to Resource**: [{full_discovery_url}]({full_discovery_url})\n"
+            f"2. **Assess Exposure**: Check if credentials, database dumps, configuration parameters, or unauthenticated admin portals are accessible.\n"
+            f"3. **Remediation**: Restrict access at the web server/reverse proxy layer (return 404 or enforce IP/token authentication) or remove the sensitive file.\n"
+            f"4. **Host Context**: Discovered on `{target}` ({root_domain})."
+        )
 
         await self.create_alert(title, description, target, risk, details, exploitation, response_size=item.get('length', 0))
 
@@ -242,13 +381,36 @@ class DirectoryHunterAgent(BaseAgent):
             url = f"{protocol}://{target}:{port}"
 
         try:
-            found_items, _ = await self.run_ffuf_recursive(url, task_id=task["_id"])
+            # Query web_applications for target's detected tech stack
+            domain_doc = await self.domains_col.find_one({"domain": root_domain})
+            target_tech = []
+            if domain_doc:
+                for app in domain_doc.get("web_applications", []):
+                    if app.get("target") == target:
+                        target_tech = app.get("tech_stack", [])
+                        break
+
+            found_items, discovered_dirs = await self.run_ffuf_recursive(
+                url,
+                task_id=task["_id"],
+                tech_stack=target_tech
+            )
             
             # Update web_applications in the domains collection
-            domain_doc = await self.domains_col.find_one({"domain": root_domain})
             if domain_doc:
                 web_apps = domain_doc.get("web_applications", [])
                 app_found = False
+
+                # Build structured discovered_directories records
+                dir_records = []
+                for d in sorted(discovered_dirs):
+                    files_in_d = sum(1 for item in found_items if item.get("directory") == d)
+                    dir_records.append({
+                        "path": d or "/",
+                        "files_found": files_in_d,
+                        "scanned_at": datetime.datetime.utcnow().isoformat()
+                    })
+
                 for app in web_apps:
                     if app.get("target") == target:
                         # Update existing app
@@ -280,14 +442,16 @@ class DirectoryHunterAgent(BaseAgent):
                                         })
                                         logger.info(f"Queued 403 BYPASS task for {url}/{path}")
                             
-                            # Preserve length in stored record
+                            # Preserve directory and length in stored record
                             existing_files[path] = {
                                 "path": path,
+                                "directory": item.get("directory", ""),
                                 "status": item["status"],
                                 "length": item.get("length", 0)
                             }
                         
                         app["sensitive_files"] = list(existing_files.values())
+                        app["discovered_directories"] = dir_records
                         app_found = True
                         break
                 
@@ -319,9 +483,11 @@ class DirectoryHunterAgent(BaseAgent):
                     web_apps.append({
                         "target": target,
                         "url": url,
+                        "discovered_directories": dir_records,
                         "sensitive_files": [
                             {
                                 "path": item["path"],
+                                "directory": item.get("directory", ""),
                                 "status": item["status"],
                                 "length": item.get("length", 0)
                             }
@@ -340,7 +506,7 @@ class DirectoryHunterAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
             )
-            logger.info(f"Completed directory hunt for {url}. Found {len(found_items)} items (after soft-404 length filtering).")
+            logger.info(f"Completed directory hunt for {url}. Found {len(found_items)} files across {len(discovered_dirs)} directories.")
 
             # Check if this was the last task for the root domain
             await self.check_completion(root_domain)
