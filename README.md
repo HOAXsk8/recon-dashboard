@@ -24,14 +24,26 @@
    - [Dual Theme System (Cyber Dark & Daylight Light)](#6-dual-theme-system-cyber-dark--daylight-light)
    - [Enterprise Access Control & MFA](#7-enterprise-access-control--mfa)
 4. [Reconnaissance Engines & Tools Catalog](#reconnaissance-engines--tools-catalog)
-   - [Subdomain & Asset Discovery](#subdomain--asset-discovery)
-   - [Network, Port & Service Profiling](#network-port--service-profiling)
-   - [Directory & Sensitive File Hunter](#directory--sensitive-file-hunter)
-   - [Client-Side, JavaScript & Source Map Intelligence](#client-side-javascript--source-map-intelligence)
-   - [Access Control & 403 Bypass Testing](#access-control--403-bypass-testing)
-   - [Cloud Storage & Bucket Auditor](#cloud-storage--bucket-auditor)
-   - [Historical Archive & Endpoint Mining](#historical-archive--endpoint-mining)
-   - [OSINT & Infrastructure Fingerprinting](#osint--infrastructure-fingerprinting)
+   - [Complete Tools Matrix](#complete-tools-matrix)
+   - [1. subdomain_discovery.py — Active & Passive Subdomain Enumeration](#1-subdomain_discoverypy--active--passive-subdomain-enumeration)
+   - [2. subdomain_mutator.py — Subdomain Alteration & Permutation Engine](#2-subdomain_mutatorpy--subdomain-alteration--permutation-engine)
+   - [3. alive_check.py — HTTP/HTTPS Probing & Web Asset Verification](#3-alive_checkpy--httphttps-probing--web-asset-verification)
+   - [4. port_scanner.py — Port & Service Profiler with Delta Tracking](#4-port_scannerpy--port--service-profiler-with-delta-tracking)
+   - [5. directory_hunter.py — Two-Phase Recursive Directory & Sensitive File Hunter](#5-directory_hunterpy--two-phase-recursive-directory--sensitive-file-hunter)
+   - [6. dynamic_js_collector.py — Headless JavaScript Crawler & Endpoint Miner](#6-dynamic_js_collectorpy--headless-javascript-crawler--endpoint-miner)
+   - [7. source_map_unpacker.py — Webpack Source Map Extractor & Code Reconstructor](#7-source_map_unpackerpy--webpack-source-map-extractor--code-reconstructor)
+   - [8. source_code_analyzer.py — Static Code Security & Entropy Secret Scanner](#8-source_code_analyzerpy--static-code-security--entropy-secret-scanner)
+   - [9. bypass_403.py — Reverse Proxy Header & Traversal 403 Bypasser](#9-bypass_403py--reverse-proxy-header--traversal-403-bypasser)
+   - [10. cloud_storage_auditor.py — S3, GCS & Azure Blob Bucket Auditor](#10-cloud_storage_auditorpy--s3-gcs--azure-blob-bucket-auditor)
+   - [11. archive_hunter.py — Historical Wayback & Common Crawl URL Miner](#11-archive_hunterpy--historical-wayback--common-crawl-url-miner)
+   - [12. tech_fingerprinter.py — Technology Stack & Header Regression Analyzer](#12-tech_fingerprinterpy--technology-stack--header-regression-analyzer)
+   - [13. waf_detector.py — Web Application Firewall (WAF) Fingerprinter](#13-waf_detectorpy--web-application-firewall-waf-fingerprinter)
+   - [14. lb_detector.py — Dual-Method Load Balancer & Reverse Proxy Detector](#14-lb_detectorpy--dual-method-load-balancer--reverse-proxy-detector)
+   - [15. osint_agent.py — DNS Intelligence & SPF/DMARC Security Auditor](#15-osint_agentpy--dns-intelligence--spfdmarc-security-auditor)
+   - [16. whois_agent.py — WHOIS Registrar & Domain Lifecycle Monitor](#16-whois_agentpy--whois-registrar--domain-lifecycle-monitor)
+   - [17. screenshot_agent.py — Headless Chromium Visual Capture Agent](#17-screenshot_agentpy--headless-chromium-visual-capture-agent)
+   - [18. loop_orchestrator.py — Continuous Workflow Pipeline Coordinator](#18-loop_orchestratorpy--continuous-workflow-pipeline-coordinator)
+   - [19. base_agent.py — Core Agent Framework & Alert Deduplication Engine](#19-base_agentpy--core-agent-framework--alert-deduplication-engine)
 5. [Installation & Deployment](#installation--deployment)
    - [Prerequisites & System Requirements](#prerequisites--system-requirements)
    - [Docker Deployment (Recommended)](#docker-deployment-recommended)
@@ -214,134 +226,405 @@ graph TD
 
 ## Reconnaissance Engines & Tools Catalog
 
-RDash bundles a suite of autonomous, multi-threaded tools located in the `tools/` directory. Each tool runs in continuous loop mode or handles on-demand tasks from the queue.
+RDash bundles a suite of 19 autonomous, multi-threaded reconnaissance engines and core microservices located in the `tools/` directory. Each tool is engineered to execute either as part of the automated continuous background pipeline (managed by `loop_orchestrator.py`) or as a standalone, on-demand task triggered from the web interface.
 
-| Tool Engine | Binary / Lib | Primary Function | Alert Triggered |
-| :--- | :--- | :--- | :--- |
-| `subdomain_discovery.py` | `subfinder`, `dnspython` | Active & passive subdomain enumeration + permutation runner | `new_subdomain_discovered` |
-| `subdomain_mutator.py` | Custom Engine | Wordlist mutation (dev, stg, api, v1, v2) with DNS resolving | Subdomain discovery pipeline |
-| `alive_check.py` | `pd-httpx` | HTTP/HTTPS probing, response codes, page titles, CDN checks | Asset live verification |
-| `port_scanner.py` | `nmap` | Top port scanning, banner grabbing, delta change detection | `port_scan_change` |
-| `directory_hunter.py` | `ffuf` | Two-phase recursive directory & sensitive file hunter | `sensitive_files_critical`, etc. |
-| `dynamic_js_collector.py`| `playwright`, `httpx`| Headless JS crawling, inline script extraction, endpoint validation| Discovered endpoints |
-| `source_map_unpacker.py` | Custom Webpack Engine| `.js.map` detection, frontend codebase reconstruction | `source_map_exposed` |
-| `source_code_analyzer.py`| Regex / Entropy | Scans reconstructed source trees for hardcoded keys & secrets | `source_map_secrets_leak` |
-| `bypass_403.py` | `httpx` | Header manipulation & path traversal against 403 endpoints | `bypass_403_success` |
-| `cloud_storage_auditor.py`| `httpx` | S3, Google GCS, and Azure Blob unauthenticated bucket auditing | `cloud_storage_writable`, etc. |
-| `archive_hunter.py` | Wayback / Common Crawl | Mining historical URLs for legacy parameters and hidden files | `archive_historical_leaks` |
-| `tech_fingerprinter.py` | `whatweb`, `wafw00f` | Software stack, CMS, framework, and security header audit | `security_header_regressions` |
-| `waf_detector.py` | `wafw00f` | Web Application Firewall detection & fingerprinting | Infrastructure tab update |
-| `lb_detector.py` | `dnspython`, `httpx`| Load balancer & reverse proxy detection | Infrastructure tab update |
-| `osint_agent.py` | `dnspython` | SPF, DMARC, DKIM, and MX email security posture auditing | `osint_spf_dmarc_missing` |
-| `whois_agent.py` | `whois` | Domain registrar, nameservers, and lifecycle expiry tracking | WHOIS tab update |
-| `screenshot_agent.py` | `chromium` | Headless browser visual screen capture of web interfaces | Dashboard visual thumbnail |
-| `loop_orchestrator.py` | Python `asyncio` | Scan pipeline orchestrator ensuring dependency order execution | Pipeline coordination |
+### Complete Tools Matrix
 
----
-
-### Subdomain & Asset Discovery
-
-#### 1. `subdomain_discovery.py` & `subdomain_mutator.py`
-- **Mechanism**: Executes a hybrid passive-active reconnaissance workflow. It first runs ProjectDiscovery's `subfinder` to gather subdomains from certificate transparency logs, search engines, and passive DNS aggregators.
-- **Built-in Permutation Engine**: Immediately upon discovering subdomains, it feeds roots into `subdomain_mutator.py`. The mutator applies hundreds of permutations (e.g., `-dev`, `-stg`, `-uat`, `-api`, `-internal`, `-corp`, numerical suffixes, cloud prefixes) and validates them against public DNS resolvers (`8.8.8.8`, `1.1.1.1`, `9.9.9.9`).
-- **Scope Compliance**: Strict enforcement ensures generated mutations never leave the registered target apex scope.
-- **Output**: Discovered subdomains are automatically ingested into the `domains` collection, tagged as `pending`, and queued for live probing.
-
-#### 2. `alive_check.py`
-- **Mechanism**: Reads unprobed domains and executes `pd-httpx` with multi-threading.
-- **Analysis**: Probes both `http://` and `https://` ports (80, 443, 8080, 8443), tracks redirects, extracts final response URLs, parses HTML page titles, measures response content length, and notes server headers.
+| # | Tool Engine | Binary / Library | Primary Function | Database Target | Alerts Generated |
+| :-: | :--- | :--- | :--- | :--- | :--- |
+| **1** | [`subdomain_discovery.py`](#1-subdomain_discoverypy--active--passive-subdomain-enumeration) | `subfinder`, `dnspython` | Active & passive subdomain enumeration across 40+ OSINT sources | `domains`, `tasks` | `new_subdomain_discovered` (Low) |
+| **2** | [`subdomain_mutator.py`](#2-subdomain_mutatorpy--subdomain-alteration--permutation-engine) | `aiodns`, `dnspython` | Taxonomy-based wordlist mutation & environment alteration engine | `domains`, `tasks` | Discovery pipeline ingestion |
+| **3** | [`alive_check.py`](#3-alive_checkpy--httphttps-probing--web-asset-verification) | `pd-httpx`, `httpx` | High-concurrency HTTP/HTTPS probing, status codes, and web verification | `domains` | Web surface verification |
+| **4** | [`port_scanner.py`](#4-port_scannerpy--port--service-profiler-with-delta-tracking) | `nmap`, NSE scripts | Port & service discovery, banner grabbing, and delta change detection | `domains.ports` | `port_scan_change` (High) |
+| **5** | [`directory_hunter.py`](#5-directory_hunterpy--two-phase-recursive-directory--sensitive-file-hunter) | `ffuf`, `httpx` | Two-phase recursive directory enumeration & high-value sensitive file hunting | `domains.endpoints` | `sensitive_files_critical` (Critical), `sensitive_files_high` (High) |
+| **6** | [`dynamic_js_collector.py`](#6-dynamic_js_collectorpy--headless-javascript-crawler--endpoint-miner) | Playwright Chromium | Headless browser SPA crawler, script extractor & API route miner | `domains.endpoints` | Route discovery, source map handoff |
+| **7** | [`source_map_unpacker.py`](#7-source_map_unpackerpy--webpack-source-map-extractor--code-reconstructor) | Webpack v3 Engine | Reverse-engineers `.js.map` files and reconstructs full source codebases | `recovered_source_maps` | `source_map_exposed` (High) |
+| **8** | [`source_code_analyzer.py`](#8-source_code_analyzerpy--static-code-security--entropy-secret-scanner) | Regex, Shannon Entropy | Static code analysis on recovered sources for API keys, tokens & credentials | `recovered_source_maps` | `source_map_secrets_leak` (Critical/High) |
+| **9** | [`bypass_403.py`](#9-bypass_403py--reverse-proxy-header--traversal-403-bypasser) | `httpx`, Custom Heuristics | Reverse proxy header manipulation & path traversal against 403 Forbidden endpoints | `leads` | `bypass_403_success` (High) |
+| **10** | [`cloud_storage_auditor.py`](#10-cloud_storage_auditorpy--s3-gcs--azure-blob-bucket-auditor) | `httpx`, XML Parsers | Cloud bucket permutations & permission testing (AWS S3, Google GCS, Azure) | `leads` | `cloud_storage_writable` (Critical), `cloud_storage_listable` (High) |
+| **11** | [`archive_hunter.py`](#11-archive_hunterpy--historical-wayback--common-crawl-url-miner) | Wayback CDX, Common Crawl | Passive historical URL mining for deprecated endpoints, legacy backups & tokens | `domains.endpoints` | `archive_historical_leaks` (High/Medium) |
+| **12** | [`tech_fingerprinter.py`](#12-tech_fingerprinterpy--technology-stack--header-regression-analyzer) | `whatweb`, `httpx` | Deep technology stack fingerprinting & security header regression auditing | `domains.technologies` | `security_header_regressions` (Medium) |
+| **13** | [`waf_detector.py`](#13-waf_detectorpy--web-application-firewall-waf-fingerprinter) | `wafw00f` | Web Application Firewall detection, manufacturer fingerprinting & evasion cues | `domains.waf` | Infrastructure diagnostic profile |
+| **14** | [`lb_detector.py`](#14-lb_detectorpy--dual-method-load-balancer--reverse-proxy-detector) | `socket`, `httpx` | Load balancer detection via DNS round-robin resolution & HTTP header variance | `domains.load_balancer`| Infrastructure diagnostic profile |
+| **15** | [`osint_agent.py`](#15-osint_agentpy--dns-intelligence--spfdmarc-security-auditor) | `dnspython` | Comprehensive DNS zone enumeration & email security posture (SPF/DMARC) audit | `domains.osint` | `osint_spf_dmarc_missing` (Medium) |
+| **16** | [`whois_agent.py`](#16-whois_agentpy--whois-registrar--domain-lifecycle-monitor) | `whois` CLI | Domain registrar ownership extraction, nameserver tracking & expiration monitoring | `domains.whois` | Expiration alerts (< 30 days) |
+| **17** | [`screenshot_agent.py`](#17-screenshot_agentpy--headless-chromium-visual-capture-agent) | Playwright Chromium | Automated high-resolution visual webpage rendering and thumbnail capture | `domains.screenshot_path`| Visual Asset Cards & Modal Inspector |
+| **18** | [`loop_orchestrator.py`](#18-loop_orchestratorpy--continuous-workflow-pipeline-coordinator) | Python `asyncio` | Autonomous master coordinator managing task queues, dependencies & stale tasks | `tasks`, `domains` | Pipeline management & heartbeat health |
+| **19** | [`base_agent.py`](#19-base_agentpy--core-agent-framework--alert-deduplication-engine) | `motor`, `asyncio` | Foundational agent framework, strict scope enforcement & cryptographic deduplication | Global Engine State | Deduplication, Rate Limiting, Logging |
 
 ---
 
-### Network, Port & Service Profiling
+### 1. `subdomain_discovery.py` — Active & Passive Subdomain Enumeration
 
-#### 3. `port_scanner.py`
-- **Mechanism**: Orchestrates `nmap` against target IP addresses and hosts. Runs rapid SYN/TCP connect scans against top attack ports (FTP, SSH, Telnet, SMTP, DNS, HTTP, HTTPS, SMB, MySQL, RDP, Redis, PostgreSQL, MongoDB, Elasticsearch, Kubernetes, Docker API).
-- **Service Versioning**: Executes banner grabbing (`-sV`) and default script checks (`-sC`) to identify outdated software versions.
-- **Delta Alerts**: Compares scan results with previous database snapshots. If a sensitive port (e.g., Redis `6379`, MySQL `3306`, or Elasticsearch `9200`) is newly opened, an immediate **High Severity Alert** is raised.
-
----
-
-### Content & Sensitive File Hunter
-
-#### 4. `directory_hunter.py`
-- **Intelligent Two-Phase Methodology**:
-  - **Phase 1 (Directory Enumeration)**: Uses `ffuf` with `raft-small-directories-lowercase.txt` to discover valid directories (e.g., `/admin`, `/api`, `/v1`, `/backup`, `/internal`, `/dev`).
-  - **Phase 2 (Targeted Sensitive File Hunt)**: For every discovered directory plus the root, the engine launches targeted file probes against high-value patterns:
-    - *Critical Files*: `.env`, `.git/HEAD`, `.git/config`, `id_rsa`, `id_rsa.pub`, `id_dsa`, `dump.sql`, `backup.sql`, `master.key`, `credentials.json`, `config.json`.
-    - *High-Risk Configs*: `web.config`, `Dockerfile`, `docker-compose.yml`, `phpinfo.php`, `server-status`, `swagger.json`, `openapi.yaml`.
-    - *Backup Archives*: `.zip`, `.tar.gz`, `.bak`, `.old`, `.swp`, `~`.
-- **Validation**: Verifies HTTP response codes, filters out custom 404 soft-error catchalls by inspecting response entropy and length, and classifies leads with appropriate risk tiers.
+- **File Path**: `tools/subdomain_discovery.py`
+- **Role in Pipeline**: Acts as the initial entry point for discovering an organization's public DNS namespace whenever a target domain is onboarded or scheduled for rescanning.
+- **Dependencies & Libraries**: `subfinder` (ProjectDiscovery CLI binary), `dnspython`, `motor`, Python `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - Executes `subfinder -d <target> -all -silent` to query over 40 passive reconnaissance data feeds simultaneously, including Certificate Transparency (CT) logs (crt.sh, Censys), passive DNS databases (SecurityTrails, AlienVault OTX, VirusTotal, Shodan, ThreatMiner), search engine caches, and public archive indexes.
+  - Normalizes output by converting all returned strings to lowercase, trimming trailing periods, stripping protocols/ports, and removing wildcards.
+  - Validates active DNS resolution using `dnspython` across configured DNS resolvers to verify that records exist before persistence.
+  - Ensures the registered apex domain is always included in the inventory even if passive feeds only return sub-records.
+  - In full-scope (wildcard) mode, newly identified subdomains are automatically queued for permutation mutation via `subdomain_mutator.py`.
+- **Scope & Inputs**: Reads domains from the `domains` collection where `scanned=False` or on-demand task queue entries with `task_type="discovery"`. Applies `BaseAgent.is_in_scope()` to reject any off-target discoveries.
+- **Database Collections Updated**: Ingests new records into the `domains` collection (`scanned=False`, `is_alive=None`), updates `domains.subdomains` array, and registers pending scan tasks in `tasks`.
+- **Alert Triggers**: Emits `new_subdomain_discovered` (`Low` / `Info` severity) with the new hostname, resolved IP, and apex root correlation.
 
 ---
 
-### Client-Side, JavaScript & Source Map Intelligence
+### 2. `subdomain_mutator.py` — Subdomain Alteration & Permutation Engine
 
-#### 5. `dynamic_js_collector.py`
-- **Mechanism**: Utilizes headless Chromium via Playwright to crawl target web applications, executing JavaScript frameworks (React, Vue, Angular, Next.js) to discover dynamically loaded scripts.
-- **Mining**: Scans DOM `<script src="...">` tags, inline `<script>` blocks, and CSS stylesheets. Uses advanced regex patterns to extract internal API routes, absolute URLs, hidden parameters, and cloud endpoints.
-- **Live Link Verification**: Discovered URLs are actively probed with HTTP `HEAD`/`GET` requests; dead links (404/500 errors) are discarded to maintain clean data.
-
-#### 6. `source_map_unpacker.py` & `source_code_analyzer.py`
-- **Source Map Detection**: Automatically checks for exposed `.js.map` files referenced via `//# sourceMappingURL=` headers or common filenames (`bundle.js.map`, `main.js.map`, `app.js.map`).
-- **Codebase Reconstruction**: Downloads and unpacks original Webpack/TypeScript source trees from the map file, writing human-readable source files to disk (`recovered_sources/`).
-- **Secret Entropy Analysis**: Feeds the unpacked codebase into `source_code_analyzer.py`, scanning thousands of files for:
-  - AWS Access Keys (`AKIA...`) and Secret Keys
-  - Google Cloud / Firebase API Keys
-  - Slack, Discord, and Telegram Bot Webhooks
-  - JWT Tokens, Bearer Keys, and Private RSA Keys
-  - Database Connection Strings (`postgres://`, `mongodb://`, `mysql://`)
-- **Source Explorer UI**: Adds a direct **"Source Available"** badge in the Hunting Leads UI, enabling analysts to explore reconstructed source files and highlighted secret lines directly in their browser.
-
----
-
-### Access Control & 403 Bypass Testing
-
-#### 7. `bypass_403.py`
-- **Mechanism**: Inspects target endpoints that returned `403 Forbidden` and attempts BurpSuite-style bypass techniques:
-  - **Reverse Proxy Headers**: `X-Original-URL`, `X-Rewrite-URL`, `X-Custom-IP-Authorization`, `X-Forwarded-For: 127.0.0.1`, `X-Remote-IP: 127.0.0.1`, `X-Client-IP: 127.0.0.1`.
-  - **Mid-Path Traversal Manipulation**: Injects `/./`, `/%2e/`, `..;/`, `;`, `%20`, `?`, `#` into the URI path (e.g., `/admin/..;/admin`).
-  - **HTTP Method Override**: Tests `POST`, `PUT`, `TRACE`, `HEAD`, `PATCH`, and `X-HTTP-Method-Override: GET`.
-  - **Port Variations**: Appends `:80`, `:443`, `:8080`, `:8443` to `Host` headers.
-- **Result**: Successful bypasses (HTTP 200/302 responses with non-empty bodies) trigger a **High Severity Alert** with full request/response PoCs.
+- **File Path**: `tools/subdomain_mutator.py`
+- **Role in Pipeline**: Deepens the attack surface map by generating and testing intelligent permutations, alterations, and environment variations of all known subdomains.
+- **Dependencies & Libraries**: `aiodns`, `dns.asyncresolver`, `dnspython`, Python `re`, `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - **Enterprise Taxonomy Matching**: Uses `ENV_TOKEN_REGEX` to extract structural components (prefix, root label, environment tag, index numbers, suffix) from known subdomains.
+  - **Environment Replacement Groups**: Interchanges environment tags against a pool of 50+ enterprise keywords across production, staging, QA, and development tiers:
+    - *Production*: `prod`, `production`, `prd`, `live`, `master`, `main`, `release`.
+    - *Staging & Pre-Prod*: `stage`, `staging`, `stg`, `pre`, `preprod`, `pprd`, `preview`, `pilot`, `nonprod`, `np`.
+    - *Testing & QA*: `test`, `testing`, `tst`, `qa`, `qas`, `uat`, `sit`, `iat`, `bat`, `perf`, `e2e`.
+    - *Development & Sandbox*: `dev`, `devel`, `development`, `local`, `internal`, `eng`, `ci`, `poc`, `lab`, `sandbox`, `sbx`, `demo`.
+  - **Permutation Strategies**:
+    - *Affix Injection*: Injects environment prefixes and suffixes with hyphens and dots (e.g. `api.target.com` ➔ `api-dev.target.com`, `dev-api.target.com`, `api.uat.target.com`).
+    - *Compound Enterprise Modifiers*: Injects enterprise network demarcations: `corp`, `priv`, `pub`, `dmz`, `int`, `ext`.
+    - *Numerical Stepping*: Increments and decrements numbered nodes (e.g. `app1` ➔ `app0`, `app2`, `app01`).
+    - *Service Cross-Pollination*: Tests core service tokens (`vpn`, `auth`, `portal`, `admin`, `login`, `sso`, `gw`, `edge`, `status`) against root labels.
+  - **High-Speed Asynchronous DNS Resolution**: Generated candidate hostnames are validated using `aiodns` and `dns.asyncresolver` against public DNS resolvers (`8.8.8.8`, `1.1.1.1`, `9.9.9.9`, `8.8.4.4`). Uses an `asyncio.Semaphore` (concurrency: 50) to prevent socket starvation and resolver rate-limiting.
+- **Scope & Inputs**: Receives confirmed subdomains from `subdomain_discovery.py`. Enforces `BaseAgent.is_in_scope()` so that no generated mutation escapes the target's apex boundaries.
+- **Database Collections Updated**: Validated, resolving candidates are persisted directly into `domains` with `source="mutator"` and queued for live HTTP probing.
+- **Alert Triggers**: Emits `new_subdomain_discovered` alerts specifically flagged with mutation derivation context.
 
 ---
 
-### Cloud Storage & Bucket Auditor
+### 3. `alive_check.py` — HTTP/HTTPS Probing & Web Asset Verification
 
-#### 8. `cloud_storage_auditor.py`
-- **Target Discovery**: Derives bucket names from apex domain names, subdomains, organization keywords, and references extracted from JavaScript bundles.
-- **Multi-Cloud Auditing**:
-  - **AWS S3**: Probes `https://[bucket].s3.amazonaws.com` and `https://s3.amazonaws.com/[bucket]`.
-  - **Google Cloud Storage (GCS)**: Probes `https://storage.googleapis.com/[bucket]`.
-  - **Azure Blob Storage**: Probes `https://[account].blob.core.windows.net/[container]`.
-- **Permission Tests**:
-  - Tests unauthenticated object listing (`?list-type=2` or XML listing).
-  - Tests unauthenticated upload/write permissions via `PUT` request with canary file.
-- **Alerts**: Publicly writable buckets generate **Critical Severity Alerts**; publicly listable buckets generate **High Severity Alerts**.
-
----
-
-### Historical Archive & Endpoint Mining
-
-#### 9. `archive_hunter.py`
-- **Mechanism**: Queries the **Wayback Machine** (web.archive.org CDX API) and **Common Crawl** for passive historical URLs indexed over the last 15+ years.
-- **Filtering**: Filters through millions of records to extract high-value endpoints:
-  - Legacy `.env`, `.sql`, `.bak`, `.zip`, `.log` files archived before remediation.
-  - API endpoints with hardcoded query parameters containing API keys or tokens.
-  - Historical admin paths and obsolete subdomains.
-- **Verification**: Probes archived URLs to verify if any sensitive files remain accessible on the current live target.
+- **File Path**: `tools/alive_check.py`
+- **Role in Pipeline**: Triage engine that verifies which discovered hostnames and IP addresses host accessible web applications.
+- **Dependencies & Libraries**: `pd-httpx` (ProjectDiscovery binary) or high-concurrency asynchronous `httpx` client.
+- **Underlying Mechanism & Methodology**:
+  - Probes target hostnames across dual protocols (`http://` and `https://`) and standard web ports (`80`, `443`, `8080`, `8443`).
+  - Follows HTTP redirect chains (up to 5 hops) to capture final destination URLs (e.g. `http://domain.com` ➔ `https://www.domain.com/login`).
+  - Extracts and analyzes HTTP response metadata:
+    - Status code (`200 OK`, `301/302 Redirect`, `401 Unauthorized`, `403 Forbidden`, `500 Server Error`).
+    - Response content length and byte size variance.
+    - HTML page title tag parsing (`<title>(.*?)</title>`).
+    - Web server banner extraction (`Server`, `X-Powered-By`).
+    - CDN edge detection (Cloudflare, Akamai, CloudFront IP range matching).
+- **Scope & Inputs**: Reads domains from the `domains` collection where `is_alive=None` or where verification tasks have been queued by the orchestrator.
+- **Database Collections Updated**: Updates the domain document in `domains`: sets `is_alive: true/false`, `alive_url`, `status_code`, `page_title`, `content_length`, `web_server`, and `last_probed_at`.
+- **Alert Triggers**: Flags previously unresponsive assets that suddenly become active or web applications exposing non-standard administrative ports.
 
 ---
 
-### OSINT & Infrastructure Fingerprinting
+### 4. `port_scanner.py` — Port & Service Profiler with Delta Tracking
 
-#### 10. `osint_agent.py`, `whois_agent.py`, `tech_fingerprinter.py`, `waf_detector.py`, `lb_detector.py`
-- **Email Security Auditing (`osint_agent.py`)**: Checks DNS for SPF (`v=spf1`), DMARC (`v=DMARC1`), and DKIM policies. Missing DMARC or `p=none` configurations trigger email spoofing alerts.
-- **WHOIS & Domain Lifecycle (`whois_agent.py`)**: Gathers registrar details, creation dates, and expiration alerts for domains nearing lapse (preventing domain hijacking).
-- **Technology Stack Identification (`tech_fingerprinter.py`)**: Identifies CMS platforms (WordPress, Drupal, Joomla), web servers (Nginx, Apache, IIS), languages (PHP, Node.js, Python), and frameworks (Laravel, Django, Next.js).
-- **Firewall & Proxy Detection (`waf_detector.py` & `lb_detector.py`)**: Detects Cloudflare, Akamai, AWS CloudFront, F5 Big-IP, and HAProxy to assist analysts in tailoring their testing payloads.
-- **Visual Capture (`screenshot_agent.py`)**: Automatically captures web application screenshots and generates thumbnails for rapid visual inspection in the dashboard.
+- **File Path**: `tools/port_scanner.py`
+- **Role in Pipeline**: Scans network boundaries, identifies open TCP ports, captures application banners, and tracks unauthorized port openings over time.
+- **Dependencies & Libraries**: `nmap` (Network Mapper binary), `python-nmap`, Python `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - Executes rapid SYN / TCP connect scans (`-Pn -sV -sC -T4 --top-ports 1000` or target-specific custom port profiles).
+  - Performs banner grabbing (`-sV`) and runs default Nmap NSE scripts (`-sC`) to identify listening services, application protocols, daemon software versions, and Common Platform Enumerations (CPE).
+  - Targets high-risk attack surfaces including:
+    - *Remote Access*: SSH (`22`), Telnet (`23`), RDP (`3389`), VNC (`5900`).
+    - *Databases*: MySQL (`3306`), PostgreSQL (`5432`), Redis (`6379`), MongoDB (`27017`), Elasticsearch (`9200`), Cassandra (`9042`).
+    - *Infrastructure & Containers*: Docker API (`2375`, `2376`), Kubernetes API (`6443`), Kubelet (`10250`), Etcd (`2379`).
+    - *Management*: WinRM (`5985`, `5986`), Webmin (`10000`), cPanel (`2082`, `2083`).
+  - **Delta Change Detection**: Queries previous port snapshots stored in MongoDB. Calculates exact mathematical deltas (`newly_opened_ports`, `closed_ports`, `version_changes`) across recurring scan cycles.
+- **Scope & Inputs**: Targets IP addresses and resolvable hostnames belonging to active target domains.
+- **Database Collections Updated**: Writes structured port records into `domains.ports` array (`port`, `protocol`, `service`, `product`, `version`, `state`, `banner`) and updates `domains.last_port_scan`.
+- **Alert Triggers**: Emits `port_scan_change` (`High` severity) when any database, container daemon, remote access, or unexpected port is newly exposed.
+
+---
+
+### 5. `directory_hunter.py` — Two-Phase Recursive Directory & Sensitive File Hunter
+
+- **File Path**: `tools/directory_hunter.py`
+- **Role in Pipeline**: High-performance web content discovery engine that discovers unlinked directories, exposed configuration files, database backups, and source code repositories.
+- **Dependencies & Libraries**: `ffuf` (Fast Web Fuzzer binary), asynchronous `httpx`, SecLists wordlists (`raft-small-directories-lowercase.txt`, `common-files.txt`).
+- **Underlying Mechanism & Methodology**:
+  - **Phase 1: Directory Enumeration**: Fuzzes paths using `ffuf` to uncover valid application directories (e.g. `/admin`, `/api`, `/v1`, `/v2`, `/internal`, `/dev`, `/staging`, `/test`, `/backup`, `/private`, `/manage`, `/portal`, `/auth`).
+  - **Phase 2: High-Value Sensitive File Probing**: For every discovered directory plus the web application root, executes targeted multi-threaded HTTP probes against high-impact files:
+    - *Critical Credentials & VCS*: `.env`, `.env.local`, `.env.production`, `.git/HEAD`, `.git/config`, `id_rsa`, `id_rsa.pub`, `id_dsa`, `dump.sql`, `backup.sql`, `master.key`, `credentials.json`, `config.json`.
+    - *High-Risk Configurations*: `web.config`, `Dockerfile`, `docker-compose.yml`, `phpinfo.php`, `server-status`, `swagger.json`, `openapi.yaml`, `actuator/heapdump`, `actuator/env`.
+    - *Backup Archives*: `.zip`, `.tar.gz`, `.bak`, `.old`, `.swp`, `site.tar`, `backup.zip`.
+  - **Soft-404 Calibration**: Sends calibration requests to non-existent randomized paths (e.g. `/rand_xyz123_test`) to calculate baseline response codes, body sizes, word counts, and content entropy, filtering out false-positive SPA catchalls.
+- **Scope & Inputs**: Runs against live web endpoints verified by `alive_check.py`.
+- **Database Collections Updated**: Ingests confirmed routes into `domains.endpoints` and updates diagnostic inspection metrics.
+- **Alert Triggers**: Generates `sensitive_files_critical` (`Critical` severity) for `.env`, `.git`, or database dumps; `sensitive_files_high` (`High` severity) for configs and consoles; `sensitive_files_medium` (`Medium` severity) for backups; and `directory_listing_detected` (`Medium` severity) when directory index listings (`Index of /`) are discovered.
+
+---
+
+### 6. `dynamic_js_collector.py` — Headless JavaScript Crawler & Endpoint Miner
+
+- **File Path**: `tools/dynamic_js_collector.py`
+- **Role in Pipeline**: Client-side single-page application (SPA) crawler and script miner that uncovers hidden routes, API endpoints, and cloud storage references executed in modern JavaScript bundles.
+- **Dependencies & Libraries**: Playwright (Chromium headless engine), `beautifulsoup4`, `httpx`, Python `re`.
+- **Underlying Mechanism & Methodology**:
+  - Launches a headless Chromium browser instance with custom user-agent headers, navigating to the target web application and waiting for full DOM hydration and asynchronous network requests to finish.
+  - **Network Interception**: Monitors all outgoing browser network requests to capture dynamically requested JavaScript chunks, webpack assets, third-party CDN libraries, and asynchronous API calls (`fetch` / `XHR`).
+  - **DOM & Script Mining**: Extracts all `<script src="...">` tags, inline `<script>` blocks, and CSS stylesheets.
+  - **Regex Route & Parameter Extraction**: Parses downloaded script contents with advanced regular expressions to detect:
+    - REST API routes (`/api/v1/...`, `/api/v2/...`, `/v1/users`, `/graphql`).
+    - Internal staging and production hostnames and IP addresses.
+    - Cloud storage URLs (S3, GCS, Azure Blob).
+    - Query parameters and hidden authentication keys.
+  - **Live Verification**: Asynchronously probes every discovered endpoint with HTTP `HEAD` / `GET` requests to prune 404/500 dead links.
+  - **Source Map Handoff**: Identifies `//# sourceMappingURL=` comments and hands candidate source map URLs directly to `source_map_unpacker.py`.
+- **Scope & Inputs**: Receives active URLs from `domains` collection with valid HTTP 200/302 responses.
+- **Database Collections Updated**: Appends validated routes to `domains.endpoints` and logs asset references.
+- **Alert Triggers**: Flags newly discovered hidden administrative API routes and feeds downstream exploitation engines.
+
+---
+
+### 7. `source_map_unpacker.py` — Webpack Source Map Extractor & Code Reconstructor
+
+- **File Path**: `tools/source_map_unpacker.py`
+- **Role in Pipeline**: Reconstructs original, unminified, developer-authored frontend codebases from exposed production source maps.
+- **Dependencies & Libraries**: Python `json`, `urllib.parse`, `aiofiles`, `base64`, `os`.
+- **Underlying Mechanism & Methodology**:
+  - **Detection**: Checks JavaScript bundle URLs for trailing `//# sourceMappingURL=` headers or data URIs, and actively probes common naming patterns (`bundle.js.map`, `main.js.map`, `app.js.map`, `vendor.js.map`, `[chunk].js.map`).
+  - **Parsing & Unpacking**: Downloads the JSON source map file (Format Version 3) and extracts the `sources` array (original relative file paths) and `sourcesContent` array (raw, uncompiled source code).
+  - **Directory Traversal Sanitization**: Sanitizes relative path names (stripping `../`, `webpack://`, `webpack:///`) to enforce safe filesystem writes.
+  - **Filesystem Reconstruction**: Rebuilds the complete original project hierarchy on disk under `recovered_sources/<domain>/<bundle_name>/`, restoring original TypeScript (`.ts`, `.tsx`), React JSX, Vue SFC (`.vue`), CSS, and build configuration files.
+  - **Automated Pipeline Handoff**: Passes the path of the reconstructed codebase directly to `source_code_analyzer.py` for static secret analysis.
+- **Scope & Inputs**: Triggered by `dynamic_js_collector.py` or by direct URL inspection tasks.
+- **Database Collections Updated**: Inserts records into `recovered_source_maps` collection with metadata (domain, bundle URL, total recovered files, lines of code, local storage path).
+- **Alert Triggers**: Generates `source_map_exposed` (`High` severity) featuring direct links to the in-dashboard **Source Code Explorer**.
+
+---
+
+### 8. `source_code_analyzer.py` — Static Code Security & Entropy Secret Scanner
+
+- **File Path**: `tools/source_code_analyzer.py`
+- **Role in Pipeline**: Static Application Security Testing (SAST) engine that analyzes recovered source trees and JavaScript bundles for hardcoded secrets, cryptographic keys, and sensitive tokens.
+- **Dependencies & Libraries**: Python `re`, `math` (Shannon entropy calculation), `os`, `json`.
+- **Underlying Mechanism & Methodology**:
+  - **Target Filtering**: Recursively walks `recovered_sources/` directories, filtering for scannable extensions (`.js`, `.jsx`, `.ts`, `.tsx`, `.vue`, `.json`, `.html`, `.env`, `.yml`) while skipping build artifacts, coverage reports, and localized translation files (`/locales/`, `moment/locale`).
+  - **High-Confidence Regex Signatures**: Scans files for definitive secret patterns:
+    - *AWS Credentials*: AWS Access Key ID (`AKIA[0-9A-Z]{16}`), AWS Secret Access Keys.
+    - *Google & Firebase*: Google Cloud API Keys (`AIza[0-9A-Za-z-_]{35}`), Firebase Server Keys.
+    - *Payment Gateways*: Stripe Live & Test Secret Keys (`sk_live_[0-9a-zA-Z]{24}`).
+    - *Communication Webhooks*: Slack Webhooks (`hooks.slack.com/services/T.../B...`), Discord, Telegram tokens.
+    - *Version Control*: GitHub Personal Access Tokens (`ghp_`, `gho_`, `ghu_`).
+    - *Cryptographic Material*: PEM-encoded RSA/SSH Private Keys (`-----BEGIN ... PRIVATE KEY-----`).
+    - *Databases*: Connection URIs containing embedded passwords (`mongodb://`, `postgres://`, `mysql://`).
+  - **Shannon Entropy Analysis**: Evaluates high-entropy character sequences using Shannon entropy calculation ($H = -\sum p_i \log_2 p_i$) to identify randomized alphanumeric tokens and API keys that evade static regex signatures.
+- **Scope & Inputs**: Runs automatically against codebases unpacked by `source_map_unpacker.py`.
+- **Database Collections Updated**: Enriches `recovered_source_maps` collection with discovered secret objects (type, secret snippet, file path, line number, entropy score).
+- **Alert Triggers**: Emits `source_map_secrets_leak` (`Critical` severity for AWS/database/SSH keys; `High` severity for API tokens and webhooks) with line-level code preview.
+
+---
+
+### 9. `bypass_403.py` — Reverse Proxy Header & Traversal 403 Bypasser
+
+- **File Path**: `tools/bypass_403.py`
+- **Role in Pipeline**: Automated access control assessment engine that attempts to circumvent HTTP `403 Forbidden` restrictions on restricted administrative and private endpoints.
+- **Dependencies & Libraries**: Asynchronous `httpx`, Python `asyncio`, `urllib.parse`.
+- **Underlying Mechanism & Methodology**:
+  - Monitors all discovered endpoints returning HTTP 403 status codes and executes an exhaustive series of request manipulation techniques:
+    - *Reverse Proxy & Internal IP Headers*: Injects headers commonly trusted by upstream reverse proxies (Nginx, HAProxy, Envoy, Traefik, Apache): `X-Original-URL: <path>`, `X-Rewrite-URL: <path>`, `X-Custom-IP-Authorization: 127.0.0.1`, `X-Forwarded-For: 127.0.0.1`, `X-Remote-IP: 127.0.0.1`, `X-Client-IP: 127.0.0.1`, `X-Real-IP: 127.0.0.1`, `X-Forwarded-Host: localhost`.
+    - *Mid-Path Traversal & Semicolon Delimiters*: Injects path normalization characters: `/admin/..;/admin`, `/%2e/admin`, `/admin/.`, `/admin?`, `/admin#`, `/admin/*`, `//admin//`.
+    - *HTTP Method Overrides*: Replaces `GET` with `POST`, `PUT`, `TRACE`, `HEAD`, `OPTIONS`, `PATCH`, and header `X-HTTP-Method-Override: GET`.
+    - *Port Header Variations*: Modifies `Host` headers to append internal ports (`target.com:80`, `target.com:443`, `target.com:8080`).
+  - **Verification**: Evaluates response transitions (`403 Forbidden` ➔ `200 OK` or `302 Found`), content length variance, and response body keywords to filter out false positives and catchalls.
+- **Scope & Inputs**: Targets endpoints discovered by `directory_hunter.py` or `alive_check.py` that yielded HTTP 403 status.
+- **Database Collections Updated**: Stores successful bypass payloads and full HTTP request/response transcripts.
+- **Alert Triggers**: Emits `bypass_403_success` (`High` severity) containing the exact curl command and reproducible header combination.
+
+---
+
+### 10. `cloud_storage_auditor.py` — S3, GCS & Azure Blob Bucket Auditor
+
+- **File Path**: `tools/cloud_storage_auditor.py`
+- **Role in Pipeline**: Cloud surface auditor searching for misconfigured, unauthenticated, publicly readable, or publicly writable cloud storage buckets associated with the target.
+- **Dependencies & Libraries**: Asynchronous `httpx`, Python `asyncio`, XML parsing libraries.
+- **Underlying Mechanism & Methodology**:
+  - **Permutation Keyword Engine**: Generates bucket name permutations based on the apex domain, subdomains, organization brand names, environment tags, and keywords extracted from JavaScript bundles (e.g. `target-assets`, `target-backup`, `target-data`, `target-dev-media`, `target-staging-files`).
+  - **Multi-Cloud Target Endpoints**:
+    - *Amazon Web Services (AWS S3)*: Probes `https://[bucket].s3.amazonaws.com` and `https://s3.amazonaws.com/[bucket]`.
+    - *Google Cloud Storage (GCS)*: Probes `https://storage.googleapis.com/[bucket]`.
+    - *Microsoft Azure Blob Storage*: Probes `https://[account].blob.core.windows.net/[container]`.
+  - **Permission Auditing**:
+    - *Unauthenticated Object Listing*: Sends `GET /?list-type=2` to check if XML directory listings and object keys are publicly exposed.
+    - *Unauthenticated Object Upload / Write*: Sends a benign `PUT` request with a randomized canary UUID to determine if anonymous write permissions are permitted.
+- **Scope & Inputs**: Derives target permutations from registered apex domains and active JS discoveries.
+- **Database Collections Updated**: Logs discovered bucket metadata, access permissions, and cloud provider profiles.
+- **Alert Triggers**: Generates `cloud_storage_writable` (`Critical` severity) for publicly writable buckets, and `cloud_storage_listable` (`High` severity) for unauthenticated object listing.
+
+---
+
+### 11. `archive_hunter.py` — Historical Wayback & Common Crawl URL Miner
+
+- **File Path**: `tools/archive_hunter.py`
+- **Role in Pipeline**: Passive historical URL miner uncovering deprecated endpoints, legacy backup files, and parameters indexed across public web archives over the last 15+ years.
+- **Dependencies & Libraries**: Asynchronous `httpx`, Python `asyncio`, `urllib.parse`.
+- **Underlying Mechanism & Methodology**:
+  - Queries the **Wayback Machine CDX Server API** (`web.archive.org/cdx/search/cdx`) and **Common Crawl** index across historical snapshots.
+  - Queries wildcard domains (`*.target.com/*`) with filters for MIME types and status codes (`200 OK`, `302 Found`).
+  - **Regex Filtering for High-Value Leads**: Parses indexed URLs to isolate:
+    - *Sensitive Extensions*: `.sql`, `.bak`, `.zip`, `.tar.gz`, `.env`, `.log`, `.old`, `.inc`, `.conf`, `.swp`.
+    - *Administrative Paths*: `/admin`, `/administrator`, `/login`, `/portal`, `/console`, `/phpmyadmin`, `/api/private`.
+    - *Sensitive Query Parameters*: URLs containing `token=`, `key=`, `secret=`, `auth=`, `password=`, `api_key=`, `access_token=`.
+  - **Live Verification**: Asynchronously probes every extracted sensitive URL against the current live web server to determine if old or forgotten files remain exposed on production servers today.
+- **Scope & Inputs**: Runs on demand or during scheduled cycles against registered apex domains.
+- **Database Collections Updated**: Ingests confirmed historical URLs into `domains.endpoints`.
+- **Alert Triggers**: Generates `archive_historical_leaks` (`High` or `Medium` severity) when previously archived sensitive files are verified to still be accessible on live hosts.
+
+---
+
+### 12. `tech_fingerprinter.py` — Technology Stack & Header Regression Analyzer
+
+- **File Path**: `tools/tech_fingerprinter.py`
+- **Role in Pipeline**: Deep web application profiler that fingerprints software stacks, frameworks, CMS platforms, and audits security headers for dangerous regressions.
+- **Dependencies & Libraries**: `whatweb` CLI binary, `httpx`, Python `re`, `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - **Multi-Source Technology Merging**: Combines signatures from `whatweb`, `pd-httpx`, HTML `<meta name="generator">` tags, script paths, cookie headers, and server banners.
+  - **Deduplication & Canonicalization**: Cleans and canonicalizes discovered technologies into normalized display names and versions (e.g. `WordPress:6.4`, `nginx/1.24`, `React`, `Cloudflare`, `Node.js`, `PHP/8.2`), stripping redundant pseudo-plugins (like `country`, `ip`, `title`).
+  - **OWASP Security Header Auditing**: Inspects HTTP response headers against industry security baselines:
+    - `Content-Security-Policy` (CSP)
+    - `Strict-Transport-Security` (HSTS)
+    - `X-Frame-Options` (Clickjacking prevention)
+    - `X-Content-Type-Options` (MIME sniffing prevention)
+    - `Referrer-Policy`
+  - **Regression Tracking**: Compares current security headers against historical records stored in MongoDB. Detects regressions where an existing security header is removed during subsequent software deployments.
+- **Scope & Inputs**: Runs against all verified live URLs in the `domains` collection.
+- **Database Collections Updated**: Updates `domains.technologies` array and stores security header compliance metrics.
+- **Alert Triggers**: Emits `security_header_regressions` (`Medium` severity) when a critical security header disappears from a monitored asset.
+
+---
+
+### 13. `waf_detector.py` — Web Application Firewall (WAF) Fingerprinter
+
+- **File Path**: `tools/waf_detector.py`
+- **Role in Pipeline**: Perimeter defense identification agent that detects and fingerprints active Web Application Firewalls protecting target hosts.
+- **Dependencies & Libraries**: `wafw00f` CLI binary, Python `json`, `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - Executes `wafw00f -a -o <temp.json> -f json <url>` to actively probe web endpoints with signature requests designed to trigger firewall block rules.
+  - Parses JSON output and normalizes firewall detections, identifying vendor, manufacturer, and detection confidence:
+    - *Cloudflare* (via `cf-ray`, `__cfduid`, challenge HTML)
+    - *AWS WAF / CloudFront* (via `x-amz-cf-id`, AWS 403 block patterns)
+    - *Imperva Incapsula* (via `incap_ses`, `_visid_incap`)
+    - *Akamai* (via Akamai Ghost headers and challenge signatures)
+    - *F5 BIG-IP ASM* (via `TS*` cookies and signature responses)
+    - *ModSecurity, Sucuri, Barracuda, Fortinet, Fastly*.
+  - Classifies whether the firewall operates in active blocking mode or passive inspection mode.
+- **Scope & Inputs**: Targets active web URLs stored in `domains`.
+- **Database Collections Updated**: Updates the `waf` dictionary on the domain record (`detected: bool`, `firewall: str`, `manufacturer: str`, `confidence: str`, `scanned_at`).
+- **Dashboard Impact**: Populates the WAF badge, filter criteria in the Asset Inventory, and detailed diagnostics in the Asset Inspector modal.
+
+---
+
+### 14. `lb_detector.py` — Dual-Method Load Balancer & Reverse Proxy Detector
+
+- **File Path**: `tools/lb_detector.py`
+- **Role in Pipeline**: Infrastructure analysis agent that identifies whether target hostnames are distributed across multi-node load-balanced clusters or reverse proxies.
+- **Dependencies & Libraries**: `socket`, `dnspython`, `httpx`, Python `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - **Method 1: DNS Round-Robin Resolution**: Sends 10 independent DNS queries across intervals to observe IP address rotation, collecting distinct IP addresses or multiple A/AAAA record sets indicating round-robin routing.
+  - **Method 2: HTTP Header Variance Analysis**: Sends 8 consecutive HTTP requests and compares response headers across backends to identify multi-server clustering:
+    - *Timestamp Drift*: Observes sub-second or multi-second inconsistencies in `Date` headers across unsynchronized backend nodes.
+    - *Server Banner Variation*: Flags varying `Server` headers between backend nodes.
+    - *Reverse Proxy Routing Headers*: Detects routing headers: `X-Served-By`, `X-Backend-Server`, `Via`, `X-Cache`.
+    - *Sticky Session Cookies*: Identifies load-balancer session affinity cookies: `BIGipServer*` (F5), `AWSALB` / `AWSALBCORS` (AWS ELB/ALB), `HAPROXYID` (HAProxy), `Route53` session affinity.
+- **Scope & Inputs**: Targets active hostnames in `domains`.
+- **Database Collections Updated**: Updates `load_balancer` object on the domain document (`detected: bool`, `method: str`, `details: dict`, `ips: list`).
+- **Dashboard Impact**: Powers the Load Balancer filter in the asset table and displays cluster diagnostics in the Infrastructure tab.
+
+---
+
+### 15. `osint_agent.py` — DNS Intelligence & SPF/DMARC Security Auditor
+
+- **File Path**: `tools/osint_agent.py`
+- **Role in Pipeline**: Open-Source Intelligence collector mapping DNS infrastructure and auditing email anti-spoofing configurations.
+- **Dependencies & Libraries**: `dnspython`, Python `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - **Complete DNS Zone Enumeration**: Queries and captures all standard DNS resource records:
+    - `A` / `AAAA` (IPv4 and IPv6 addressing)
+    - `CNAME` (Canonical names and alias tracking)
+    - `MX` (Mail exchanger routing and email providers)
+    - `TXT` (SPF, verification tokens, security policies)
+    - `NS` (Authoritative nameservers)
+    - `SOA` (Start of Authority, serials, and refresh intervals)
+    - `PTR` (Reverse DNS pointer validation)
+  - **Email Anti-Spoofing Security Audit**:
+    - *SPF (`v=spf1`)*: Checks for presence, validates syntax, identifies multiple contradictory records, and checks for dangerous qualifiers like `+all` (all senders permitted) or `~all` (SoftFail without DMARC).
+    - *DMARC (`v=DMARC1`)*: Parses policy mode (`p=none`, `p=quarantine`, `p=reject`), percentage coverage (`pct`), and reporting mailboxes (`rua`, `ruf`). Flags `p=none` configurations as vulnerable to email impersonation.
+- **Scope & Inputs**: Targets apex domains registered in the dashboard.
+- **Database Collections Updated**: Populates `domains.osint` dictionary with raw DNS records and email policy audit findings.
+- **Alert Triggers**: Emits `osint_spf_dmarc_missing` (`Medium` severity) when email anti-spoofing policies are absent or configured in non-enforcing modes.
+
+---
+
+### 16. `whois_agent.py` — WHOIS Registrar & Domain Lifecycle Monitor
+
+- **File Path**: `tools/whois_agent.py`
+- **Role in Pipeline**: Domain registrar intelligence collector tracking domain ownership metadata and alerting against expiration hijacking risks.
+- **Dependencies & Libraries**: System `whois` CLI utility, Python `re`, `datetime`.
+- **Underlying Mechanism & Methodology**:
+  - Executes authoritative WHOIS queries against relevant top-level domain (TLD) registries.
+  - Extracts and parses core registrar attributes:
+    - Registrar Name & IANA ID
+    - Creation / Registration Date
+    - Last Updated Date
+    - Registry Expiration Date
+    - Registrant Organization & Country
+    - Admin Contact Email
+    - Authoritative Nameservers
+    - EPP Domain Status Codes (`clientTransferProhibited`, `serverDeleteProhibited`)
+  - **Domain Lifecycle & Expiration Monitoring**: Calculates exact remaining days until domain expiration. Flags domains expiring within 30 days to alert security teams to renew domains before they lapse or are targeted by domain squatters and attackers.
+- **Scope & Inputs**: Executes on apex root domains in `domains`.
+- **Database Collections Updated**: Populates `domains.whois` with registrar and lifecycle metadata.
+- **Dashboard Impact**: Renders the dedicated WHOIS tab in the Asset Inspector modal.
+
+---
+
+### 17. `screenshot_agent.py` — Headless Chromium Visual Capture Agent
+
+- **File Path**: `tools/screenshot_agent.py`
+- **Role in Pipeline**: Automated visual reconnaissance agent providing analysts with immediate visual context for all live web applications.
+- **Dependencies & Libraries**: Playwright (Chromium headless engine), Python `os`, `asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - Spawns a sandboxed headless Chromium browser with a standard 1280x800 desktop viewport.
+  - Navigates to active HTTP/HTTPS URLs with SSL verification bypass (`ignore_https_errors=True`), timeout handling, and network idle wait states.
+  - Captures a full rendered PNG screenshot of the landing interface, validates file size to prevent truncated captures, and saves the image to `static/screenshots/<domain>.png`.
+  - Generates optimized web thumbnails for high-speed loading in the dashboard search table.
+- **Scope & Inputs**: Targets active web endpoints verified by `alive_check.py`.
+- **Database Collections Updated**: Updates `domains.screenshot_path` and `domains.screenshot_captured_at`.
+- **Dashboard Impact**: Displays visual thumbnail cards in the Asset Inventory search table and live visual previews in the Overview tab of the Asset Inspector.
+
+---
+
+### 18. `loop_orchestrator.py` — Continuous Workflow Pipeline Coordinator
+
+- **File Path**: `tools/loop_orchestrator.py`
+- **Role in Pipeline**: Master autonomous scheduling daemon that controls execution stages, manages concurrency, dispatches queue items, and monitors pipeline health.
+- **Dependencies & Libraries**: Python `asyncio`, `datetime`, `motor.motor_asyncio`.
+- **Underlying Mechanism & Methodology**:
+  - **Dependency Graph & Staged Execution**: Ensures scanner engines run in logical dependency order:
+    1. *Stage 1*: Subdomain Discovery & Permutation Mutation (`subdomain_discovery`, `subdomain_mutator`).
+    2. *Stage 2*: Web Asset Probing (`alive_check`).
+    3. *Stage 3*: Network, Service & Perimeter Profiling (`port_scanner`, `tech_fingerprinter`, `waf_detector`, `lb_detector`, `osint_agent`, `screenshot_agent`).
+    4. *Stage 4*: Content & Deep Surface Hunting (`directory_hunter`, `dynamic_js_collector`, `cloud_storage_auditor`, `archive_hunter`).
+    5. *Stage 5*: Source Code & Access Control Exploitation (`source_map_unpacker`, `source_code_analyzer`, `bypass_403`).
+  - **Task Queue Leasing**: Polls the MongoDB `tasks` collection for pending items, leases tasks with status transitions (`pending` ➔ `processing` ➔ `completed` / `failed`), and handles retries.
+  - **Heartbeat & Stale Task Recovery**: Monitors worker heartbeat timestamps. If a scanner microservice crashes or stalls (> 180s without heartbeat), the orchestrator automatically reclaims orphaned tasks without interrupting active, long-running processes (like FFUF or Nmap).
+  - **Global Pause Synchronization**: Listens for user pause/stop commands from the dashboard and halts all dispatch loops in real time.
+- **Scope & Inputs**: Monitors global database state in `domains`, `tasks`, `scanners`, and `settings`.
+- **Database Collections Updated**: Manages state in `tasks` and updates scan cycle timestamps in `domains`.
+
+---
+
+### 19. `base_agent.py` — Core Agent Framework & Alert Deduplication Engine
+
+- **File Path**: `tools/base_agent.py`
+- **Role in Pipeline**: The foundational abstract base class inherited by all 18 reconnaissance micro-agents, providing unified database connectivity, scope enforcement, pause handling, and alert deduplication.
+- **Dependencies & Libraries**: `motor.motor_asyncio`, Python `asyncio`, `hashlib`, `urllib.parse`, `logging`.
+- **Underlying Mechanism & Methodology**:
+  - **Unified Lifecycle & Telemetry**: Initializes asynchronous MongoDB connections (`motor`), standardizes structured logging, and registers heartbeat telemetry in the `scanners` collection so the dashboard can monitor engine status.
+  - **Strict Scope Enforcement (`BaseAgent.is_in_scope`)**: Validates every candidate target against authorized program rules before any probe is transmitted. Strips protocols, ports, credentials, and paths, verifying whether a hostname matches the root domain or is a valid subdomain (`*.target.com`), preventing accidental off-scope activity.
+  - **Cryptographic Alert Deduplication**: Computes unique SHA-256 / MD5 fingerprints from `(target, alert_type, key_details)` and verifies them against the `alert_fingerprints` collection, preventing duplicate alerts when recurring scans discover existing issues.
+  - **Global Pause Coordination (`wait_if_paused`)**: Utilizes `asyncio.Event` to pause agent loops when scanning is halted from the UI, resuming instantly when reactivated.
+  - **Standardized Lead Creation API (`create_lead`)**: Exposes a unified API for raising hunting leads with severity classification (`critical`, `high`, `medium`, `low`), formatted markdown descriptions, remediation advice, and structured JSON technical details.
+- **Database Collections Updated**: Updates `scanners`, `leads`, and `alert_fingerprints`.
 
 ---
 
