@@ -54,6 +54,12 @@ class ContinuousLoopAgent(BaseAgent):
                 "last_cycle_completed": domain.get("last_scanned")
             }}
         )
+        await self.domains_col.update_one(
+            {"_id": domain["_id"], "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+            {"$set": {
+                "infrastructure.subdomains.$[].scanned": False
+            }}
+        )
 
         # Clear any stale or orphan tasks for this domain before re-queuing
         await self.tasks_col.delete_many({"root_domain": root_domain})
@@ -70,8 +76,21 @@ class ContinuousLoopAgent(BaseAgent):
         else:
             cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.datetime.utcnow()})
 
+        # Queue verification for all existing subdomains so they are actively scanned during each cycle
+        subs = (domain.get("infrastructure") or {}).get("subdomains", [])
+        for sub in subs:
+            sub_name = sub.get("name") if isinstance(sub, dict) else sub
+            if sub_name and sub_name != root_domain:
+                cycle_tasks.append({
+                    "root_domain": root_domain,
+                    "target": sub_name,
+                    "task_type": "verification",
+                    "status": "pending",
+                    "created_at": datetime.datetime.utcnow()
+                })
+
         await self.tasks_col.insert_many(cycle_tasks)
-        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain}.")
+        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain} (including {len(subs)} subdomains).")
 
     async def recover_stale_tasks(self):
         """
@@ -192,7 +211,7 @@ class ContinuousLoopAgent(BaseAgent):
                 # Domain is marked completed (scanned: True). Check if it is time to restart.
                 should_restart = False
                 custom_interval = domain.get("scan_interval")
-                if custom_interval is not None:
+                if custom_interval is not None and float(custom_interval) > 0:
                     # User specified an explicit schedule interval (hours)
                     restart_threshold_seconds = float(custom_interval) * 3600
                 else:

@@ -70,16 +70,21 @@ class AliveCheckAgent(BaseAgent):
             if alive:
                 # 3. Add to domains collection if it's a subdomain
                 if target != root_domain:
-                    # Only add if it doesn't exist to avoid duplicates with different timestamps
-                    exists = await self.domains_col.find_one({
-                        "domain": root_domain,
-                        "infrastructure.subdomains.name": target
-                    })
-                    if not exists:
-                        await self.domains_col.update_one(
-                            {"domain": root_domain},
-                            {"$addToSet": {"infrastructure.subdomains": {"name": target, "added_at": datetime.datetime.utcnow().isoformat()}}}
-                        )
+                    # Atomically add only if not already present by name
+                    await self.domains_col.update_one(
+                        {
+                            "domain": root_domain,
+                            "infrastructure.subdomains.name": {"$ne": target}
+                        },
+                        {
+                            "$push": {
+                                "infrastructure.subdomains": {
+                                    "name": target,
+                                    "added_at": datetime.datetime.utcnow().isoformat()
+                                }
+                            }
+                        }
+                    )
                 
                 # 4. Add discovery task for recursion (ONLY if it's not a wildcard child or we really trust it)
                 # For now, let's limit recursion to 2 levels to prevent explosion
@@ -114,9 +119,29 @@ class AliveCheckAgent(BaseAgent):
                         "created_at": datetime.datetime.utcnow()
                     })
 
+                # Record alive status in infrastructure.subdomains
+                if target != root_domain:
+                    await self.domains_col.update_one(
+                        {"domain": root_domain, "infrastructure.subdomains.name": target},
+                        {"$set": {
+                            "infrastructure.subdomains.$.alive": True,
+                            "infrastructure.subdomains.$.last_scanned": datetime.datetime.utcnow().isoformat()
+                        }}
+                    )
+
                 logger.info(f"Target {target} is ALIVE and added to pipeline.")
             else:
                 logger.info(f"Target {target} is DEAD or Wildcard FP.")
+                # Mark dead subdomains as scanned and alive=False so they do not stay stuck in Pending
+                if target != root_domain:
+                    await self.domains_col.update_one(
+                        {"domain": root_domain, "infrastructure.subdomains.name": target},
+                        {"$set": {
+                            "infrastructure.subdomains.$.alive": False,
+                            "infrastructure.subdomains.$.scanned": True,
+                            "infrastructure.subdomains.$.last_scanned": datetime.datetime.utcnow().isoformat()
+                        }}
+                    )
 
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

@@ -306,7 +306,8 @@ class ArchiveHunterAgent(BaseAgent):
                     exploitation_suggestions=[
                         f"Check if {sf['url']} is still accessible on live server.",
                         "Inspect Web Archive snapshot for previously exposed database passwords or API keys."
-                    ]
+                    ],
+                    alert_type="archive_historical_leaks"
                 )
 
         # Complete tasks in tasks_col

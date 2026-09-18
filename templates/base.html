@@ -237,6 +237,57 @@
             box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04) !important;
         }
 
+        /* ==========================================================================
+           FIXED SYSTEM THEME CLASSES FOR SUB-PANELS, DETAILS & ITEMS (LIGHT & DARK)
+           ========================================================================== */
+        .recon-sub-panel {
+            background-color: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        html.dark .recon-sub-panel {
+            background-color: #0b1120 !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        .recon-sub-item {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+        .recon-sub-item:hover {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+        }
+        html.dark .recon-sub-item {
+            background-color: #020617 !important;
+            border: 1px solid #1e293b !important;
+            color: #f8fafc !important;
+        }
+        html.dark .recon-sub-item:hover {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        .recon-stat-card {
+            background-color: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        html.dark .recon-stat-card {
+            background-color: #0b1120 !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        .recon-code-well {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #334155 !important;
+        }
+        html.dark .recon-code-well {
+            background-color: #020617 !important;
+            border: 1px solid #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
         /* Sub-wells, pills, and nested dark backgrounds */
         html:not(.dark) .bg-slate-900:not(pre):not(code):not([class*="language-"]):not(.keep-dark),
         html:not(.dark) [class*="bg-slate-900/"]:not(pre):not(code):not([class*="language-"]):not(.keep-dark),
@@ -281,6 +332,8 @@
         html:not(.dark) h4.text-white,
         html:not(.dark) h5.text-white,
         html:not(.dark) p.text-white,
+        html:not(.dark) strong.text-white,
+        html:not(.dark) b.text-white,
         html:not(.dark) span.text-white:not([class*="bg-"]):not(button *),
         html:not(.dark) div.text-white:not([class*="bg-"]):not(button *) {
             color: #0f172a !important;
@@ -476,13 +529,13 @@
         /* Protect solid colored buttons so their text remains crisp white */
         html:not(.dark) button.bg-tech-accent,
         html:not(.dark) button.bg-tech-danger,
-        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-red"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]),
-        html:not(.dark) button[class*="bg-gradient"],
+        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-red"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]):not([class*="hover:"]):not(td button),
+        html:not(.dark) button[class*="bg-gradient"]:not(td button),
         html:not(.dark) a.bg-tech-accent,
         html:not(.dark) a.bg-tech-danger,
         html:not(.dark) .badge-white-text {
@@ -490,16 +543,137 @@
         }
         html:not(.dark) button.bg-tech-accent *,
         html:not(.dark) button.bg-tech-danger *,
-        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-red"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]) *,
-        html:not(.dark) button[class*="bg-gradient"] *,
+        html:not(.dark) button[class*="bg-purple"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-emerald"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-rose"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-red"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-blue"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-sky"]:not([class*="/"]):not([class*="hover:"]):not(td button) *,
+        html:not(.dark) button[class*="bg-gradient"]:not(td button) *,
         html:not(.dark) a.bg-tech-accent *,
         html:not(.dark) a.bg-tech-danger * {
             color: #ffffff !important;
+        }
+
+        /* Unified Hunting Leads Table Action Buttons (Light & Dark) */
+        html:not(.dark) .lead-action-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 2rem !important;
+            height: 2rem !important;
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+            box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05) !important;
+        }
+        html:not(.dark) .lead-action-btn svg {
+            color: inherit !important;
+            stroke: currentColor !important;
+            width: 1rem !important;
+            height: 1rem !important;
+        }
+        html:not(.dark) .lead-action-btn:hover {
+            background-color: #f1f5f9 !important;
+            border-color: #94a3b8 !important;
+        }
+        html:not(.dark) .lead-action-btn.action-details:hover {
+            color: #0284c7 !important;
+            border-color: #38bdf8 !important;
+            background-color: #f0f9ff !important;
+        }
+        html:not(.dark) .lead-action-btn.action-domain:hover {
+            color: #0284c7 !important;
+            border-color: #38bdf8 !important;
+            background-color: #f0f9ff !important;
+        }
+        html:not(.dark) .lead-action-btn.action-notes:hover {
+            color: #4f46e5 !important;
+            border-color: #818cf8 !important;
+            background-color: #eef2ff !important;
+        }
+        html:not(.dark) .lead-action-btn.action-sourcemap {
+            color: #059669 !important;
+            border-color: #6ee7b7 !important;
+            background-color: #ecfdf5 !important;
+        }
+        html:not(.dark) .lead-action-btn.action-sourcemap:hover {
+            color: #047857 !important;
+            border-color: #10b981 !important;
+            background-color: #d1fae5 !important;
+        }
+        html:not(.dark) .lead-action-btn.action-promote:hover {
+            color: #7c3aed !important;
+            border-color: #a855f7 !important;
+            background-color: #f5f3ff !important;
+        }
+        html:not(.dark) .lead-action-btn.action-promote.is-promoted {
+            color: #7c3aed !important;
+            border-color: #c084fc !important;
+            background-color: #f3e8ff !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) .lead-action-btn.action-mute:hover {
+            color: #e11d48 !important;
+            border-color: #fb7185 !important;
+            background-color: #fff1f2 !important;
+        }
+
+        html.dark .lead-action-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 2rem !important;
+            height: 2rem !important;
+            background-color: rgba(30, 41, 59, 0.7) !important;
+            border: 1px solid rgba(51, 65, 85, 0.6) !important;
+            color: #94a3b8 !important;
+        }
+        html.dark .lead-action-btn svg {
+            color: inherit !important;
+            stroke: currentColor !important;
+            width: 1rem !important;
+            height: 1rem !important;
+        }
+        html.dark .lead-action-btn:hover {
+            background-color: #334155 !important;
+            border-color: #64748b !important;
+            color: #f1f5f9 !important;
+        }
+        html.dark .lead-action-btn.action-details:hover {
+            color: #38bdf8 !important;
+            border-color: #0284c7 !important;
+        }
+        html.dark .lead-action-btn.action-domain:hover {
+            color: #38bdf8 !important;
+            border-color: #0284c7 !important;
+        }
+        html.dark .lead-action-btn.action-notes:hover {
+            color: #818cf8 !important;
+            border-color: #6366f1 !important;
+        }
+        html.dark .lead-action-btn.action-sourcemap {
+            color: #34d399 !important;
+            border-color: rgba(16, 185, 129, 0.4) !important;
+            background-color: rgba(16, 185, 129, 0.15) !important;
+        }
+        html.dark .lead-action-btn.action-sourcemap:hover {
+            color: #6ee7b7 !important;
+            border-color: #10b981 !important;
+            background-color: rgba(16, 185, 129, 0.25) !important;
+        }
+        html.dark .lead-action-btn.action-promote:hover {
+            color: #c084fc !important;
+            border-color: #a855f7 !important;
+        }
+        html.dark .lead-action-btn.action-promote.is-promoted {
+            color: #d8b4fe !important;
+            border-color: rgba(168, 85, 247, 0.5) !important;
+            background-color: rgba(168, 85, 247, 0.2) !important;
+        }
+        html.dark .lead-action-btn.action-mute:hover {
+            color: #f87171 !important;
+            border-color: #ef4444 !important;
         }
 
         /* High contrast stat pills & badges in Light Mode */
@@ -563,11 +737,11 @@
         }
 
         /* High-contrast Terminal & Code Blocks (Preserve dark terminal theme for PoCs) */
-        html:not(.dark) pre,
-        html:not(.dark) pre code,
-        html:not(.dark) [class*="language-"],
+        html:not(.dark) pre:not(.whois-raw-pre):not(#raw-whois-output):not(#scm-code-pre),
+        html:not(.dark) pre:not(.whois-raw-pre):not(#raw-whois-output):not(#scm-code-pre) code:not(#scm-code-content),
+        html:not(.dark) [class*="language-"]:not(#scm-code-content):not(#scm-code-pre),
         html:not(.dark) .terminal-window,
-        html:not(.dark) pre.bg-slate-950,
+        html:not(.dark) pre.bg-slate-950:not(.whois-raw-pre):not(#raw-whois-output):not(#scm-code-pre),
         html:not(.dark) div.font-mono.bg-slate-950,
         html:not(.dark) .prism-editor,
         html:not(.dark) .keep-dark {
@@ -575,8 +749,85 @@
             border: 1px solid #1e293b !important;
             color: #f8fafc !important;
         }
-        html:not(.dark) pre * {
+        html:not(.dark) pre:not(.whois-raw-pre):not(#raw-whois-output):not(#scm-code-pre) *:not(.token) {
             color: inherit;
+        }
+
+        /* Raw WHOIS Output: White background with black text in Daylight (Light) Mode */
+        html:not(.dark) .whois-raw-pre,
+        html:not(.dark) #raw-whois-output {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) .whois-raw-pre *,
+        html:not(.dark) #raw-whois-output * {
+            color: #000000 !important;
+        }
+
+        /* Raw WHOIS Output in Dark Mode */
+        html.dark .whois-raw-pre,
+        html.dark #raw-whois-output {
+            background-color: #020617 !important;
+            color: #e2e8f0 !important;
+            border: 1px solid #1e293b !important;
+        }
+
+        /* WhatWeb Fingerprints & Tech Badges: Light Mode */
+        html:not(.dark) .whatweb-container {
+            background-color: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        html:not(.dark) .whatweb-badge {
+            background-color: #ffffff !important;
+            border: 1px solid #94a3b8 !important;
+            color: #0f172a !important;
+            box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.06) !important;
+        }
+        html:not(.dark) .whatweb-badge:hover {
+            border-color: #475569 !important;
+            box-shadow: 0 2px 4px 0 rgba(15, 23, 42, 0.1) !important;
+        }
+        html:not(.dark) .whatweb-name {
+            color: #0f172a !important;
+            font-weight: 700 !important;
+        }
+        html:not(.dark) .whatweb-detail {
+            color: #be123c !important; /* Rose-700 for high contrast on white */
+            font-weight: 700 !important;
+        }
+        html:not(.dark) .tech-stack-badge {
+            background-color: #ffffff !important;
+            border: 1px solid #94a3b8 !important;
+            color: #0f172a !important;
+            box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.05) !important;
+        }
+
+        /* WhatWeb Fingerprints & Tech Badges: Dark Mode */
+        html.dark .whatweb-container {
+            background-color: rgba(15, 23, 42, 0.5) !important;
+            border: 1px solid #1e293b !important;
+        }
+        html.dark .whatweb-badge {
+            background-color: rgba(30, 41, 59, 0.85) !important;
+            border: 1px solid rgba(71, 85, 105, 0.6) !important;
+            color: #cbd5e1 !important;
+        }
+        html.dark .whatweb-badge:hover {
+            border-color: #94a3b8 !important;
+        }
+        html.dark .whatweb-name {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+        html.dark .whatweb-detail {
+            color: #fb7185 !important; /* Rose-400 on dark slate */
+            font-weight: 600 !important;
+        }
+        html.dark .tech-stack-badge {
+            background-color: #1e293b !important;
+            border: 1px solid rgba(71, 85, 105, 0.6) !important;
+            color: #cbd5e1 !important;
         }
         html:not(.dark) code:not(pre code) {
             background-color: #f1f5f9 !important;
@@ -639,6 +890,832 @@
         html:not(.dark) footer {
             border-color: #e2e8f0 !important;
             color: #64748b !important;
+        }
+
+        /* ==========================================================================
+           RECOVERED SOURCE MODAL & MONOKAI CODE VIEWER SYSTEM
+           ========================================================================== */
+
+        /* --- Recovered Source Modal in Daylight (Light) Theme --- */
+        html:not(.dark) #source-code-viewer-modal {
+            background-color: rgba(15, 23, 42, 0.55) !important;
+            backdrop-filter: blur(8px) !important;
+        }
+        html:not(.dark) #scm-modal-dialog {
+            background-color: #ffffff !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+            box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.2) !important;
+        }
+
+        /* Top Header Bar */
+        html:not(.dark) #scm-header-bar {
+            background-color: #f8fafc !important;
+            border-bottom-color: #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-header-bar .scm-header-label {
+            color: #475569 !important;
+        }
+        html:not(.dark) #scm-target-link {
+            background-color: #ecfdf5 !important;
+            border-color: #a7f3d0 !important;
+            color: #059669 !important;
+        }
+        html:not(.dark) #scm-target-link:hover {
+            background-color: #d1fae5 !important;
+            color: #047857 !important;
+        }
+        html:not(.dark) #scm-sourcemap-link {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-sourcemap-link:hover {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-stats-total,
+        html:not(.dark) #scm-stats-vendor {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-stats-app {
+            color: #059669 !important;
+        }
+
+        /* Center Mode Switcher Tabs */
+        html:not(.dark) #scm-mode-tabs-container {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+        }
+        html:not(.dark) #scm-mode-tabs-container button {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-mode-tabs-container button:hover {
+            color: #0f172a !important;
+            background-color: rgba(226, 232, 240, 0.7) !important;
+        }
+        html:not(.dark) #scm-mode-files-btn.active-tab,
+        html:not(.dark) #scm-mode-files-btn.bg-emerald-500\/20 {
+            background-color: #ffffff !important;
+            color: #059669 !important;
+            border: 1px solid #10b981 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+        }
+        html:not(.dark) #scm-mode-routes-btn.active-tab,
+        html:not(.dark) #scm-mode-routes-btn.bg-sky-500\/20 {
+            background-color: #ffffff !important;
+            color: #0284c7 !important;
+            border: 1px solid #0ea5e9 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+        }
+        html:not(.dark) #scm-mode-secrets-btn.active-tab,
+        html:not(.dark) #scm-mode-secrets-btn.bg-rose-500\/20 {
+            background-color: #ffffff !important;
+            color: #e11d48 !important;
+            border: 1px solid #f43f5e !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+        }
+        html:not(.dark) #scm-routes-tab-badge {
+            background-color: #e0f2fe !important;
+            color: #0369a1 !important;
+            border-color: #bae6fd !important;
+        }
+        html:not(.dark) #scm-secrets-tab-badge {
+            background-color: #ffe4e6 !important;
+            color: #be123c !important;
+            border-color: #fecdd3 !important;
+        }
+
+        /* Header Buttons */
+        html:not(.dark) #scm-visit-app-btn {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-visit-app-btn:hover {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-modal-close-btn {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-modal-close-btn:hover {
+            background-color: #e2e8f0 !important;
+            color: #0f172a !important;
+        }
+
+        /* Left Sidebar: Explorer & Search */
+        html:not(.dark) #scm-sidebar-pane {
+            background-color: #f8fafc !important;
+            border-right: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-left-tabs-container {
+            background-color: #f1f5f9 !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-left-tab-explorer {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-left-tab-explorer.active-left-tab,
+        html:not(.dark) #scm-left-tab-explorer.text-emerald-400 {
+            background-color: #ffffff !important;
+            color: #059669 !important;
+            border-bottom: 2px solid #10b981 !important;
+        }
+        html:not(.dark) #scm-left-tab-search {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-left-tab-search.active-left-tab,
+        html:not(.dark) #scm-left-tab-search.text-amber-400 {
+            background-color: #ffffff !important;
+            color: #d97706 !important;
+            border-bottom: 2px solid #f59e0b !important;
+        }
+        html:not(.dark) #scm-search-hit-badge {
+            background-color: #fef3c7 !important;
+            color: #b45309 !important;
+            border-color: #fde68a !important;
+        }
+
+        /* File Tree Controls & Input */
+        html:not(.dark) #scm-explorer-controls,
+        html:not(.dark) #scm-search-controls {
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-file-search,
+        html:not(.dark) #scm-code-query {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-file-search::placeholder,
+        html:not(.dark) #scm-code-query::placeholder {
+            color: #94a3b8 !important;
+        }
+        html:not(.dark) #scm-category-tabs-container {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        html:not(.dark) #scm-category-tabs-container button {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-category-tabs-container button:hover {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-category-tabs-container button.text-emerald-400 {
+            background-color: #ffffff !important;
+            color: #059669 !important;
+            border: 1px solid #10b981 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        }
+
+        /* File List Items */
+        html:not(.dark) #scm-file-list {
+            background-color: #f8fafc !important;
+        }
+        html:not(.dark) .scm-file-item {
+            color: #334155 !important;
+        }
+        html:not(.dark) .scm-file-item:hover {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) .scm-file-item-active {
+            background-color: #ecfdf5 !important;
+            border-left: 3px solid #10b981 !important;
+            color: #065f46 !important;
+        }
+        html:not(.dark) .scm-file-lines {
+            color: #94a3b8 !important;
+        }
+        html:not(.dark) #scm-file-list-footer,
+        html:not(.dark) #scm-search-footer {
+            background-color: #f1f5f9 !important;
+            border-top: 1px solid #e2e8f0 !important;
+            color: #64748b !important;
+        }
+
+        /* Search Panel Options & Results */
+        html:not(.dark) #scm-search-opt-case,
+        html:not(.dark) #scm-search-opt-regex {
+            color: #64748b !important;
+        }
+        html:not(.dark) #scm-search-opt-case:hover,
+        html:not(.dark) #scm-search-opt-regex:hover {
+            color: #0f172a !important;
+            background-color: #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-search-submit-btn {
+            background-color: #fef3c7 !important;
+            color: #b45309 !important;
+            border-color: #fde68a !important;
+        }
+        html:not(.dark) #scm-search-submit-btn:hover {
+            background-color: #f59e0b !important;
+            color: #ffffff !important;
+        }
+        html:not(.dark) .scm-search-card {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) .scm-search-card-header {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+            color: #1e293b !important;
+        }
+        html:not(.dark) .scm-search-card-header:hover {
+            background-color: #f1f5f9 !important;
+        }
+        html:not(.dark) .scm-search-match-row {
+            color: #334155 !important;
+        }
+        html:not(.dark) .scm-search-match-row:hover {
+            background-color: #fffbeb !important;
+            color: #92400e !important;
+        }
+
+        /* Right Pane: Code Editor Toolbar */
+        html:not(.dark) #scm-editor-toolbar {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-active-path {
+            color: #0f172a !important;
+            font-weight: 600 !important;
+        }
+        html:not(.dark) #scm-active-lines,
+        html:not(.dark) #scm-active-size {
+            background-color: #e2e8f0 !important;
+            color: #475569 !important;
+        }
+        html:not(.dark) #scm-copy-code-btn,
+        html:not(.dark) #scm-wrap-btn,
+        html:not(.dark) #scm-code-theme-toggle {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-copy-code-btn:hover,
+        html:not(.dark) #scm-wrap-btn:hover,
+        html:not(.dark) #scm-code-theme-toggle:hover {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+
+        /* Routes Explorer View in Light Mode */
+        html:not(.dark) #scm-routes-view {
+            background-color: #ffffff !important;
+        }
+        html:not(.dark) #scm-routes-header {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-stat-total-routes-card {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        html:not(.dark) #scm-stat-total-routes {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-reanalyze-btn,
+        html:not(.dark) #scm-export-json-btn,
+        html:not(.dark) #scm-export-csv-btn {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-reanalyze-btn:hover,
+        html:not(.dark) #scm-export-json-btn:hover,
+        html:not(.dark) #scm-export-csv-btn:hover {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-routes-controls {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-routes-search {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-routes-method-filter {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-routes-controls .cat-tabs {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        html:not(.dark) #scm-routes-controls .cat-tabs button.text-sky-400 {
+            background-color: #ffffff !important;
+            color: #0284c7 !important;
+            border: 1px solid #0ea5e9 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        }
+        html:not(.dark) #scm-routes-table thead {
+            background-color: #f8fafc !important;
+        }
+        html:not(.dark) #scm-routes-table thead tr {
+            border-bottom: 2px solid #e2e8f0 !important;
+            color: #475569 !important;
+        }
+        html:not(.dark) .scm-route-row {
+            border-bottom: 1px solid #f1f5f9 !important;
+        }
+        html:not(.dark) .scm-route-row:hover {
+            background-color: #f8fafc !important;
+        }
+        html:not(.dark) .scm-route-path {
+            color: #0f172a !important;
+        }
+        html:not(.dark) .scm-route-row:hover .scm-route-path {
+            color: #0284c7 !important;
+        }
+        html:not(.dark) .scm-route-file {
+            color: #475569 !important;
+        }
+        html:not(.dark) .scm-route-file:hover {
+            color: #059669 !important;
+        }
+        html:not(.dark) .scm-route-snippet {
+            background-color: #f1f5f9 !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-routes-footer {
+            background-color: #f8fafc !important;
+            border-top: 1px solid #e2e8f0 !important;
+            color: #64748b !important;
+        }
+
+        /* Secrets Explorer View in Light Mode */
+        html:not(.dark) #scm-secrets-view {
+            background-color: #ffffff !important;
+        }
+        html:not(.dark) #scm-secrets-header {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-stat-total-secrets-card {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+        }
+        html:not(.dark) #scm-stat-total-secrets {
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-reanalyze-secrets-btn,
+        html:not(.dark) #scm-export-secrets-json-btn {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #334155 !important;
+        }
+        html:not(.dark) #scm-reanalyze-secrets-btn:hover,
+        html:not(.dark) #scm-export-secrets-json-btn:hover {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-secrets-controls {
+            background-color: #f8fafc !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+        }
+        html:not(.dark) #scm-secrets-search,
+        html:not(.dark) #scm-secrets-type-filter {
+            background-color: #ffffff !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        html:not(.dark) #scm-secrets-table thead {
+            background-color: #f8fafc !important;
+        }
+        html:not(.dark) #scm-secrets-table thead tr {
+            border-bottom: 2px solid #e2e8f0 !important;
+            color: #475569 !important;
+        }
+        html:not(.dark) .scm-secret-row {
+            border-bottom: 1px solid #f1f5f9 !important;
+        }
+        html:not(.dark) .scm-secret-row:hover {
+            background-color: #f8fafc !important;
+        }
+        html:not(.dark) .scm-secret-val {
+            color: #e11d48 !important;
+        }
+        html:not(.dark) .scm-jwt-box {
+            background-color: #faf5ff !important;
+            border: 1px solid #e9d5ff !important;
+            color: #4c1d95 !important;
+        }
+        html:not(.dark) #scm-secrets-footer {
+            background-color: #f8fafc !important;
+            border-top: 1px solid #e2e8f0 !important;
+            color: #64748b !important;
+        }
+
+        /* ==========================================================================
+           Recovered Source Code View: App Code Only Toggle Buttons & Checkboxes
+           High contrast, distinct themes, crisp white tick on vibrant backgrounds
+           ========================================================================== */
+        
+        /* 1. Toggle Pill Button Containers */
+        #scm-routes-app-only-label,
+        #scm-secrets-app-only-label,
+        #scm-search-opt-app-label {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 0.4rem !important;
+            padding: 0.25rem 0.65rem !important;
+            border-radius: 0.5rem !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            transition: all 0.15s ease-in-out !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            border: 1px solid #334155 !important;
+            background-color: #161b22 !important;
+            color: #94a3b8 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15) !important;
+        }
+
+        html:not(.dark) #scm-routes-app-only-label,
+        html:not(.dark) #scm-secrets-app-only-label,
+        html:not(.dark) #scm-search-opt-app-label {
+            border: 1px solid #cbd5e1 !important;
+            background-color: #f8fafc !important;
+            color: #475569 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+        }
+
+        #scm-routes-app-only-label:hover,
+        #scm-secrets-app-only-label:hover,
+        #scm-search-opt-app-label:hover {
+            border-color: #475569 !important;
+            color: #e2e8f0 !important;
+        }
+
+        html:not(.dark) #scm-routes-app-only-label:hover,
+        html:not(.dark) #scm-secrets-app-only-label:hover,
+        html:not(.dark) #scm-search-opt-app-label:hover {
+            border-color: #94a3b8 !important;
+            color: #0f172a !important;
+            background-color: #f1f5f9 !important;
+        }
+
+        /* 2. Checkbox Elements: Base (Unchecked) State */
+        #scm-routes-app-only,
+        #scm-secrets-app-only,
+        #scm-search-opt-app {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            width: 14px !important;
+            height: 14px !important;
+            min-width: 14px !important;
+            min-height: 14px !important;
+            border-radius: 3.5px !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+            cursor: pointer !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            flex-shrink: 0 !important;
+            transition: all 0.15s ease-in-out !important;
+            background-color: #0f172a !important;
+            border: 1.5px solid #475569 !important;
+            background-position: center !important;
+            background-repeat: no-repeat !important;
+            background-size: 100% 100% !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        html:not(.dark) #scm-routes-app-only,
+        html:not(.dark) #scm-secrets-app-only,
+        html:not(.dark) #scm-search-opt-app {
+            background-color: #ffffff !important;
+            border: 1.5px solid #94a3b8 !important;
+        }
+
+        /* 3. Checked States: Vibrant Backgrounds with Crisp White Tick */
+        /* Routes: Emerald Theme */
+        #scm-routes-app-only:checked {
+            background-color: #059669 !important;
+            border-color: #047857 !important;
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M3.5 8.5l3 3 6-6'/%3e%3c/svg%3e") !important;
+            box-shadow: 0 0 0 1px rgba(5, 150, 105, 0.4) !important;
+        }
+        #scm-routes-app-only-label:has(#scm-routes-app-only:checked),
+        #scm-routes-app-only-label.is-checked {
+            background-color: rgba(16, 185, 129, 0.12) !important;
+            border-color: rgba(16, 185, 129, 0.45) !important;
+            color: #34d399 !important;
+        }
+        html:not(.dark) #scm-routes-app-only-label:has(#scm-routes-app-only:checked),
+        html:not(.dark) #scm-routes-app-only-label.is-checked {
+            background-color: #ecfdf5 !important;
+            border-color: #6ee7b7 !important;
+            color: #065f46 !important;
+        }
+
+        /* Secrets: Rose Theme */
+        #scm-secrets-app-only:checked {
+            background-color: #e11d48 !important;
+            border-color: #be123c !important;
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M3.5 8.5l3 3 6-6'/%3e%3c/svg%3e") !important;
+            box-shadow: 0 0 0 1px rgba(225, 29, 72, 0.4) !important;
+        }
+        #scm-secrets-app-only-label:has(#scm-secrets-app-only:checked),
+        #scm-secrets-app-only-label.is-checked {
+            background-color: rgba(244, 63, 94, 0.12) !important;
+            border-color: rgba(244, 63, 94, 0.45) !important;
+            color: #fb7185 !important;
+        }
+        html:not(.dark) #scm-secrets-app-only-label:has(#scm-secrets-app-only:checked),
+        html:not(.dark) #scm-secrets-app-only-label.is-checked {
+            background-color: #fff1f2 !important;
+            border-color: #fda4af !important;
+            color: #9f1239 !important;
+        }
+
+        /* Search: Amber Theme */
+        #scm-search-opt-app:checked {
+            background-color: #d97706 !important;
+            border-color: #b45309 !important;
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M3.5 8.5l3 3 6-6'/%3e%3c/svg%3e") !important;
+            box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.4) !important;
+        }
+        #scm-search-opt-app-label:has(#scm-search-opt-app:checked),
+        #scm-search-opt-app-label.is-checked {
+            background-color: rgba(245, 158, 11, 0.12) !important;
+            border-color: rgba(245, 158, 11, 0.45) !important;
+            color: #fbbf24 !important;
+        }
+        html:not(.dark) #scm-search-opt-app-label:has(#scm-search-opt-app:checked),
+        html:not(.dark) #scm-search-opt-app-label.is-checked {
+            background-color: #fffbeb !important;
+            border-color: #fcd34d !important;
+            color: #92400e !important;
+        }
+
+        /* --- MONOKAI SYNTAX HIGHLIGHTING (Dark & Light) --- */
+
+        /* Base code pre & font styling */
+        #scm-code-pre {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+            font-size: 12.5px !important;
+            line-height: 1.65 !important;
+            tab-size: 4 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* Dark Monokai (Active in dark mode by default or when forced) */
+        #scm-code-container.theme-monokai-dark,
+        html.dark #scm-code-container:not(.theme-monokai-light) {
+            background-color: #272822 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-loading,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-loading {
+            background-color: rgba(39, 40, 34, 0.88) !important;
+            color: #f8f8f2 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-pre,
+        #scm-code-container.theme-monokai-dark #scm-code-content,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-pre,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content {
+            background-color: transparent !important;
+            color: #f8f8f2 !important;
+            text-shadow: none !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-pre ::selection,
+        #scm-code-container.theme-monokai-dark #scm-code-content ::selection,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-pre ::selection,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content ::selection {
+            background: #49483e !important;
+            color: #f8f8f2 !important;
+        }
+
+        /* Monokai Dark Syntax Tokens */
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.comment,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.prolog,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.doctype,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.cdata,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.comment,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.prolog,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.doctype,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.cdata {
+            color: #75715e !important;
+            font-style: italic !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.punctuation,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.punctuation {
+            color: #f8f8f2 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.namespace,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.namespace {
+            opacity: 0.7 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.property,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.tag,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.constant,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.symbol,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.deleted,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.property,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.tag,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.constant,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.symbol,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.deleted {
+            color: #f92672 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.boolean,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.number,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.boolean,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.number {
+            color: #ae81ff !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.selector,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.attr-name,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.string,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.char,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.builtin,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.inserted,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.selector,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.attr-name,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.string,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.char,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.builtin,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.inserted {
+            color: #e6db74 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.operator,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.entity,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.url,
+        #scm-code-container.theme-monokai-dark #scm-code-content .language-css .token.string,
+        #scm-code-container.theme-monokai-dark #scm-code-content .style .token.string,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.operator,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.entity,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.url,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .language-css .token.string,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .style .token.string {
+            color: #f92672 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.atrule,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.attr-value,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.atrule,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.attr-value {
+            color: #e6db74 !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.keyword,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.keyword {
+            color: #f92672 !important;
+            font-weight: bold !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.function,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.class-name,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.function,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.class-name {
+            color: #a6e22e !important;
+        }
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.regex,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.important,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.variable,
+        #scm-code-container.theme-monokai-dark #scm-code-content .token.parameter,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.regex,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.important,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.variable,
+        html.dark #scm-code-container:not(.theme-monokai-light) #scm-code-content .token.parameter {
+            color: #fd971f !important;
+        }
+
+        /* Light Monokai (Active in light mode by default or when forced) */
+        #scm-code-container.theme-monokai-light,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) {
+            background-color: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-loading,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-loading {
+            background-color: rgba(248, 250, 252, 0.9) !important;
+            color: #334155 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-pre,
+        #scm-code-container.theme-monokai-light #scm-code-content,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-pre,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content {
+            background-color: transparent !important;
+            color: #1e293b !important;
+            text-shadow: none !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-pre ::selection,
+        #scm-code-container.theme-monokai-light #scm-code-content ::selection,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-pre ::selection,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content ::selection {
+            background: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+
+        /* Monokai Light Syntax Tokens */
+        #scm-code-container.theme-monokai-light #scm-code-content .token.comment,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.prolog,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.doctype,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.cdata,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.comment,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.prolog,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.doctype,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.cdata {
+            color: #64748b !important;
+            font-style: italic !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.punctuation,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.punctuation {
+            color: #334155 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.namespace,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.namespace {
+            opacity: 0.7 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.property,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.symbol,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.property,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.symbol {
+            color: #0284c7 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.tag,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.deleted,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.tag,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.deleted {
+            color: #d7005f !important;
+            font-weight: 600 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.constant,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.constant {
+            color: #7c3aed !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.boolean,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.number,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.boolean,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.number {
+            color: #7c3aed !important;
+            font-weight: 600 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.selector,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.attr-name,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.selector,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.attr-name {
+            color: #15803d !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.string,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.char,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.inserted,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.string,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.char,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.inserted {
+            color: #b45309 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.builtin,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.builtin {
+            color: #0369a1 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.operator,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.entity,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.url,
+        #scm-code-container.theme-monokai-light #scm-code-content .language-css .token.string,
+        #scm-code-container.theme-monokai-light #scm-code-content .style .token.string,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.operator,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.entity,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.url,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .language-css .token.string,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .style .token.string {
+            color: #d7005f !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.atrule,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.attr-value,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.atrule,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.attr-value {
+            color: #b45309 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.keyword,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.keyword {
+            color: #d7005f !important;
+            font-weight: bold !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.function,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.function {
+            color: #15803d !important;
+            font-weight: 600 !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.class-name,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.class-name {
+            color: #0284c7 !important;
+            font-weight: bold !important;
+        }
+        #scm-code-container.theme-monokai-light #scm-code-content .token.regex,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.important,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.variable,
+        #scm-code-container.theme-monokai-light #scm-code-content .token.parameter,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.regex,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.important,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.variable,
+        html:not(.dark) #scm-code-container:not(.theme-monokai-dark) #scm-code-content .token.parameter {
+            color: #c2410c !important;
         }
     </style>
 
@@ -997,17 +2074,17 @@
 
     <!-- Global Source Code Explorer Modal (Dark IDE Layout) -->
     <div id="source-code-viewer-modal" class="fixed inset-0 z-[220] hidden overflow-hidden bg-slate-950/90 backdrop-blur-lg flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fade-in" onclick="if(event.target === this) closeSourceMapViewer()">
-        <div class="relative w-full max-w-7xl h-[92vh] bg-[#0d1117] rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden text-slate-200" onclick="event.stopPropagation()">
+        <div id="scm-modal-dialog" class="relative w-full max-w-7xl h-[92vh] bg-[#0d1117] rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden text-slate-200" onclick="event.stopPropagation()">
             
             <!-- Top Header Bar -->
-            <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+            <div id="scm-header-bar" class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
                 <div class="flex items-center space-x-3 min-w-0">
                     <span class="p-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-lg flex-shrink-0 shadow-sm">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                     </span>
                     <div class="min-w-0">
                         <div class="flex items-center space-x-2 flex-wrap">
-                            <span class="text-xs font-black uppercase tracking-wider text-slate-400">Recovered Source:</span>
+                            <span class="scm-header-label text-xs font-black uppercase tracking-wider text-slate-400">Recovered Source:</span>
                             <a id="scm-target-link" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:underline px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 rounded inline-flex items-center space-x-1 transition-colors" title="Visit live application URL in new tab">
                                 <span id="scm-target-badge"></span>
                                 <svg class="w-3 h-3 ml-1 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
@@ -1028,7 +2105,7 @@
                 </div>
 
                 <!-- Center Mode Switcher Tabs -->
-                <div class="flex items-center space-x-1 bg-[#0d1117] p-1 rounded-xl border border-slate-700/70">
+                <div id="scm-mode-tabs-container" class="flex items-center space-x-1 bg-[#0d1117] p-1 rounded-xl border border-slate-700/70">
                     <button id="scm-mode-files-btn" onclick="setSourceMapMode('files')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                         <span>Files</span>
@@ -1055,7 +2132,7 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         <span>Download ZIP</span>
                     </a>
-                    <button onclick="closeSourceMapViewer()" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors" title="Close (Esc)">
+                    <button id="scm-modal-close-btn" onclick="closeSourceMapViewer()" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors" title="Close (Esc)">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
@@ -1065,10 +2142,10 @@
             <div id="scm-files-view" class="flex-grow flex overflow-hidden">
                 
                 <!-- Left Pane: File Tree Navigator / Code Search -->
-                <div class="w-80 md:w-96 flex-shrink-0 bg-[#0d1117] border-r border-slate-700/60 flex flex-col">
+                <div id="scm-sidebar-pane" class="w-80 md:w-96 flex-shrink-0 bg-[#0d1117] border-r border-slate-700/60 flex flex-col">
                     
                     <!-- Left Sidebar Tab Switcher: Explorer vs Search Code -->
-                    <div class="flex items-center border-b border-slate-800 bg-[#161b22]/90 text-xs font-bold flex-shrink-0">
+                    <div id="scm-left-tabs-container" class="flex items-center border-b border-slate-800 bg-[#161b22]/90 text-xs font-bold flex-shrink-0">
                         <button id="scm-left-tab-explorer" onclick="setSourceMapLeftTab('explorer')" class="flex-1 py-2 text-center text-emerald-400 border-b-2 border-emerald-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                             <span>Explorer</span>
@@ -1083,14 +2160,14 @@
                     <!-- Panel 1: Explorer (File Tree) -->
                     <div id="scm-explorer-container" class="flex-grow flex flex-col overflow-hidden">
                         <!-- Search & Category Filters -->
-                        <div class="p-3 border-b border-slate-800 space-y-2.5 flex-shrink-0">
+                        <div id="scm-explorer-controls" class="p-3 border-b border-slate-800 space-y-2.5 flex-shrink-0">
                             <div class="relative">
                                 <input type="text" id="scm-file-search" placeholder="Filter files... (e.g. auth, .tsx)" oninput="filterSourceMapFiles()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                             </div>
                             
                             <!-- Category Tabs -->
-                            <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
+                            <div id="scm-category-tabs-container" class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
                                 <button id="scm-tab-app" onclick="setSourceMapCategory('app')" class="flex-1 py-1 text-center rounded text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 transition-all">App Code</button>
                                 <button id="scm-tab-all" onclick="setSourceMapCategory('all')" class="flex-1 py-1 text-center rounded text-slate-400 hover:text-slate-200 transition-all">All Files</button>
                                 <button id="scm-tab-vendor" onclick="setSourceMapCategory('vendor')" class="flex-1 py-1 text-center rounded text-slate-400 hover:text-slate-200 transition-all">Vendor</button>
@@ -1103,7 +2180,7 @@
                         </div>
 
                         <!-- File List Footer -->
-                        <div class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
+                        <div id="scm-file-list-footer" class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
                             <span id="scm-visible-count">0 files shown</span>
                             <span class="text-slate-600">Click a file to inspect</span>
                         </div>
@@ -1112,7 +2189,7 @@
                     <!-- Panel 2: Code Search (Full-Text in All Files) -->
                     <div id="scm-search-container" class="flex-grow flex flex-col overflow-hidden hidden">
                         <!-- Query Input & Search Controls -->
-                        <div class="p-3 border-b border-slate-800 space-y-2 flex-shrink-0">
+                        <div id="scm-search-controls" class="p-3 border-b border-slate-800 space-y-2 flex-shrink-0">
                             <div class="relative flex items-center">
                                 <input type="text" id="scm-code-query" placeholder="Search keyword in all files..." onkeydown="if(event.key==='Enter') executeSourceMapCodeSearch()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-16 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
                                 <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -1124,9 +2201,9 @@
                             </div>
 
                             <div class="flex items-center justify-between text-[11px] text-slate-400">
-                                <label class="flex items-center space-x-1.5 cursor-pointer select-none">
-                                    <input type="checkbox" id="scm-search-opt-app" checked class="rounded border-slate-700 text-amber-500 focus:ring-0 bg-slate-900">
-                                    <span>App Code Only</span>
+                                <label id="scm-search-opt-app-label" class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800 select-none">
+                                    <input type="checkbox" id="scm-search-opt-app" onchange="syncAppOnlyPills()" checked class="rounded border-slate-700 text-amber-500 focus:ring-0">
+                                    <span class="text-[11px] font-medium">App Code Only</span>
                                 </label>
                                 <button onclick="executeSourceMapCodeSearch()" id="scm-search-submit-btn" class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[11px] transition-all border border-amber-500/30 flex items-center space-x-1 shadow-sm active:scale-95">
                                     <span>Find</span>
@@ -1143,7 +2220,7 @@
                         </div>
 
                         <!-- Search Results Footer -->
-                        <div class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
+                        <div id="scm-search-footer" class="px-3 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[10px] text-slate-500 flex justify-between items-center flex-shrink-0">
                             <span id="scm-search-status-label">Ready</span>
                             <span id="scm-search-files-label"></span>
                         </div>
@@ -1155,8 +2232,8 @@
                 <div class="flex-grow flex flex-col bg-[#0d1117] min-w-0 overflow-hidden">
                     
                     <!-- File Breadcrumb & Action Toolbar -->
-                    <div class="px-4 py-2 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0">
-                        <div class="flex items-center space-x-2 truncate mr-3">
+                    <div id="scm-editor-toolbar" class="px-4 py-2 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+                        <div class="flex items-center space-x-2 truncate mr-3 min-w-0">
                             <svg class="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                             <span id="scm-active-path" class="font-mono text-xs text-slate-200 truncate select-all">Select a file to view</span>
                             <span id="scm-active-lines" class="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 bg-slate-800/80 rounded flex-shrink-0 hidden"></span>
@@ -1164,6 +2241,10 @@
                         </div>
 
                         <div class="flex items-center space-x-2 flex-shrink-0">
+                            <button id="scm-code-theme-toggle" onclick="toggleSourceCodeTheme()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[11px] font-medium transition-colors flex items-center space-x-1" title="Toggle Monokai code theme (Auto / Dark / Light)">
+                                <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>
+                                <span id="scm-code-theme-label">Monokai</span>
+                            </button>
                             <button id="scm-copy-code-btn" onclick="copyActiveSourceCode()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[11px] font-medium transition-colors flex items-center space-x-1" title="Copy code to clipboard">
                                 <svg id="scm-copy-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                                 <span id="scm-copy-text">Copy Code</span>
@@ -1197,9 +2278,9 @@
             <div id="scm-routes-view" class="flex-grow flex flex-col overflow-hidden hidden bg-[#0d1117]">
                 
                 <!-- Subheader / Stats & Export Bar -->
-                <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
+                <div id="scm-routes-header" class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
                     <div class="flex items-center space-x-2 sm:space-x-3 flex-wrap">
-                        <div class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
+                        <div id="scm-stat-total-routes-card" class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
                             <span class="text-slate-400">Total Routes:</span>
                             <span id="scm-stat-total-routes" class="font-bold text-white">0</span>
                         </div>
@@ -1232,7 +2313,7 @@
                 </div>
 
                 <!-- Filters & Search Toolbar -->
-                <div class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                <div id="scm-routes-controls" class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
                     <div class="flex items-center space-x-2 flex-grow max-w-md">
                         <div class="relative w-full">
                             <input type="text" id="scm-routes-search" placeholder="Search routes, methods, files, snippets..." oninput="filterDiscoveredRoutes()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500">
@@ -1242,7 +2323,7 @@
 
                     <div class="flex items-center space-x-2 flex-wrap gap-1">
                         <!-- Category pills -->
-                        <div class="flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
+                        <div class="cat-tabs flex items-center space-x-1 bg-[#161b22] p-1 rounded-lg border border-slate-800 text-[11px] font-bold">
                             <button id="scm-rcat-all" onclick="setRouteFilterCategory('all')" class="px-2.5 py-1 rounded text-sky-400 bg-sky-500/15 border border-sky-500/30 transition-all">All</button>
                             <button id="scm-rcat-api" onclick="setRouteFilterCategory('api_endpoint')" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all">APIs</button>
                             <button id="scm-rcat-client" onclick="setRouteFilterCategory('client_route')" class="px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition-all">Client</button>
@@ -1262,8 +2343,8 @@
                         </select>
 
                         <!-- App Code Only Toggle -->
-                        <label class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800">
-                            <input type="checkbox" id="scm-routes-app-only" onchange="filterDiscoveredRoutes()" checked class="rounded border-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 bg-slate-900">
+                        <label id="scm-routes-app-only-label" class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800 select-none">
+                            <input type="checkbox" id="scm-routes-app-only" onchange="filterDiscoveredRoutes(); syncAppOnlyPills();" checked class="rounded border-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0">
                             <span class="text-[11px] font-medium">App Code Only</span>
                         </label>
                     </div>
@@ -1299,8 +2380,7 @@
                 </div>
 
                 <!-- Routes Footer -->
-                <!-- Routes Footer -->
-                <div class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
+                <div id="scm-routes-footer" class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
                     <span id="scm-routes-count-label">0 routes discovered</span>
                     <span class="text-slate-600">Click any source link to jump to the code</span>
                 </div>
@@ -1311,9 +2391,9 @@
             <div id="scm-secrets-view" class="flex-grow flex flex-col overflow-hidden hidden bg-[#0d1117]">
                 
                 <!-- Subheader / Stats & Export Bar -->
-                <div class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
+                <div id="scm-secrets-header" class="px-5 py-3 bg-[#161b22] border-b border-slate-700/60 flex items-center justify-between flex-wrap gap-3">
                     <div class="flex items-center space-x-2 sm:space-x-3 flex-wrap">
-                        <div class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
+                        <div id="scm-stat-total-secrets-card" class="px-3 py-1 bg-slate-800/80 border border-slate-700/80 rounded-lg text-xs flex items-center space-x-2">
                             <span class="text-slate-400">Total Secrets:</span>
                             <span id="scm-stat-total-secrets" class="font-bold text-white">0</span>
                         </div>
@@ -1343,7 +2423,7 @@
                 </div>
 
                 <!-- Filters & Search Toolbar -->
-                <div class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                <div id="scm-secrets-controls" class="px-5 py-2.5 bg-[#0d1117] border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
                     <div class="flex items-center space-x-2 flex-grow max-w-md">
                         <div class="relative w-full">
                             <input type="text" id="scm-secrets-search" placeholder="Search secret type, value, file, snippet..." oninput="filterDiscoveredSecrets()" class="w-full bg-[#161b22] border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500">
@@ -1358,8 +2438,8 @@
                         </select>
 
                         <!-- App Code Only Toggle -->
-                        <label class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800">
-                            <input type="checkbox" id="scm-secrets-app-only" onchange="filterDiscoveredSecrets()" checked class="rounded border-slate-700 text-rose-500 focus:ring-0 focus:ring-offset-0 bg-slate-900">
+                        <label id="scm-secrets-app-only-label" class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer bg-[#161b22] px-2.5 py-1 rounded-lg border border-slate-800 select-none">
+                            <input type="checkbox" id="scm-secrets-app-only" onchange="filterDiscoveredSecrets(); syncAppOnlyPills();" checked class="rounded border-slate-700 text-rose-500 focus:ring-0 focus:ring-offset-0">
                             <span class="text-[11px] font-medium">App Code Only</span>
                         </label>
                     </div>
@@ -1395,7 +2475,7 @@
                 </div>
 
                 <!-- Secrets Footer -->
-                <div class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
+                <div id="scm-secrets-footer" class="px-5 py-2 bg-[#161b22]/70 border-t border-slate-800/60 text-[11px] text-slate-500 flex justify-between items-center">
                     <span id="scm-secrets-count-label">0 secrets discovered</span>
                     <span class="text-slate-600">Click any source link to jump directly to line in editor</span>
                 </div>
@@ -1423,6 +2503,46 @@
         window.scmSearchOptRegex = false;
         window.scmSearchLastQuery = '';
 
+        // Code Theme State ('auto', 'dark', 'light')
+        window.scmCodeThemeMode = localStorage.getItem('scm_code_theme') || 'auto';
+
+        function applySourceCodeTheme() {
+            const container = document.getElementById('scm-code-container');
+            const label = document.getElementById('scm-code-theme-label');
+            if (!container) return;
+
+            const isDark = document.documentElement.classList.contains('dark');
+            const mode = window.scmCodeThemeMode || 'auto';
+
+            container.classList.remove('theme-monokai-dark', 'theme-monokai-light');
+
+            if (mode === 'dark' || (mode === 'auto' && isDark)) {
+                container.classList.add('theme-monokai-dark');
+                if (label) label.textContent = mode === 'auto' ? 'Monokai' : 'Monokai Dark';
+            } else {
+                container.classList.add('theme-monokai-light');
+                if (label) label.textContent = mode === 'auto' ? 'Monokai' : 'Monokai Light';
+            }
+        }
+
+        function toggleSourceCodeTheme() {
+            const isDark = document.documentElement.classList.contains('dark');
+            if (window.scmCodeThemeMode === 'auto') {
+                window.scmCodeThemeMode = isDark ? 'light' : 'dark';
+            } else if (window.scmCodeThemeMode === 'dark') {
+                window.scmCodeThemeMode = isDark ? 'auto' : 'light';
+            } else {
+                window.scmCodeThemeMode = isDark ? 'dark' : 'auto';
+            }
+            localStorage.setItem('scm_code_theme', window.scmCodeThemeMode);
+            applySourceCodeTheme();
+        }
+
+        // Keep code theme in sync when global daylight/dark toggle is used
+        window.addEventListener('themechanged', () => {
+            applySourceCodeTheme();
+        });
+
         function setSourceMapLeftTab(tab) {
             window.scmActiveLeftTab = tab;
             const expBtn = document.getElementById('scm-left-tab-explorer');
@@ -1433,15 +2553,15 @@
             if (tab === 'search') {
                 expContainer?.classList.add('hidden');
                 searchContainer?.classList.remove('hidden');
-                if (expBtn) expBtn.className = 'flex-1 py-2 text-center text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
-                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center text-amber-400 border-b-2 border-amber-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (expBtn) expBtn.className = 'flex-1 py-2 text-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-200/50 dark:hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center active-left-tab text-amber-600 dark:text-amber-400 border-b-2 border-amber-500 bg-white dark:bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
                 
                 setTimeout(() => document.getElementById('scm-code-query')?.focus(), 50);
             } else {
                 searchContainer?.classList.add('hidden');
                 expContainer?.classList.remove('hidden');
-                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
-                if (expBtn) expBtn.className = 'flex-1 py-2 text-center text-emerald-400 border-b-2 border-emerald-500 bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (searchBtn) searchBtn.className = 'flex-1 py-2 text-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 border-b-2 border-transparent hover:bg-slate-200/50 dark:hover:bg-slate-800/40 flex items-center justify-center space-x-1.5 transition-all font-bold';
+                if (expBtn) expBtn.className = 'flex-1 py-2 text-center active-left-tab text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-500 bg-white dark:bg-[#0d1117]/60 flex items-center justify-center space-x-1.5 transition-all font-bold';
             }
         }
 
@@ -1575,25 +2695,25 @@
             resultsList.innerHTML = data.results.map(res => {
                 const safePath = res.path.replace(/'/g, "\\'");
                 const ext = res.path.split('.').pop().toUpperCase();
-                let badgeClass = 'bg-slate-800 text-slate-400';
-                if (['TSX', 'JSX'].includes(ext)) badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
-                else if (['TS', 'JS'].includes(ext)) badgeClass = 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+                let badgeClass = 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400';
+                if (['TSX', 'JSX'].includes(ext)) badgeClass = 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border border-blue-300 dark:border-blue-500/30';
+                else if (['TS', 'JS'].includes(ext)) badgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 border border-amber-300 dark:border-amber-500/30';
 
                 return `
-                    <div class="bg-[#161b22]/70 rounded-lg border border-slate-800/80 overflow-hidden">
-                        <div class="px-2.5 py-1.5 bg-[#1c2129] flex items-center justify-between text-[11px] font-bold text-slate-300 border-b border-slate-800/60 cursor-pointer hover:bg-slate-800/60 transition-colors" onclick="loadSourceMapFile('${safePath}')">
+                    <div class="scm-search-card bg-white dark:bg-[#161b22]/70 rounded-lg border border-slate-200 dark:border-slate-800/80 overflow-hidden">
+                        <div class="scm-search-card-header px-2.5 py-1.5 bg-slate-100 dark:bg-[#1c2129] flex items-center justify-between text-[11px] font-bold text-slate-800 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800/60 cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-800/60 transition-colors" onclick="loadSourceMapFile('${safePath}')">
                             <div class="flex items-center space-x-1.5 min-w-0 pr-2">
                                 <span class="px-1.5 py-0.2 rounded text-[9px] font-bold ${badgeClass} flex-shrink-0">${ext}</span>
                                 <span class="truncate font-mono" title="${escapeHtml(res.path)}">${escapeHtml(res.path)}</span>
                             </div>
-                            <span class="px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full text-[9px] font-mono flex-shrink-0">${res.matches.length}</span>
+                            <span class="px-1.5 py-0.2 bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded-full text-[9px] font-mono flex-shrink-0">${res.matches.length}</span>
                         </div>
                         
-                        <div class="divide-y divide-slate-800/40">
+                        <div class="divide-y divide-slate-100 dark:divide-slate-800/40">
                             ${res.matches.map(m => `
-                                <div onclick="jumpToSourceFile('${safePath}', ${m.line})" class="px-2.5 py-1 hover:bg-slate-800/50 cursor-pointer transition-colors group flex items-start space-x-2">
-                                    <span class="text-slate-500 text-[10px] w-6 flex-shrink-0 pt-0.5 text-right font-mono">:${m.line}</span>
-                                    <div class="text-[11px] text-slate-300 group-hover:text-amber-300 transition-colors truncate font-mono">
+                                <div onclick="jumpToSourceFile('${safePath}', ${m.line})" class="scm-search-match-row px-2.5 py-1 hover:bg-amber-50/70 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group flex items-start space-x-2">
+                                    <span class="text-slate-400 dark:text-slate-500 text-[10px] w-6 flex-shrink-0 pt-0.5 text-right font-mono">:${m.line}</span>
+                                    <div class="text-[11px] text-slate-700 dark:text-slate-300 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors truncate font-mono">
                                         ${highlightSearchSnippet(m.snippet, data.query, data.regex, data.case_sensitive)}
                                     </div>
                                 </div>
@@ -1613,7 +2733,7 @@
                 const flags = isCaseSensitive ? 'g' : 'gi';
                 const pattern = isRegex ? query : escapeRegExp(query);
                 const re = new RegExp(pattern, flags);
-                return safeSnippet.replace(re, match => `<mark class="bg-amber-500/30 text-amber-300 font-bold px-0.5 rounded">${match}</mark>`);
+                return safeSnippet.replace(re, match => `<mark class="bg-amber-500/30 text-amber-900 dark:text-amber-300 font-bold px-0.5 rounded">${match}</mark>`);
             } catch (e) {
                 return safeSnippet;
             }
@@ -1637,13 +2757,14 @@
             routesView?.classList.add('hidden');
             secretsView?.classList.add('hidden');
 
-            if (filesBtn) filesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
-            if (routesBtn) routesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
-            if (secretsBtn) secretsBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-400 hover:text-slate-200';
+            const inactiveClass = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200';
+            if (filesBtn) filesBtn.className = inactiveClass;
+            if (routesBtn) routesBtn.className = inactiveClass;
+            if (secretsBtn) secretsBtn.className = inactiveClass;
 
             if (mode === 'secrets') {
                 secretsView?.classList.remove('hidden');
-                if (secretsBtn) secretsBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30';
+                if (secretsBtn) secretsBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 active-tab bg-white dark:bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-400 dark:border-rose-500/30 shadow-sm';
                 
                 if (window.scmDiscoveredSecrets.length === 0 && window.scmActiveMapId) {
                     loadDiscoveredSecrets();
@@ -1652,7 +2773,7 @@
                 }
             } else if (mode === 'routes') {
                 routesView?.classList.remove('hidden');
-                if (routesBtn) routesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-sky-500/20 text-sky-300 border border-sky-500/30';
+                if (routesBtn) routesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 active-tab bg-white dark:bg-sky-500/20 text-sky-600 dark:text-sky-300 border border-sky-400 dark:border-sky-500/30 shadow-sm';
                 
                 if (window.scmDiscoveredRoutes.length === 0 && window.scmActiveMapId) {
                     loadDiscoveredRoutes();
@@ -1661,7 +2782,7 @@
                 }
             } else {
                 filesView?.classList.remove('hidden');
-                if (filesBtn) filesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+                if (filesBtn) filesBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 active-tab bg-white dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border border-emerald-400 dark:border-emerald-500/30 shadow-sm';
             }
         }
 
@@ -1676,6 +2797,8 @@
             window.scmDiscoveredSecrets = [];
             modal.classList.remove('hidden');
             document.body.style.overflow = 'hidden';
+            applySourceCodeTheme();
+            syncAppOnlyPills();
 
             const targetBadge = document.getElementById('scm-target-badge');
             const fileBadge = document.getElementById('scm-filename-badge');
@@ -1898,7 +3021,27 @@
             filterDiscoveredRoutes();
         }
 
+        function syncAppOnlyPills() {
+            const routesCb = document.getElementById('scm-routes-app-only');
+            const routesLabel = document.getElementById('scm-routes-app-only-label');
+            if (routesCb && routesLabel) {
+                routesLabel.classList.toggle('is-checked', routesCb.checked);
+            }
+            const secretsCb = document.getElementById('scm-secrets-app-only');
+            const secretsLabel = document.getElementById('scm-secrets-app-only-label');
+            if (secretsCb && secretsLabel) {
+                secretsLabel.classList.toggle('is-checked', secretsCb.checked);
+            }
+            const searchCb = document.getElementById('scm-search-opt-app');
+            const searchLabel = document.getElementById('scm-search-opt-app-label');
+            if (searchCb && searchLabel) {
+                searchLabel.classList.toggle('is-checked', searchCb.checked);
+            }
+        }
+        document.addEventListener('DOMContentLoaded', syncAppOnlyPills);
+
         function filterDiscoveredRoutes() {
+            syncAppOnlyPills();
             const searchVal = (document.getElementById('scm-routes-search')?.value || '').toLowerCase().trim();
             const methodVal = (document.getElementById('scm-routes-method-filter')?.value || '').toUpperCase();
             const appOnly = document.getElementById('scm-routes-app-only')?.checked || false;
@@ -1972,36 +3115,36 @@
                 const targetUrl = r.target_url || (r.path?.startsWith('http') ? r.path : `https://${window.scmActiveTarget}${r.path?.startsWith('/') ? '' : '/'}${r.path}`);
 
                 return `
-                    <tr class="hover:bg-slate-800/40 transition-colors group">
+                    <tr class="scm-route-row hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors group">
                         <td class="py-2 px-3 align-middle">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${methodBadge} inline-block uppercase">${method}</span>
                         </td>
                         <td class="py-2 px-3 align-middle min-w-[200px]">
                             <div class="flex items-center space-x-2">
-                                <span class="font-bold text-slate-100 group-hover:text-sky-300 transition-colors select-all break-all">${escapeHtml(r.path)}</span>
-                                <button onclick="copyRouteText('${safePath}', this)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-white text-slate-400 transition-opacity" title="Copy route path">
+                                <span class="scm-route-path font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-300 transition-colors select-all break-all">${escapeHtml(r.path)}</span>
+                                <button onclick="copyRouteText('${safePath}', this)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-slate-900 dark:hover:text-white text-slate-400 transition-opacity" title="Copy route path">
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                                 </button>
                             </div>
                         </td>
                         <td class="py-2 px-3 align-middle text-[11px]">
                             <span class="${catBadge} font-medium">${catLabel}</span>
-                            ${r.is_app ? '<span class="ml-1.5 px-1 py-0.2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-[9px]">App</span>' : '<span class="ml-1.5 px-1 py-0.2 bg-slate-800 text-slate-500 rounded text-[9px]">Vendor</span>'}
+                            ${r.is_app ? '<span class="ml-1.5 px-1 py-0.2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded text-[9px]">App</span>' : '<span class="ml-1.5 px-1 py-0.2 bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-500 rounded text-[9px]">Vendor</span>'}
                         </td>
                         <td class="py-2 px-3 align-middle text-[11px] truncate max-w-[220px]">
-                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${r.line || 1})" class="text-slate-300 hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${r.file}:${r.line}">
+                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${r.line || 1})" class="scm-route-file text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${r.file}:${r.line}">
                                 <svg class="w-3 h-3 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                                 <span class="truncate font-mono">${escapeHtml(r.file)}</span>
-                                <span class="text-emerald-400/80 font-bold">:${r.line || 1}</span>
+                                <span class="text-emerald-500 dark:text-emerald-400/80 font-bold">:${r.line || 1}</span>
                             </a>
                         </td>
-                        <td class="py-2 px-3 align-middle text-[10px] text-slate-400 truncate max-w-[260px] font-mono">
-                            <span class="bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800 block truncate" title="${escapeHtml(r.snippet || '')}">
+                        <td class="py-2 px-3 align-middle text-[10px] text-slate-600 dark:text-slate-400 truncate max-w-[260px] font-mono">
+                            <span class="scm-route-snippet bg-slate-100 dark:bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-800 block truncate" title="${escapeHtml(r.snippet || '')}">
                                 ${escapeHtml(r.snippet || '')}
                             </span>
                         </td>
                         <td class="py-2 px-3 align-middle text-right flex-shrink-0 whitespace-nowrap">
-                            <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 rounded text-[10px] font-bold inline-flex items-center space-x-1 transition-colors" title="Test/Open endpoint on target">
+                            <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 bg-sky-500/15 hover:bg-sky-500/30 text-sky-600 dark:text-sky-300 border border-sky-400 dark:border-sky-500/30 rounded text-[10px] font-bold inline-flex items-center space-x-1 transition-colors" title="Test/Open endpoint on target">
                                 <span>Visit</span>
                                 <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                             </a>
@@ -2152,6 +3295,7 @@
         }
 
         function filterDiscoveredSecrets() {
+            syncAppOnlyPills();
             const searchVal = (document.getElementById('scm-secrets-search')?.value || '').toLowerCase().trim();
             const typeVal = document.getElementById('scm-secrets-type-filter')?.value || '';
             const appOnly = document.getElementById('scm-secrets-app-only')?.checked || false;
@@ -2215,13 +3359,13 @@
                 const hasJwt = !!s.jwt_payload;
 
                 return `
-                    <tr class="hover:bg-slate-800/40 transition-colors group">
+                    <tr class="scm-secret-row hover:bg-slate-800/40 transition-colors group">
                         <td class="py-2.5 px-3 align-middle">
                             <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${typeBadge} inline-block whitespace-nowrap">${escapeHtml(sType)}</span>
                         </td>
                         <td class="py-2.5 px-3 align-middle min-w-[220px]">
                             <div class="flex items-center space-x-2">
-                                <span id="scm-secret-val-${idx}" data-raw="${escapeHtml(rawVal)}" data-masked="${escapeHtml(maskedVal)}" class="font-bold text-rose-300 font-mono text-xs select-all break-all">
+                                <span id="scm-secret-val-${idx}" data-raw="${escapeHtml(rawVal)}" data-masked="${escapeHtml(maskedVal)}" class="scm-secret-val font-bold text-rose-300 font-mono text-xs select-all break-all">
                                     ${escapeHtml(maskedVal)}
                                 </span>
                                 <button onclick="toggleSecretMask(${idx})" class="text-slate-500 hover:text-slate-300 transition-colors p-1" title="Toggle Show/Hide Full Secret">
@@ -2237,7 +3381,7 @@
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     <span>Inspect Decoded JWT Claims</span>
                                 </button>
-                                <div id="scm-jwt-details-${idx}" class="hidden mt-1 p-2 bg-slate-900 border border-purple-500/30 rounded text-[10px] text-slate-300 font-mono overflow-auto max-h-32">
+                                <div id="scm-jwt-details-${idx}" class="scm-jwt-box hidden mt-1 p-2 bg-slate-900 border border-purple-500/30 rounded text-[10px] text-slate-300 font-mono overflow-auto max-h-32">
                                     <pre class="m-0">${escapeHtml(JSON.stringify(s.jwt_payload, null, 2))}</pre>
                                 </div>
                             </div>
@@ -2247,14 +3391,14 @@
                             ${s.is_app ? '<span class="px-1.5 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold">App Code</span>' : '<span class="px-1.5 py-0.5 bg-slate-800 text-slate-500 rounded text-[10px]">Vendor</span>'}
                         </td>
                         <td class="py-2.5 px-3 align-middle text-[11px] truncate max-w-[220px]">
-                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${s.line || 1})" class="text-slate-300 hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${escapeHtml(s.file)}:${s.line || 1}">
+                            <a href="javascript:void(0)" onclick="jumpToSourceFile('${safeFile}', ${s.line || 1})" class="scm-route-file text-slate-300 hover:text-emerald-400 hover:underline flex items-center space-x-1" title="Jump to ${escapeHtml(s.file)}:${s.line || 1}">
                                 <svg class="w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                                 <span class="truncate font-mono">${escapeHtml(s.file || '')}</span>
                                 <span class="text-rose-400 font-bold">:${s.line || 1}</span>
                             </a>
                         </td>
                         <td class="py-2.5 px-3 align-middle text-[10px] text-slate-400 truncate max-w-[260px] font-mono">
-                            <span class="bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800 block truncate" title="${escapeHtml(s.snippet || '')}">
+                            <span class="scm-route-snippet bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800 block truncate" title="${escapeHtml(s.snippet || '')}">
                                 ${escapeHtml(s.snippet || '')}
                             </span>
                         </td>
@@ -2376,8 +3520,8 @@
                 else if (['JSON'].includes(ext)) badgeClass = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
 
                 const activeClass = isActive 
-                    ? 'bg-emerald-500/15 border-l-2 border-emerald-500 text-emerald-300' 
-                    : 'hover:bg-slate-800/50 text-slate-300';
+                    ? 'scm-file-item-active bg-emerald-500/15 border-l-2 border-emerald-500 text-emerald-300' 
+                    : 'scm-file-item hover:bg-slate-800/50 text-slate-300';
 
                 return `
                     <div onclick="loadSourceMapFile('${f.path.replace(/'/g, "\\'")}')" 
@@ -2386,7 +3530,7 @@
                             <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${badgeClass} flex-shrink-0">${ext}</span>
                             <span class="truncate text-[11px] font-mono group-hover:text-emerald-400 transition-colors" title="${f.path}">${f.path}</span>
                         </div>
-                        <div class="flex items-center space-x-1 flex-shrink-0 text-[10px] text-slate-500">
+                        <div class="scm-file-lines flex items-center space-x-1 flex-shrink-0 text-[10px] text-slate-500">
                             ${f.lines ? `<span>${f.lines}L</span>` : ''}
                         </div>
                     </div>
@@ -2432,13 +3576,32 @@
                 if (preEl) preEl.classList.remove('hidden');
 
                 if (codeEl) {
-                    const lang = fileData.language || 'javascript';
+                    let rawLang = (fileData.language || '').toLowerCase();
+                    const ext = filePath.split('.').pop().toLowerCase();
+                    const langMap = {
+                        'js': 'javascript',
+                        'javascript': 'javascript',
+                        'ts': 'typescript',
+                        'typescript': 'typescript',
+                        'jsx': 'jsx',
+                        'tsx': 'tsx',
+                        'json': 'json',
+                        'css': 'css',
+                        'scss': 'scss',
+                        'html': 'html',
+                        'py': 'python',
+                        'python': 'python',
+                        'sh': 'bash',
+                        'bash': 'bash'
+                    };
+                    const lang = langMap[rawLang] || langMap[ext] || 'javascript';
                     codeEl.className = `language-${lang}`;
                     codeEl.textContent = fileData.content;
                     
                     if (window.Prism) {
                         Prism.highlightElement(codeEl);
                     }
+                    applySourceCodeTheme();
                 }
             } catch (e) {
                 console.error('Failed to load source file:', e);

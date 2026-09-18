@@ -162,7 +162,7 @@ class TechFingerprinterAgent(BaseAgent):
         details = f"A change in the technology stack was detected for {url}.\n\nPrevious stack: {', '.join(old_tech) or 'None'}\nNew stack: {', '.join(new_tech) or 'None'}"
         exploitation = f"### Tech Stack Analysis\n\n1. **Review Changes**: Analyze why these technologies were added or removed. New technologies might introduce new attack surfaces.\n2. **Version Check**: Check if the newly added technologies have known vulnerabilities (CVEs).\n3. **Consistency**: Ensure these changes align with known infrastructure updates."
 
-        await self.create_alert(title, description, target, "medium", details, exploitation)
+        await self.create_alert(title, description, target, "medium", details, exploitation, alert_type="tech_stack_changes")
 
     async def create_header_alert(self, target, old_headers, new_headers, url):
         """Create a lead/alert for degraded security headers using the centralized alerting system."""
@@ -183,7 +183,7 @@ class TechFingerprinterAgent(BaseAgent):
         details = f"One or more security headers were removed from {url}.\n\nRegressions: {', '.join(regressions)}"
         exploitation = f"### Header Analysis\n\n1. **Check Config**: Verify if a recent server configuration change accidentally removed these headers.\n2. **Security Impact**: Removing {regressions} increases susceptibility to attacks like Clickjacking or XSS."
 
-        await self.create_alert(title, description, target, "high", details, exploitation)
+        await self.create_alert(title, description, target, "high", details, exploitation, alert_type="security_header_regressions")
 
     async def process_tasks(self):
         task = await self.get_next_task("tech_fingerprint")

@@ -29,6 +29,103 @@
         </div>
     </div>
 
+    <!-- Live Pipeline & Scope Statistics -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Card 1: Completed Tasks -->
+        <div class="bg-white dark:bg-tech-panel/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all hover:border-emerald-500/40 group">
+            <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-emerald-500/20 transition-all"></div>
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Completed Tasks</span>
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+            </div>
+            <div class="flex items-baseline space-x-2">
+                <span id="stat-tasks-completed" class="text-3xl font-black text-emerald-500 dark:text-emerald-400 font-mono">--</span>
+                <span class="text-xs text-slate-400 font-bold">/ <span id="stat-tasks-total">--</span></span>
+            </div>
+            <div class="mt-3">
+                <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="stat-tasks-bar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between items-center mt-2 text-[11px] font-medium text-slate-400">
+                    <span id="stat-tasks-pct">0% finished</span>
+                    <span id="stat-tasks-failed" class="text-slate-500 font-mono">0 failed</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 2: Remaining Tasks -->
+        <div class="bg-white dark:bg-tech-panel/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all hover:border-amber-500/40 group">
+            <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-amber-500/20 transition-all"></div>
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Remaining Tasks</span>
+                <div class="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </div>
+            </div>
+            <div class="flex items-baseline space-x-2">
+                <span id="stat-tasks-remaining" class="text-3xl font-black text-amber-500 dark:text-amber-400 font-mono">--</span>
+                <span id="stat-tasks-active-badge" class="px-2 py-0.5 bg-tech-accent/10 border border-tech-accent/20 text-tech-accent rounded text-[10px] font-black uppercase">-- Active</span>
+            </div>
+            <div class="mt-3 text-[11px] font-medium text-slate-400 flex items-center justify-between">
+                <span>Pending in queue:</span>
+                <span id="stat-tasks-pending" class="font-mono font-bold text-slate-300">--</span>
+            </div>
+            <div class="mt-1 text-[11px] font-medium text-slate-400 flex items-center justify-between">
+                <span>Active worker engines:</span>
+                <span id="stat-tasks-processing" class="font-mono font-bold text-tech-accent">--</span>
+            </div>
+        </div>
+
+        <!-- Card 3: Completed (Sub)Domains -->
+        <div class="bg-white dark:bg-tech-panel/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all hover:border-cyan-500/40 group">
+            <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-cyan-500/20 transition-all"></div>
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Completed (Sub)domains</span>
+                <div class="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                </div>
+            </div>
+            <div class="flex items-baseline space-x-2">
+                <span id="stat-domains-completed" class="text-3xl font-black text-cyan-500 dark:text-cyan-400 font-mono">--</span>
+                <span class="text-xs text-slate-400 font-bold">/ <span id="stat-domains-total">--</span></span>
+            </div>
+            <div class="mt-3">
+                <div class="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="stat-domains-bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between items-center mt-2 text-[11px] font-medium text-slate-400">
+                    <span id="stat-domains-pct">0% scanned</span>
+                    <span id="stat-domains-roots-done">0 roots done</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card 4: Remaining (Sub)Domains -->
+        <div class="bg-white dark:bg-tech-panel/90 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all hover:border-purple-500/40 group">
+            <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-purple-500/10 rounded-full blur-xl pointer-events-none group-hover:bg-purple-500/20 transition-all"></div>
+            <div class="flex items-center justify-between mb-3">
+                <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Remaining (Sub)domains</span>
+                <div class="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                </div>
+            </div>
+            <div class="flex items-baseline space-x-2">
+                <span id="stat-domains-remaining" class="text-3xl font-black text-purple-500 dark:text-purple-400 font-mono">--</span>
+                <span class="text-xs text-slate-400 font-bold">pending</span>
+            </div>
+            <div class="mt-3 text-[11px] font-medium text-slate-400 flex items-center justify-between">
+                <span>Root domains remaining:</span>
+                <span id="stat-domains-roots-rem" class="font-mono font-bold text-slate-300">--</span>
+            </div>
+            <div class="mt-1 text-[11px] font-medium text-slate-400 flex items-center justify-between">
+                <span>Subdomains remaining:</span>
+                <span id="stat-domains-subs-rem" class="font-mono font-bold text-purple-400">--</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Filters -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-tech-panel/50 p-4 rounded-2xl border border-slate-800">
         <div class="space-y-1.5">
@@ -127,6 +224,7 @@
         const status = document.getElementById('filter-status').value;
         
         try {
+            fetchStats();
             const resp = await fetch(`/api/tasks?task_type=${tool}&status=${status}&limit=50`);
             if (!resp.ok) throw new Error('API Error');
             const data = await resp.json();
@@ -134,6 +232,66 @@
             document.getElementById('task-count').textContent = `${data.total} TASKS IN VIEW`;
         } catch (e) {
             console.error('Fetch Error:', e);
+        }
+    }
+
+    async function fetchStats() {
+        try {
+            const resp = await fetch('/api/tasks/stats');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            
+            const tasks = data.tasks || {};
+            const domains = data.domains || {};
+            const breakdown = domains.breakdown || {};
+            const roots = breakdown.roots || {};
+            const subs = breakdown.subdomains || {};
+
+            // Task stats elements
+            const elTasksComp = document.getElementById('stat-tasks-completed');
+            const elTasksTot = document.getElementById('stat-tasks-total');
+            const elTasksRem = document.getElementById('stat-tasks-remaining');
+            const elTasksPend = document.getElementById('stat-tasks-pending');
+            const elTasksProc = document.getElementById('stat-tasks-processing');
+            const elTasksFailed = document.getElementById('stat-tasks-failed');
+            const elTasksBadge = document.getElementById('stat-tasks-active-badge');
+            const elTasksPct = document.getElementById('stat-tasks-pct');
+            const elTasksBar = document.getElementById('stat-tasks-bar');
+
+            if (elTasksComp) elTasksComp.textContent = (tasks.completed ?? 0).toLocaleString();
+            if (elTasksTot) elTasksTot.textContent = (tasks.total ?? 0).toLocaleString();
+            if (elTasksRem) elTasksRem.textContent = (tasks.remaining ?? 0).toLocaleString();
+            if (elTasksPend) elTasksPend.textContent = (tasks.pending ?? 0).toLocaleString();
+            if (elTasksProc) elTasksProc.textContent = (tasks.processing ?? 0).toLocaleString();
+            if (elTasksFailed) elTasksFailed.textContent = `${tasks.failed ?? 0} failed`;
+            if (elTasksBadge) elTasksBadge.textContent = `${tasks.processing ?? 0} Active`;
+            
+            const taskPct = tasks.percent ?? 0;
+            if (elTasksPct) elTasksPct.textContent = `${taskPct}% finished`;
+            if (elTasksBar) elTasksBar.style.width = `${taskPct}%`;
+
+            // (Sub)domain stats elements
+            const elDomComp = document.getElementById('stat-domains-completed');
+            const elDomTot = document.getElementById('stat-domains-total');
+            const elDomRem = document.getElementById('stat-domains-remaining');
+            const elDomRootsDone = document.getElementById('stat-domains-roots-done');
+            const elDomRootsRem = document.getElementById('stat-domains-roots-rem');
+            const elDomSubsRem = document.getElementById('stat-domains-subs-rem');
+            const elDomPct = document.getElementById('stat-domains-pct');
+            const elDomBar = document.getElementById('stat-domains-bar');
+
+            if (elDomComp) elDomComp.textContent = (domains.completed ?? 0).toLocaleString();
+            if (elDomTot) elDomTot.textContent = (domains.total ?? 0).toLocaleString();
+            if (elDomRem) elDomRem.textContent = (domains.remaining ?? 0).toLocaleString();
+            if (elDomRootsDone) elDomRootsDone.textContent = `${roots.completed ?? 0}/${roots.total ?? 0} roots done`;
+            if (elDomRootsRem) elDomRootsRem.textContent = `${roots.remaining ?? 0} / ${roots.total ?? 0}`;
+            if (elDomSubsRem) elDomSubsRem.textContent = `${subs.remaining ?? 0} / ${subs.total ?? 0}`;
+
+            const domPct = domains.percent ?? 0;
+            if (elDomPct) elDomPct.textContent = `${domPct}% scanned`;
+            if (elDomBar) elDomBar.style.width = `${domPct}%`;
+        } catch (e) {
+            console.error('Stats fetch error:', e);
         }
     }
 

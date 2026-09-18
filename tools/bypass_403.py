@@ -148,7 +148,7 @@ class Bypass403Agent(BaseAgent):
                        f"3. **Remediation**: Ensure access control is enforced at the application layer, not just by reverse proxies or WAFs."
 
         description = f"Successful 403 bypass using {finding['type']} manipulation."
-        await self.create_alert(title, description, target, risk, details, exploitation)
+        await self.create_alert(title, description, target, risk, details, exploitation, alert_type="bypass_403_success")
 
     async def process_tasks(self):
         task = await self.get_next_task("bypass_403")

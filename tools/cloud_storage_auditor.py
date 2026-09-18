@@ -340,6 +340,20 @@ class CloudStorageAuditorAgent(BaseAgent):
                     }}
                 )
 
+                if target and target.lower() != root_domain.lower():
+                    t_doc = await self.domains_col.find_one({"domain": target}, {"infrastructure.cloud_footprint": 1})
+                    if t_doc:
+                        t_existing_cf = (t_doc or {}).get("infrastructure", {}).get("cloud_footprint") or {}
+                        await self.domains_col.update_one(
+                            {"domain": target},
+                            {"$set": {
+                                "infrastructure.cloud_footprint.s3_buckets": merge_buckets(t_existing_cf.get("s3_buckets"), s3_items),
+                                "infrastructure.cloud_footprint.azure_blobs": merge_buckets(t_existing_cf.get("azure_blobs"), azure_items),
+                                "infrastructure.cloud_footprint.gcp_buckets": merge_buckets(t_existing_cf.get("gcp_buckets"), gcp_items),
+                                "infrastructure.cloud_footprint.other_buckets": merge_buckets(t_existing_cf.get("other_buckets"), other_items),
+                            }}
+                        )
+
             # 4. Generate Centralized Leads / Alerts for Vulnerable Findings
             for asset in valid_assets:
                 # Secured assets are recorded in inventory but not alerted
@@ -358,7 +372,8 @@ class CloudStorageAuditorAgent(BaseAgent):
                             "1. **Immediate Remediation**: Enable S3 'Block Public Access' and revoke anonymous write/PUT permissions in IAM bucket policies.\n"
                             "2. **Audit Uploaded Files**: Check bucket access logs to verify if unauthorized objects or malware were uploaded.\n"
                             "3. **Impact**: Attackers can overwrite legitimate frontend assets or host malware/phishing payloads on your trusted domain."
-                        )
+                        ),
+                        alert_type="cloud_storage_writable"
                     )
                 elif asset["status"] == "open":
                     await self.create_alert(
@@ -371,7 +386,8 @@ class CloudStorageAuditorAgent(BaseAgent):
                             "### Public Bucket Remediation\n\n"
                             "1. **Inspect Exposed Objects**: Download the bucket's XML/JSON index to identify exposed customer PII, database backups, or API keys.\n"
                             "2. **Remediation**: Configure bucket ACLs and policies to private-only."
-                        )
+                        ),
+                        alert_type="cloud_storage_listable"
                     )
 
             # Mark task completed

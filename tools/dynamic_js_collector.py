@@ -35,8 +35,8 @@ class DynamicJsCollectorAgent(BaseAgent):
             "Google API Key": re.compile(r'\bAIza[0-9A-Za-z-_]{35}\b'),
             "AWS Access Key": re.compile(r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'),
             "AWS Secret Key": re.compile(r'(?i)(?:aws_secret_access_key|aws_secret_key|secret[_-]?access[_-]?key|aws_sec(?:ret)?|secret[_-]?key)[\s:=\x22\x27\`]+([A-Za-z0-9/+=]{40})(?:[^\w/+=]|$)'),
-            "JWT Token": re.compile(r'\beyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*\b'),
-            "Bearer Token": re.compile(r'\bBearer\s+[A-Za-z0-9-._~+/]+=*\b'),
+            "JWT Token": re.compile(r'\beyJ[A-Za-z0-9-_=]{10,}\.[A-Za-z0-9-_=]{10,}\.?[A-Za-z0-9-_.+/=]*\b'),
+            "Bearer Token": re.compile(r'\bBearer\s+(eyJ[A-Za-z0-9-_=]{10,}\.[A-Za-z0-9-_=]{10,}\.?[A-Za-z0-9-_.+/=]*|[A-Za-z0-9_\-\.]{25,})\b'),
             "Stripe Key": re.compile(r'\bsk_(?:live|test)_[0-9a-zA-Z]{24}\b'),
             "Firebase Key": re.compile(r'\b[a-zA-Z0-9]{40}:APA91b[a-zA-Z0-9-_]{134}\b'),
             "Slack Webhook": re.compile(r'https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}'),
@@ -650,7 +650,34 @@ class DynamicJsCollectorAgent(BaseAgent):
                 m_str = match.group(0).strip()
                 if match.groups():
                     m_str = match.group(1).strip()
-                if len(m_str) >= 8 and not any(ch in m_str for ch in ["{", "}", "[", "]", ";"]):
+                
+                # Strip wrapping quotes
+                m_str = m_str.strip('"\'`')
+
+                # Reject URLs, file paths, and assets
+                if m_str.startswith(("http://", "https://", "/", "./", "../")) or "://" in m_str:
+                    continue
+                if any(m_str.lower().endswith(ext) for ext in [".js", ".css", ".html", ".png", ".jpg", ".jpeg", ".svg", ".json", ".map", ".wasm"]):
+                    continue
+
+                # Reject code identifiers, function names, and common false positives
+                low = m_str.lower()
+                if any(kw in low for kw in ["recaptcha", "challenge", "qrcode", "hidden", "javascript", "function", "undefined", "null", "placeholder", "default"]):
+                    continue
+
+                # Bearer Token validation
+                if sec_name == "Bearer Token":
+                    token_part = m_str[7:].strip() if m_str.lower().startswith("bearer ") else m_str
+                    if token_part.lower() in ["token", "undefined", "null", "string", "test", "bearer", "accesstoken", "access_token", "jwt", "auth"]:
+                        continue
+                    if len(token_part) < 20:
+                        continue
+
+                # Reject pure alphabetical camelCase/PascalCase identifiers
+                if re.match(r'^[a-zA-Z]+$', m_str) and sec_name not in ["SSH Private Key"]:
+                    continue
+
+                if len(m_str) >= 8 and not any(ch in m_str for ch in ["{", "}", "[", "]", ";", " "]):
                     # Real AWS Secret Keys are base64-encoded random bytes (160-bit) with high entropy
                     if sec_name == "AWS Secret Key":
                         if not (any(c.isupper() for c in m_str) and any(c.islower() for c in m_str) and any(c.isdigit() for c in m_str)):
@@ -894,11 +921,14 @@ class DynamicJsCollectorAgent(BaseAgent):
                             })
 
                     if subs_to_push:
-                        await self.domains_col.update_one(
-                            {"domain": root_domain},
-                            {"$push": {"infrastructure.subdomains": {"$each": subs_to_push}}}
-                        )
-                        new_subdomains_added = len(subs_to_push)
+                        new_subdomains_added = 0
+                        for sub_item in subs_to_push:
+                            res = await self.domains_col.update_one(
+                                {"domain": root_domain, "infrastructure.subdomains.name": {"$ne": sub_item["name"]}},
+                                {"$push": {"infrastructure.subdomains": sub_item}}
+                            )
+                            if res.modified_count > 0:
+                                new_subdomains_added += 1
                         logger.info(f"Registered {new_subdomains_added} new in-scope subdomains into inventory for {root_domain}.")
 
                     if tasks_to_queue:
@@ -929,7 +959,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                             "1. **Enumerate Bucket Contents**: Inspect the bucket XML/JSON directory listing to identify exposed backups, database dumps, customer files, or credentials.\n"
                             "2. **Check Write Permissions**: Test whether unauthenticated HTTP PUT or AWS CLI `aws s3 cp` allows uploading files.\n"
                             "3. **Remediation**: Enable 'Block Public Access' and enforce restricted IAM access policies immediately."
-                        )
+                        ),
+                        alert_type="js_cloud_storage_leaks"
                     )
                 elif probed.get("is_takeover"):
                     await self.create_alert(
@@ -942,7 +973,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                             "### Cloud Bucket Takeover Remediation\n\n"
                             "1. **Register Name Immediately**: Claim the bucket name in the relevant cloud provider before external threat actors discover it.\n"
                             "2. **Code Cleanup**: Remove obsolete dangling references from frontend JavaScript bundles."
-                        )
+                        ),
+                        alert_type="js_cloud_storage_takeover"
                     )
 
             # C) Sensitive Secrets & Credentials
@@ -979,7 +1011,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                         f"   ```text\n   {sec_val}\n   ```\n\n"
                         "2. **Verify Token Scope**: Check permissions, authorized APIs, and access limits granted to this token.\n\n"
                         "3. **Revocation & Remediation**: Rotate exposed credentials immediately and remove them from client-side bundles."
-                    )
+                    ),
+                    alert_type="js_hardcoded_secrets"
                 )
 
             # D) Exposed Source Maps (.js.map)
@@ -995,7 +1028,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "1. **Unpack Source**: Use tools like `shuji` or `sourcemapper` to reconstruct original TypeScript/JavaScript source files.\n"
                         "2. **Code Audit**: Inspect comments, internal API paths, and developer notes in the reconstructed source."
                     ),
-                    extra_key=sm
+                    extra_key=sm,
+                    alert_type="js_source_maps"
                 )
                 # Automatically recover and decompile source code from exposed source map
                 try:
@@ -1024,7 +1058,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "1. **Inspect Claims**: Check if token grants unauthorized roles, admin claims, or sensitive scopes.\n"
                         "2. **Expiration**: Verify if token has expired or remains active indefinitely.\n"
                         "3. **Signature Flaws**: Check if 'alg' header allows 'none' or if secret key is weak."
-                    )
+                    ),
+                    alert_type="js_jwt_tokens"
                 )
 
             # 5. Store aggregated findings in domain document & web application inventory
@@ -1085,6 +1120,20 @@ class DynamicJsCollectorAgent(BaseAgent):
                     }}
                 )
 
+                if target and target.lower() != root_domain.lower():
+                    t_doc = await self.domains_col.find_one({"domain": target}, {"infrastructure.cloud_footprint": 1})
+                    if t_doc:
+                        t_existing_cf = (t_doc or {}).get("infrastructure", {}).get("cloud_footprint") or {}
+                        await self.domains_col.update_one(
+                            {"domain": target},
+                            {"$set": {
+                                "infrastructure.cloud_footprint.s3_buckets": merge_buckets(t_existing_cf.get("s3_buckets"), s3_items),
+                                "infrastructure.cloud_footprint.azure_blobs": merge_buckets(t_existing_cf.get("azure_blobs"), azure_items),
+                                "infrastructure.cloud_footprint.gcp_buckets": merge_buckets(t_existing_cf.get("gcp_buckets"), gcp_items),
+                                "infrastructure.cloud_footprint.other_buckets": merge_buckets(t_existing_cf.get("other_buckets"), other_items),
+                            }}
+                        )
+
             # C) Store dynamic JS summary
             recon_summary = {
                 "scanned_at": datetime.datetime.utcnow().isoformat(),
@@ -1112,6 +1161,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                     list(all_endpoints.values()),
                     key=lambda x: (not x.get("is_in_scope", False), x.get("url", ""))
                 )[:500],
+                "extracted_secrets": all_secrets[:200],
                 "extracted_secrets_count": len(all_secrets),
                 "extracted_jwts": list(all_jwts.values())[:50],
                 "jwt_count": len(all_jwts),

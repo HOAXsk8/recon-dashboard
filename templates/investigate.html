@@ -169,8 +169,8 @@
                                     <option value="muted">Muted / Suppressed</option>
                                     <option value="new">Back to Alerts (New)</option>
                                 </select>
-                                <button onclick="saveInvestigation()" class="px-8 py-3 bg-tech-accent text-tech-bg rounded-xl font-bold hover:opacity-90 transition-all uppercase text-sm tracking-widest">
-                                    Save & Close
+                                <button id="modal-save-btn" onclick="saveInvestigation()" class="px-8 py-3 bg-tech-accent text-tech-bg rounded-xl font-bold hover:opacity-90 transition-all uppercase text-sm tracking-widest flex items-center justify-center min-w-[150px]">
+                                    <span>Save & Close</span>
                                 </button>
                             </div>
                         </div>
@@ -403,28 +403,40 @@
         if (!activeLeadId) return;
         const notes = document.getElementById('modal-notes').value;
         const status = document.getElementById('modal-status-select').value;
+        const saveBtn = document.getElementById('modal-save-btn');
+        const originalContent = saveBtn ? saveBtn.innerHTML : '<span>Save & Close</span>';
         
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="inline-block animate-spin w-4 h-4 border-2 border-tech-bg border-t-transparent rounded-full mr-2"></span><span>Saving...</span>';
+        }
+
         try {
-            // Save Notes
-            const noteResp = await fetch("/api/leads/" + activeLeadId + "/notes", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: "notes=" + encodeURIComponent(notes)
-            });
-            
-            // Save Status
+            const formData = new URLSearchParams();
+            formData.append("status", status);
+            formData.append("notes", notes);
+
             const statusResp = await fetch("/api/leads/" + activeLeadId + "/status", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: "status=" + status
+                body: formData.toString()
             });
             
-            if (noteResp.ok && statusResp.ok) {
+            if (statusResp.ok) {
                 closeInvestigationModal();
-                fetchLeads();
+                await fetchLeads();
+            } else {
+                const errData = await statusResp.json().catch(() => ({}));
+                alert("Failed to save changes: " + (errData.detail || statusResp.statusText));
             }
         } catch (e) {
             console.error(e);
+            alert("An error occurred while saving: " + e.message);
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalContent;
+            }
         }
     }
 

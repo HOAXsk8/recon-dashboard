@@ -4,6 +4,7 @@ import datetime
 import logging
 import urllib.parse
 import hashlib
+import re
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, Dict, Any
 
@@ -160,6 +161,13 @@ class BaseAgent:
         if alert_type:
             return alert_type
         t = (title or "").lower()
+
+        # Cloud Storage Auditor (prioritize listable & writable specifically before generic leak)
+        if "publicly writable" in t or "writable" in t:
+            return "cloud_storage_writable"
+        if "publicly listable" in t or "listable" in t:
+            return "cloud_storage_listable"
+
         # Directory & File Hunter
         if "critical file exposed" in t or ("sensitive discovery" in t and any(p in t for p in [".env", ".git", ".aws", "credentials", "dump.sql", "id_rsa", "backup.zip"])):
             return "sensitive_files_critical"
@@ -180,15 +188,7 @@ class BaseAgent:
         if "jwt token" in t or "exposed jwt" in t:
             return "js_jwt_tokens"
         if "cloud storage leak" in t or ("cloud storage" in t and "public" in t):
-            if "writable" in t:
-                return "cloud_storage_writable"
             return "js_cloud_storage_leaks"
-
-        # Cloud Storage Auditor
-        if "publicly writable" in t:
-            return "cloud_storage_writable"
-        if "publicly listable" in t:
-            return "cloud_storage_listable"
 
         # 403 Bypass
         if "403 bypass" in t:
@@ -214,6 +214,10 @@ class BaseAgent:
         if "historical archive leak" in t or "archive" in t:
             return "archive_historical_leaks"
 
+        # Domain Permutator
+        if "permutat" in t or "subdomain mutator" in t or "environment mutator" in t:
+            return "domain_permutator_discovered"
+
         return "general_alert"
 
     async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None, alert_type=None):
@@ -228,11 +232,12 @@ class BaseAgent:
             settings = await self.settings_col.find_one({"key": "global_settings"})
             if settings and "alerts" in settings:
                 alerts_cfg = settings["alerts"]
-                if alerts_cfg.get(alert_key) is False:
-                    logger.info(f"Skipping alert because '{alert_key}' is disabled in Settings: {title} on {target}")
+                val = alerts_cfg.get(alert_key)
+                if val is False or str(val).lower() == "false" or val == 0:
+                    logger.info(f"[ALERT SUPPRESSED BY SETTINGS] '{alert_key}' is disabled: {title} on {target}")
                     return False
         except Exception as e:
-            logger.error(f"Error checking alert settings: {e}")
+            logger.error(f"Error checking alert settings for {alert_key}: {e}")
 
         # Create a unique fingerprint based on target, title, and optional extra_key (e.g. source map URL or secret)
         fingerprint_input = f"{target}|{title}|{extra_key}" if extra_key else f"{target}|{title}"
@@ -285,7 +290,164 @@ class BaseAgent:
         )
         
         logger.info(f"Created NEW ALERT: {title} on {target}")
+
+        # 5. Automatically ensure any cloud bucket alert is saved to the domain's cloud storage footprint
+        try:
+            if alert_key in ["osint_public_buckets", "cloud_storage_writable", "cloud_storage_listable", "js_cloud_storage_leaks", "js_cloud_storage_takeover"] or (details and isinstance(details, dict) and "bucket_url" in details) or ("bucket" in title.lower()):
+                bucket_url = ""
+                bucket_name = ""
+                provider = "AWS S3"
+
+                if isinstance(details, dict):
+                    bucket_url = details.get("bucket_url") or details.get("url") or ""
+                    bucket_name = details.get("bucket_name") or details.get("name") or ""
+                elif isinstance(details, str):
+                    m = re.search(r"Bucket URL:\s*([^\s\n]+)", details)
+                    if m: bucket_url = m.group(1)
+                    m2 = re.search(r"Provider:\s*([^\s\n]+)", details)
+                    if m2: provider = m2.group(1)
+
+                if not bucket_name:
+                    m3 = re.search(r"Bucket:\s*([^\s\n]+)", title)
+                    if m3:
+                        bucket_name = m3.group(1)
+                    elif ":" in title:
+                        bucket_name = title.split(":")[-1].strip()
+
+                if "google" in title.lower() or (bucket_url and "storage.googleapis.com" in bucket_url):
+                    provider = "Google Cloud Storage"
+                elif "azure" in title.lower() or (bucket_url and "blob.core.windows.net" in bucket_url):
+                    provider = "Azure Blob"
+                elif "s3" in title.lower() or (bucket_url and "s3.amazonaws.com" in bucket_url):
+                    provider = "AWS S3"
+
+                if "writable" in alert_key or "writable" in title.lower():
+                    status = "vulnerable_write"
+                elif "takeover" in alert_key or "unclaimed" in title.lower():
+                    status = "vulnerable_takeover"
+                else:
+                    status = "open"
+
+                if not bucket_url and bucket_name:
+                    if provider == "Google Cloud Storage":
+                        bucket_url = f"https://storage.googleapis.com/{bucket_name}"
+                    elif provider == "AWS S3":
+                        bucket_url = f"https://{bucket_name}.s3.amazonaws.com"
+
+                if bucket_url or bucket_name:
+                    await self.sync_bucket_to_footprint(
+                        target=target,
+                        bucket_data={
+                            "name": bucket_name or bucket_url,
+                            "raw": bucket_url.replace("https://", "").replace("http://", "").rstrip("/"),
+                            "url": bucket_url,
+                            "provider": provider,
+                            "status": status,
+                            "http_status": 200,
+                            "details": description,
+                            "source_app": target,
+                            "discovered_by": self.agent_name,
+                            "discovered_at": datetime.datetime.utcnow().isoformat()
+                        }
+                    )
+        except Exception as e:
+            logger.error(f"Error auto-syncing cloud bucket alert to footprint: {e}")
+
         return True
+
+    async def sync_bucket_to_footprint(self, target: str, bucket_data: dict, root_domain: Optional[str] = None):
+        """
+        Ensure that a discovered or alerted cloud storage bucket is persistently saved
+        into the associated domain's (and root domain's) infrastructure.cloud_footprint.
+        """
+        try:
+            target_clean = (target or "").strip().lower()
+            if not target_clean:
+                return
+
+            prov = bucket_data.get("provider") or "AWS S3"
+            name = bucket_data.get("name") or bucket_data.get("raw") or ""
+            raw = bucket_data.get("raw") or name
+            url = bucket_data.get("url") or ""
+            status = bucket_data.get("status") or "open"
+            http_status = bucket_data.get("http_status") or 200
+            details = bucket_data.get("details") or ""
+            source_app = bucket_data.get("source_app") or target_clean
+            discovered_by = bucket_data.get("discovered_by") or self.agent_name
+            discovered_at = bucket_data.get("discovered_at") or datetime.datetime.utcnow().isoformat()
+
+            asset_obj = {
+                "name": name,
+                "raw": raw,
+                "url": url,
+                "provider": prov,
+                "status": status,
+                "http_status": http_status,
+                "details": details,
+                "source_app": source_app,
+                "discovered_by": discovered_by,
+                "discovered_at": discovered_at
+            }
+
+            prov_lower = prov.lower()
+            if "s3" in prov_lower or "aws" in prov_lower:
+                category = "s3_buckets"
+            elif "azure" in prov_lower or "blob" in prov_lower:
+                category = "azure_blobs"
+            elif "google" in prov_lower or "gcp" in prov_lower or "gcs" in prov_lower:
+                category = "gcp_buckets"
+            else:
+                category = "other_buckets"
+
+            domains_to_update = set()
+            if root_domain:
+                domains_to_update.add(root_domain.strip().lower())
+
+            # Direct match
+            if await self.domains_col.find_one({"domain": target_clean}):
+                domains_to_update.add(target_clean)
+
+            # Subdomain parent match
+            parent = await self.domains_col.find_one({"infrastructure.subdomains.name": target_clean}, {"domain": 1})
+            if parent:
+                domains_to_update.add(parent["domain"].strip().lower())
+            else:
+                async for d in self.domains_col.find({}, {"domain": 1}):
+                    d_name = d["domain"].strip().lower()
+                    if target_clean == d_name or target_clean.endswith("." + d_name):
+                        domains_to_update.add(d_name)
+
+            def merge_into_list(existing_list, item):
+                merged = {}
+                for it in (existing_list or []):
+                    if isinstance(it, dict):
+                        u = (it.get("url") or it.get("raw") or it.get("name") or "").strip().lower().rstrip("/")
+                        src = (it.get("source_app") or "").strip().lower()
+                        if u:
+                            merged[(u, src)] = it
+                u = (item.get("url") or item.get("raw") or item.get("name") or "").strip().lower().rstrip("/")
+                src = (item.get("source_app") or "").strip().lower()
+                if u:
+                    if (u, src) in merged:
+                        prev = merged[(u, src)]
+                        rank = {"vulnerable_write": 4, "vulnerable_takeover": 3, "open": 2, "secured": 1, "unknown": 0}
+                        if rank.get(item.get("status"), 0) >= rank.get(prev.get("status"), 0):
+                            merged[(u, src)] = {**prev, **item}
+                    else:
+                        merged[(u, src)] = item
+                return list(merged.values())
+
+            for d_name in domains_to_update:
+                doc = await self.domains_col.find_one({"domain": d_name}, {f"infrastructure.cloud_footprint.{category}": 1})
+                if doc is not None:
+                    existing = (doc.get("infrastructure") or {}).get("cloud_footprint", {}).get(category) or []
+                    updated_list = merge_into_list(existing, asset_obj)
+                    await self.domains_col.update_one(
+                        {"domain": d_name},
+                        {"$set": {f"infrastructure.cloud_footprint.{category}": updated_list}}
+                    )
+        except Exception as e:
+            logger.error(f"Error syncing bucket {bucket_data} to footprint: {e}")
 
     async def update_heartbeat(self):
         """Update agent status and check for pause/resume commands."""
@@ -357,9 +519,19 @@ class BaseAgent:
             "status": {"$in": ["pending", "processing"]}
         })
         if pending == 0:
+            now_iso = datetime.datetime.utcnow().isoformat()
             await self.domains_col.update_one(
                 {"domain": root_domain},
-                {"$set": {"scanned": True, "last_scanned": datetime.datetime.utcnow().isoformat()}}
+                {"$set": {
+                    "scanned": True,
+                    "last_scanned": now_iso
+                }}
+            )
+            await self.domains_col.update_one(
+                {"domain": root_domain, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+                {"$set": {
+                    "infrastructure.subdomains.$[].scanned": True
+                }}
             )
             logger.info(f"Root domain {root_domain} fully scanned.")
 

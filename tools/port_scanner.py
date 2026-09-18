@@ -78,8 +78,7 @@ class PortScannerAgent(BaseAgent):
         
         details = f"A change in the open ports was detected for {target}.\n\nPrevious ports: {', '.join(old_set) or 'None'}\nNew ports: {', '.join(new_set) or 'None'}"
         exploitation = f"### Port Analysis\n\n1. **Verify Services**: For new ports, identify the service running and check for vulnerabilities.\n2. **Firewall Check**: Ensure that newly opened ports are intended to be public.\n3. **Decommissioning**: If ports were closed, verify if it was a planned decommission or a service failure."
-
-        await self.create_alert(title, description, target, risk, details, exploitation)
+        return await self.create_alert(title, description, target, risk, details, exploitation, alert_type="port_scanner_changes")
 
     async def update_scan_results_in_db(self, root_domain, target, ip, services):
         # Fetch previous results for comparison
@@ -96,7 +95,8 @@ class PortScannerAgent(BaseAgent):
         changed_ports = set()
         if latest_prev_scan:
             old_services = latest_prev_scan.get("services", [])
-            await self.create_port_alert(root_domain, target, old_services, services)
+            if services or old_services:
+                await self.create_port_alert(root_domain, target, old_services, services)
             
             # Identify which ports are new or have changed service info
             old_map = {p['port']: p for p in old_services}
@@ -132,9 +132,21 @@ class PortScannerAgent(BaseAgent):
             xml_data = await self.run_nmap(target)
             ip, services = self.parse_nmap_xml(xml_data)
             
+            # Always record the scan in systems so the host is marked as scanned (even if 0 open ports)
+            changed_ports = await self.update_scan_results_in_db(root_domain, target, ip, services or [])
+
+            # Mark subdomain as scanned in infrastructure.subdomains
+            if target != root_domain:
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "infrastructure.subdomains.name": target},
+                    {"$set": {
+                        "infrastructure.subdomains.$.scanned": True,
+                        "infrastructure.subdomains.$.ip": ip,
+                        "infrastructure.subdomains.$.last_scanned": datetime.datetime.utcnow().isoformat()
+                    }}
+                )
+            
             if services:
-                changed_ports = await self.update_scan_results_in_db(root_domain, target, ip, services)
-                
                 # Trigger directory hunt for web services
                 for svc in services:
                     if svc['port'] in [80, 443, 8080, 8443, 3000, 5000, 8000] or svc['service'] in ['http', 'https']:

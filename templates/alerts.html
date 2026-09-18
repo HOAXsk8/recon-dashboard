@@ -45,6 +45,7 @@
             </select>
             <select id="filter-tool" onchange="fetchLeads()" class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent">
                 <option value="">All Tools</option>
+                <option value="Subdomain Environment Mutator">🧬 Subdomain Permutator</option>
                 <!-- Dynamically Populated -->
             </select>
             <input type="text" id="filter-title" oninput="debounceLeadsSearch()" placeholder="Search Title..." class="bg-tech-panel border border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent placeholder-slate-600">
@@ -403,6 +404,7 @@
         else if (lead.status === 'muted') statusBadge = 'bg-slate-800/80 text-slate-400 border border-slate-700/60';
         
         const isSourceMap = isSourceMapLead(lead);
+        const isPermutator = lead.source === 'Subdomain Environment Mutator' || lead.alert_type === 'domain_permutator_discovered' || (lead.title && lead.title.toLowerCase().includes('permutat'));
         
         row.innerHTML = `
             <td class="px-5 py-4">
@@ -421,6 +423,11 @@
                 <div class="flex flex-col">
                     <div class="flex items-center space-x-2 flex-wrap">
                         <span class="font-bold text-slate-100 group-hover:text-tech-accent transition-colors">${lead.title || 'Untitled Lead'}</span>
+                        ${isPermutator ? `
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30 shadow-sm" title="Discovered via Subdomain Permutator">
+                                🧬 Permutator
+                            </span>
+                        ` : ''}
                         ${isSourceMap ? `
                             <span onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}')" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer shadow-sm" title="Explore Human-Readable Source Code">
                                 <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
@@ -442,25 +449,25 @@
                 ${formatBytes(lead.response_size)}
             </td>
             <td class="px-4 py-4 text-xs text-slate-500 whitespace-nowrap">${lead.timestamp ? new Date(lead.timestamp).toLocaleString() : ''}</td>
-            <td class="px-6 py-4 text-right flex justify-end space-x-1.5">
+            <td class="px-6 py-4 text-right flex justify-end space-x-1.5 items-center">
                 ${isSourceMap ? `
-                <button onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}')" class="p-2 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-white rounded-lg transition-all border border-emerald-500/30 shadow-sm" title="Explore Human-Readable Source Code">
+                <button onclick="event.stopPropagation(); openSourceMapViewerForLead('${lead._id}', '${lead.target}')" class="lead-action-btn action-sourcemap p-2 rounded-lg transition-all" title="Explore Human-Readable Source Code">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                 </button>
                 ` : ''}
-                <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="View Alert Details">
+                <button onclick="event.stopPropagation(); openLeadModal('${lead._id}')" class="lead-action-btn action-details p-2 rounded-lg transition-all" title="View Alert Details">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                 </button>
-                <button onclick="event.stopPropagation(); openDomainOverviewModal('${lead.target}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all inline-flex items-center justify-center" title="Inspect Target Domain Overview">
+                <button onclick="event.stopPropagation(); openDomainOverviewModal('${lead.target}')" class="lead-action-btn action-domain p-2 rounded-lg transition-all inline-flex items-center justify-center" title="Inspect Target Domain Overview">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
                 </button>
-                <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="p-2 hover:bg-tech-accent hover:text-tech-bg text-slate-400 rounded-lg transition-all" title="Add Notes">
+                <button onclick="event.stopPropagation(); openNotesModal('${lead._id}')" class="lead-action-btn action-notes p-2 rounded-lg transition-all" title="Add Notes">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                 </button>
-                <button onclick="event.stopPropagation(); promoteAlertToFinding('${lead._id}')" class="p-2 ${lead.promoted_to_finding_id ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' : 'hover:bg-purple-500 hover:text-white text-slate-400'} rounded-lg transition-all" title="${lead.promoted_to_finding_id ? 'Promoted to Findings (Click to view)' : 'Promote to Confirmed Finding'}">
+                <button onclick="event.stopPropagation(); promoteAlertToFinding('${lead._id}')" class="lead-action-btn action-promote ${lead.promoted_to_finding_id ? 'is-promoted' : ''} p-2 rounded-lg transition-all" title="${lead.promoted_to_finding_id ? 'Promoted to Findings (Click to view)' : 'Promote to Confirmed Finding'}">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                 </button>
-                <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="p-2 hover:bg-red-500 hover:text-white text-slate-400 rounded-lg transition-all" title="Mute/Suppress Finding">
+                <button onclick="event.stopPropagation(); muteFinding('${lead._id}')" class="lead-action-btn action-mute p-2 rounded-lg transition-all" title="Mute/Suppress Finding">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
                 </button>
             </td>
@@ -1200,11 +1207,16 @@
             if (resp.ok) {
                 const sources = await resp.json();
                 const select = document.getElementById('filter-tool');
-                sources.forEach(source => {
-                    const opt = document.createElement('option');
-                    opt.value = source;
-                    opt.textContent = source;
-                    select.appendChild(opt);
+                if (!sources.includes('Subdomain Environment Mutator')) {
+                    sources.push('Subdomain Environment Mutator');
+                }
+                sources.sort().forEach(source => {
+                    if (!Array.from(select.options).some(o => o.value === source)) {
+                        const opt = document.createElement('option');
+                        opt.value = source;
+                        opt.textContent = source === 'Subdomain Environment Mutator' ? '🧬 Subdomain Permutator' : source;
+                        select.appendChild(opt);
+                    }
                 });
             }
         } catch (e) {

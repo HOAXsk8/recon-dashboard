@@ -337,15 +337,19 @@ class DirectoryHunterAgent(BaseAgent):
             "swagger", "openapi", "actuator", "phpinfo", "info.php", "metrics", "healthz"
         ]
 
+        alert_type = "sensitive_files_critical"
         if any(p in path_lower for p in critical_patterns):
             risk = "high"
             title = f"CRITICAL File Exposed: {item['path']}"
+            alert_type = "sensitive_files_critical"
         elif any(p in path_lower for p in high_patterns):
             risk = "high"
             title = f"High-Risk File Exposed: {item['path']}"
+            alert_type = "sensitive_files_high"
         elif any(p in path_lower for p in medium_patterns):
             risk = "medium"
             title = f"Diagnostic/API Endpoint Exposed: {item['path']}"
+            alert_type = "sensitive_files_diagnostic"
 
         dir_info = f" inside directory `/{item.get('directory')}/`" if item.get('directory') else ""
         description = f"Web path discovered{dir_info}: {item['path']} (HTTP {item['status']}, {item.get('length', 0)}B)"
@@ -361,7 +365,7 @@ class DirectoryHunterAgent(BaseAgent):
             f"4. **Host Context**: Discovered on `{target}` ({root_domain})."
         )
 
-        await self.create_alert(title, description, target, risk, details, exploitation, response_size=item.get('length', 0))
+        await self.create_alert(title, description, target, risk, details, exploitation, response_size=item.get('length', 0), alert_type=alert_type)
 
     async def process_tasks(self):
         task = await self.get_next_task("directory_hunt")

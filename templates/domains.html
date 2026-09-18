@@ -9,10 +9,16 @@
     <div class="flex justify-between items-center">
         <h2 class="text-3xl font-bold tracking-tight text-white uppercase">Domain <span class="text-tech-accent">Management</span></h2>
         {% if user.role in ['admin', 'analyst'] %}
-        <button onclick="document.getElementById('add-domain-modal').classList.remove('hidden')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-            <span>Add Domain</span>
-        </button>
+        <div class="flex items-center space-x-3">
+            <button onclick="rescanAllDomains()" id="btn-rescan-all" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-bold rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center space-x-2 text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>Reset & Rescan All</span>
+            </button>
+            <button onclick="document.getElementById('add-domain-modal').classList.remove('hidden')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2 text-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                <span>Add Domain</span>
+            </button>
+        </div>
         {% endif %}
     </div>
 
@@ -45,6 +51,10 @@
                         <option value="">All Domains</option>
                         <option value="true">Blacklisted Only</option>
                         <option value="false">Not Blacklisted</option>
+                    </select>
+                    <select id="filter-mutator" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
+                        <option value="">All Sources</option>
+                        <option value="true">🧬 Permutator Only</option>
                     </select>
                 </div>
             </div>
@@ -123,7 +133,7 @@
         <div class="flex flex-col">
             <span class="text-[10px] uppercase font-bold text-slate-500 mb-1">Set Interval (hrs)</span>
             <div class="flex space-x-2">
-                <input type="number" id="bulk-interval-input" value="24" min="1" class="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent">
+                <input type="number" id="bulk-interval-input" value="24" min="0" placeholder="0=continuous" class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent" title="Set interval in hours. Use 0 for continuous scanning (2m cooldown).">
                 <button onclick="bulkUpdateInterval()" class="px-3 py-1 bg-tech-accent text-tech-bg text-[10px] font-bold rounded hover:opacity-90 transition-all">SET</button>
             </div>
         </div>
@@ -286,9 +296,12 @@ async function loadDomains() {
     const q = document.getElementById('domain-search').value;
     const statusVal = document.getElementById('filter-status').value;
     const blacklistedVal = document.getElementById('filter-blacklisted').value;
+    const mutatorVal = document.getElementById('filter-mutator') ? document.getElementById('filter-mutator').value : '';
 
     try {
-        const response = await fetch(`/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&status_val=${statusVal}&blacklisted=${blacklistedVal}&_t=${Date.now()}`);
+        let url = `/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&status_val=${statusVal}&blacklisted=${blacklistedVal}&_t=${Date.now()}`;
+        if (mutatorVal) url += `&mutator=${encodeURIComponent(mutatorVal)}`;
+        const response = await fetch(url);
         const data = await response.json();
         
         const tbody = document.getElementById('domain-table-body');
@@ -326,9 +339,12 @@ async function loadDomains() {
 
             rowHtml += `
                 <td class="px-6 py-4 font-mono font-bold text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent('${domain.domain}')">
-                    ${domain.domain}
-                    ${!domain.is_root ? '<span class="ml-1 px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
-                    ${domain.single_domain_only ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold uppercase tracking-wider" title="Single target only (subdomain discovery disabled)">Single Target</span>' : ''}
+                    <span class="inline-flex items-center flex-wrap gap-1">
+                        <span>${domain.domain}</span>
+                        ${!domain.is_root ? '<span class="px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
+                        ${domain.single_domain_only ? '<span class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold uppercase tracking-wider" title="Single target only (subdomain discovery disabled)">Single Target</span>' : ''}
+                        ${(domain.is_permutated || domain.source === 'environment_mutator') ? '<span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 text-[9px] font-bold uppercase tracking-wider font-mono inline-flex items-center gap-0.5 shadow-sm" title="Discovered via Subdomain Permutator">🧬 Permutator</span>' : ''}
+                    </span>
                 </td>
                 <td class="px-6 py-4">${statusBadge}</td>
                 <td class="px-6 py-4">
@@ -879,6 +895,37 @@ async function bulkUpdateInterval() {
         }
     } catch (error) {
         console.error('Bulk interval update error:', error);
+    }
+}
+
+async function rescanAllDomains() {
+    if (!confirm("Are you sure you want to reset ALL domains and subdomains to unscanned (Pending) and start a complete scan across the entire scope?")) {
+        return;
+    }
+    const btn = document.getElementById("btn-rescan-all");
+    const originalHtml = btn ? btn.innerHTML : "";
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Starting Rescan...</span>`;
+    }
+    try {
+        const response = await fetch('/api/domains/rescan-all', { method: 'POST' });
+        const result = await response.json();
+        if (response.ok && result.status === 'success') {
+            alert(result.message || "Global rescan started successfully!");
+            clearSelection();
+            loadDomains();
+        } else {
+            alert(result.detail || result.message || "Failed to start global rescan");
+        }
+    } catch (error) {
+        console.error('Rescan all error:', error);
+        alert('Network or server error while starting global rescan.');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
     }
 }
 

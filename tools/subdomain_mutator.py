@@ -259,33 +259,92 @@ class FastDnsResolver:
     """
     High-performance asynchronous DNS resolver that confirms whether candidate
     permutations actively resolve in DNS before queueing them in the database.
-    Includes wildcard DNS detection & suppression.
+    Includes hierarchical multi-level wildcard DNS detection & suppression across
+    all parent zones (apex and sub-zones).
     """
 
     def __init__(self, nameservers: Optional[List[str]] = None, timeout: float = 2.0, concurrency: int = 50):
         self.timeout = timeout
         self.concurrency = concurrency
         self.nameservers = nameservers or ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
-        self.wildcard_ips: Dict[str, Optional[Set[str]]] = {}
+        self.wildcard_ips: Dict[str, Set[str]] = {}
 
-    async def detect_wildcard_ips(self, domain: str) -> Set[str]:
+    def get_parent_zones(self, hostname: str, root_domain: str) -> List[str]:
         """
-        Resolve a series of random non-existent subdomains to determine if a wildcard DNS
-        record is returning pseudo-IPs.
+        Extract all parent zones for a hostname down to root_domain.
+        For example, for 'staging.dev.my.youfibre.com' with root 'youfibre.com':
+        Returns: ['dev.my.youfibre.com', 'my.youfibre.com', 'youfibre.com']
+        Sorted from most specific parent zone to the root domain.
         """
-        if domain in self.wildcard_ips:
-            return self.wildcard_ips[domain] or set()
+        clean_h = hostname.lower().strip().rstrip(".")
+        clean_r = root_domain.lower().strip().rstrip(".")
+        if not clean_h.endswith(f".{clean_r}"):
+            return [clean_r] if clean_r else []
+
+        sub_part = clean_h[:-len(f".{clean_r}")].rstrip(".")
+        labels = [p for p in sub_part.split(".") if p]
+
+        zones = []
+        for i in range(1, len(labels)):
+            zone = ".".join(labels[i:]) + f".{clean_r}"
+            zones.append(zone)
+        zones.append(clean_r)
+        return zones
+
+    async def detect_wildcard_ips(self, zone: str) -> Set[str]:
+        """
+        Resolve multiple randomized canary subdomains on a zone to determine if
+        a wildcard DNS record is actively returning pseudo-IPs.
+        """
+        clean_zone = zone.lower().strip().rstrip(".")
+        if clean_zone in self.wildcard_ips:
+            return self.wildcard_ips[clean_zone]
 
         import uuid
-        test_sub = f"detect-wildcard-{uuid.uuid4().hex[:12]}.{domain}"
-        ips = await self.resolve_single(test_sub)
-        if ips:
-            logger.warning(f"Wildcard DNS detected on {domain}! Resolves to: {ips}")
-            self.wildcard_ips[domain] = set(ips)
-            return set(ips)
+        # Probe with two independent random canary hosts
+        probe1 = f"wc-chk1-{uuid.uuid4().hex[:10]}.{clean_zone}"
+        probe2 = f"wc-chk2-{uuid.uuid4().hex[:10]}.{clean_zone}"
 
-        self.wildcard_ips[domain] = set()
+        ips1 = await self.resolve_single(probe1)
+        ips2 = await self.resolve_single(probe2)
+
+        # If both probes resolve, a wildcard DNS record exists on this zone
+        if ips1 and ips2:
+            wc_set = set(ips1).union(set(ips2))
+            logger.warning(f"Wildcard DNS detected on zone {clean_zone}! Wildcard IPs: {wc_set}")
+            self.wildcard_ips[clean_zone] = wc_set
+            return wc_set
+
+        self.wildcard_ips[clean_zone] = set()
         return set()
+
+    async def is_wildcard_false_positive(self, hostname: str, resolved_ips: List[str], root_domain: str) -> bool:
+        """
+        Determine whether a resolved hostname is a wildcard false positive by:
+        1. Checking against cached wildcard IP sets of all parent zones.
+        2. Performing a direct parent canary check if the direct parent zone has not been probed yet.
+        """
+        if not resolved_ips:
+            return True
+
+        resolved_set = set(resolved_ips)
+        parent_zones = self.get_parent_zones(hostname, root_domain)
+
+        # 1. Check cached parent zone wildcards
+        for zone in parent_zones:
+            wc_ips = await self.detect_wildcard_ips(zone)
+            if wc_ips and resolved_set.intersection(wc_ips):
+                return True
+
+        # 2. Dynamic direct parent canary check (for catching depth-specific or newly emerged wildcards)
+        if parent_zones:
+            direct_parent = parent_zones[0]
+            if direct_parent not in self.wildcard_ips:
+                wc_ips = await self.detect_wildcard_ips(direct_parent)
+                if wc_ips and resolved_set.intersection(wc_ips):
+                    return True
+
+        return False
 
     async def resolve_single(self, hostname: str) -> List[str]:
         """
@@ -328,13 +387,27 @@ class FastDnsResolver:
 
     async def filter_live_candidates(self, candidates: Iterable[str], root_domain: str) -> Dict[str, List[str]]:
         """
-        Resolve all candidate subdomains concurrently.
-        Filters out non-resolving hosts and wildcards.
+        Resolve all candidate subdomains concurrently with hierarchical wildcard suppression.
+        1. Pre-probes all unique parent zones in the candidate tree for wildcards.
+        2. Resolves each candidate.
+        3. Discards any candidate that matches a parent zone's wildcard IPs.
         Returns a dict of {live_hostname: [ip_addresses]}.
         """
         clean_root = root_domain.strip().rstrip(".")
-        wildcard_ips = await self.detect_wildcard_ips(clean_root)
+        candidate_list = list({c.lower().strip().rstrip(".") for c in candidates if c})
 
+        # 1. Collect and pre-probe all parent zones across the candidate batch
+        all_parent_zones = set()
+        for c in candidate_list:
+            for z in self.get_parent_zones(c, clean_root):
+                all_parent_zones.add(z)
+
+        # Concurrently probe all parent zones
+        zone_probe_tasks = [self.detect_wildcard_ips(z) for z in all_parent_zones]
+        if zone_probe_tasks:
+            await asyncio.gather(*zone_probe_tasks)
+
+        # 2. Concurrently resolve and validate candidates
         semaphore = asyncio.Semaphore(self.concurrency)
         results: Dict[str, List[str]] = {}
 
@@ -343,13 +416,16 @@ class FastDnsResolver:
                 ips = await self.resolve_single(host)
                 if not ips:
                     return
-                # Check wildcard suppression
-                if wildcard_ips and any(ip in wildcard_ips for ip in ips):
-                    # Discard if it strictly matches the wildcard IP
+
+                # Check if it matches any parent zone wildcard
+                is_fp = await self.is_wildcard_false_positive(host, ips, clean_root)
+                if is_fp:
+                    logger.debug(f"Discarding wildcard false positive: {host} (IPs: {ips})")
                     return
+
                 results[host] = ips
 
-        tasks = [check_host(c) for c in set(candidates)]
+        tasks = [check_host(c) for c in candidate_list]
         if tasks:
             await asyncio.gather(*tasks)
 
@@ -433,43 +509,79 @@ class EnvironmentMutationAgent(BaseAgent):
         now_iso = datetime.datetime.utcnow().isoformat()
 
         for live_host, ips in live_subdomains.items():
-            if not self.is_in_scope(live_host, clean_root):
+            clean_host = live_host.strip().lower().rstrip(".")
+            if not self.is_in_scope(clean_host, clean_root):
+                continue
+
+            # Only add to domains to be scanned and alert if not in domains already
+            already_in_domains = await self.domains_col.find_one({
+                "$or": [
+                    {"domain": clean_host},
+                    {"infrastructure.subdomains.name": clean_host}
+                ]
+            })
+            if already_in_domains:
+                logger.info(f"Permutated domain {clean_host} already exists in domains inventory. Skipping scan queue and alert.")
                 continue
 
             # Add to domains infrastructure.subdomains
-            sub_exists = await self.domains_col.find_one({
-                "domain": clean_root,
-                "infrastructure.subdomains.name": live_host
-            })
-            if not sub_exists:
-                await self.domains_col.update_one(
-                    {"domain": clean_root},
-                    {"$addToSet": {
-                        "infrastructure.subdomains": {
-                            "name": live_host,
-                            "added_at": now_iso,
-                            "source": "environment_mutator",
-                            "ips": ips
-                        }
-                    }}
-                )
+            res = await self.domains_col.update_one(
+                {"domain": clean_root, "infrastructure.subdomains.name": {"$ne": clean_host}},
+                {"$push": {
+                    "infrastructure.subdomains": {
+                        "name": clean_host,
+                        "added_at": now_iso,
+                        "source": "environment_mutator",
+                        "ips": ips
+                    }
+                }}
+            )
 
-            # Queue verification task (alive_check)
-            task_exists = await self.tasks_col.find_one({
-                "root_domain": clean_root,
-                "target": live_host,
-                "task_type": "verification"
-            })
-            if not task_exists:
-                await self.tasks_col.insert_one({
+            if res.modified_count > 0:
+                # 1. Queue verification task (alive_check) to be scanned
+                task_exists = await self.tasks_col.find_one({
                     "root_domain": clean_root,
-                    "target": live_host,
-                    "task_type": "verification",
-                    "status": "pending",
-                    "source": "environment_mutator",
-                    "created_at": datetime.datetime.utcnow()
+                    "target": clean_host,
+                    "task_type": "verification"
                 })
-                queued_count += 1
+                if not task_exists:
+                    await self.tasks_col.insert_one({
+                        "root_domain": clean_root,
+                        "target": clean_host,
+                        "task_type": "verification",
+                        "status": "pending",
+                        "source": "environment_mutator",
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    queued_count += 1
+
+                # 2. Generate alert ONLY when newly added to domains to be scanned
+                try:
+                    ip_str = ", ".join(ips) if ips else "N/A"
+                    await self.create_alert(
+                        title=f"Permutated Subdomain Discovered: {clean_host}",
+                        description=f"A live permutated domain `{clean_host}` was discovered by the Subdomain Environment Mutator for root `{clean_root}`.\n\n"
+                                    f"- **Root Domain**: `{clean_root}`\n"
+                                    f"- **Permutated Host**: `{clean_host}`\n"
+                                    f"- **Resolved IP(s)**: `{ip_str}`\n"
+                                    f"- **Source**: `environment_mutator`\n\n"
+                                    f"This asset was discovered through taxonomy and wordlist permutation analysis. Inspect for exposed staging, development, or internal services.",
+                        target=clean_host,
+                        risk_level="low",
+                        details={
+                            "root_domain": clean_root,
+                            "hostname": clean_host,
+                            "ips": ips,
+                            "source": "environment_mutator",
+                            "discovered_at": now_iso
+                        },
+                        exploitation_suggestions="1. Run alive probing to inspect active web endpoints and response codes.\n"
+                                                 "2. Perform port scanning on the newly discovered IP address.\n"
+                                                 "3. Check for exposed development/staging credentials or unauthenticated administration consoles.",
+                        alert_type="domain_permutator_discovered"
+                    )
+                except Exception as alert_err:
+                    logger.error(f"Error creating permutator alert for {clean_host}: {alert_err}")
 
         return {
             "root_domain": clean_root,

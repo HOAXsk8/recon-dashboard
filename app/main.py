@@ -15,6 +15,7 @@ import asyncio
 
 from datetime import datetime, timedelta
 import re
+import ipaddress
 
 from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col
 from app.security import (
@@ -96,7 +97,24 @@ def format_domain_item(d: dict):
         "last_scanned": d.get("last_scanned", "Never")
     }
 
-def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val: Optional[str] = None, tech: Optional[str] = None, port: Optional[int] = None, waf: Optional[str] = None, lb: Optional[str] = None):
+def get_flattened_pipeline(
+    root_query: dict,
+    q: Optional[str] = None,
+    status_val: Optional[str] = None,
+    tech: Optional[str] = None,
+    port: Optional[int] = None,
+    waf: Optional[str] = None,
+    lb: Optional[str] = None,
+    mutator: Optional[str] = None,
+    ip: Optional[str] = None,
+    api_routes: Optional[str] = None,
+    cloud_assets: Optional[str] = None,
+    secrets: Optional[str] = None,
+    jwt: Optional[str] = None,
+    base64: Optional[str] = None,
+    alive_apps: Optional[str] = None,
+    historical: Optional[str] = None
+):
     pipeline = [
         {"$match": root_query},
         {
@@ -105,7 +123,7 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                     "$reduce": {
                         "input": {
                             "$concatArrays": [
-                                [{"name": "$domain", "is_root": True, "added_at": "$added_at"}],
+                                [{"name": "$domain", "is_root": True, "added_at": "$added_at", "source": {"$ifNull": ["$source", "user"]}}],
                                 {"$ifNull": ["$infrastructure.subdomains", []]}
                             ]
                         },
@@ -130,6 +148,7 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "infrastructure": 1,
                 "systems": {"$ifNull": ["$systems", []]},
                 "web_applications": {"$ifNull": ["$web_applications", []]},
+                "archive_urls": 1,
                 "scanned": 1,
                 "blacklisted": 1,
                 "on_hold": 1,
@@ -144,6 +163,8 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                 "domain": "$targets.name",
                 "root_domain": "$domain",
                 "is_root": {"$ifNull": ["$targets.is_root", False]},
+                "source": {"$ifNull": ["$targets.source", "$source"]},
+                "subdomain_scanned": {"$ifNull": ["$targets.scanned", False]},
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
                 "single_domain_only": {"$ifNull": ["$single_domain_only", False]},
@@ -162,6 +183,31 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                         0
                     ]
                 },
+                "target_ips": {
+                    "$setUnion": [
+                        {
+                            "$map": {
+                                "input": {
+                                    "$filter": {
+                                        "input": "$systems",
+                                        "as": "s",
+                                        "cond": {"$eq": ["$$s.target", "$targets.name"]}
+                                    }
+                                },
+                                "as": "m",
+                                "in": "$$m.ip"
+                            }
+                        },
+                        {
+                            "$cond": [
+                                {"$ne": [{"$ifNull": ["$targets.ip", None]}, None]},
+                                ["$targets.ip"],
+                                []
+                            ]
+                        },
+                        {"$ifNull": ["$targets.ips", []]}
+                    ]
+                },
                 "web_app": {
                     "$arrayElemAt": [
                         {
@@ -174,6 +220,9 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                         0
                     ]
                 },
+                "web_applications": 1,
+                "infrastructure": 1,
+                "archive_urls": 1,
                 "waf": {
                     "$ifNull": [
                         "$targets.waf",
@@ -209,18 +258,370 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
                     ]
                 }
             }
+        },
+        {
+            "$project": {
+                "domain": 1,
+                "root_domain": 1,
+                "is_root": 1,
+                "source": 1,
+                "subdomain_scanned": 1,
+                "scanned_flag": 1,
+                "on_hold_flag": 1,
+                "single_domain_only": 1,
+                "scan_interval": 1,
+                "subdomain_count": 1,
+                "recon_date": 1,
+                "system": 1,
+                "target_ips": 1,
+                "web_app": 1,
+                "waf": 1,
+                "load_balancer": 1,
+                "has_api_routes": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.extracted_endpoints", []]}}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.archive_urls.api_endpoints", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$or": [
+                                    {"$gt": [{"$size": {"$ifNull": ["$archive_urls.api_endpoints", []]}}, 0]},
+                                    {"$gt": [
+                                        {"$size": {
+                                            "$filter": {
+                                                "input": "$web_applications",
+                                                "as": "wa",
+                                                "cond": {"$gt": [{"$size": {"$ifNull": ["$$wa.dynamic_js.extracted_endpoints", []]}}, 0]}
+                                            }
+                                        }},
+                                        0
+                                    ]}
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_cloud_assets": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.cloud_assets", []]}}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.extracted_cloud_assets", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$or": [
+                                    {"$gt": [{"$size": {"$ifNull": ["$infrastructure.cloud_footprint.s3_buckets", []]}}, 0]},
+                                    {"$gt": [{"$size": {"$ifNull": ["$infrastructure.cloud_footprint.azure_blobs", []]}}, 0]},
+                                    {"$gt": [{"$size": {"$ifNull": ["$infrastructure.cloud_footprint.gcp_buckets", []]}}, 0]},
+                                    {"$gt": [{"$size": {"$ifNull": ["$infrastructure.cloud_footprint.other_buckets", []]}}, 0]},
+                                    {"$gt": [
+                                        {"$size": {
+                                            "$filter": {
+                                                "input": "$web_applications",
+                                                "as": "wa",
+                                                "cond": {"$or": [
+                                                    {"$gt": [{"$size": {"$ifNull": ["$$wa.cloud_assets", []]}}, 0]},
+                                                    {"$gt": [{"$size": {"$ifNull": ["$$wa.dynamic_js.extracted_cloud_assets", []]}}, 0]}
+                                                ]}
+                                            }
+                                        }},
+                                        0
+                                    ]}
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_secrets": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.extracted_secrets", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$gt": [
+                                    {"$size": {
+                                        "$filter": {
+                                            "input": "$web_applications",
+                                            "as": "wa",
+                                            "cond": {"$gt": [{"$size": {"$ifNull": ["$$wa.dynamic_js.extracted_secrets", []]}}, 0]}
+                                        }
+                                    }},
+                                    0
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_jwt": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$ifNull": ["$web_app.dynamic_js.jwt_count", 0]}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.extracted_jwts", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$gt": [
+                                    {"$size": {
+                                        "$filter": {
+                                            "input": "$web_applications",
+                                            "as": "wa",
+                                            "cond": {"$or": [
+                                                {"$gt": [{"$ifNull": ["$$wa.dynamic_js.jwt_count", 0]}, 0]},
+                                                {"$gt": [{"$size": {"$ifNull": ["$$wa.dynamic_js.extracted_jwts", []]}}, 0]}
+                                            ]}
+                                        }
+                                    }},
+                                    0
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_base64": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$ifNull": ["$web_app.dynamic_js.base64_count", 0]}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.extracted_base64", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$gt": [
+                                    {"$size": {
+                                        "$filter": {
+                                            "input": "$web_applications",
+                                            "as": "wa",
+                                            "cond": {"$or": [
+                                                {"$gt": [{"$ifNull": ["$$wa.dynamic_js.base64_count", 0]}, 0]},
+                                                {"$gt": [{"$size": {"$ifNull": ["$$wa.dynamic_js.extracted_base64", []]}}, 0]}
+                                            ]}
+                                        }
+                                    }},
+                                    0
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_alive_web_app": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$strLenCP": {"$ifNull": ["$web_app.target", ""]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$gt": [{"$size": "$web_applications"}, 0]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_historical_urls": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$ifNull": ["$web_app.archive_urls.total_urls", 0]}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.archive_urls.all_urls", []]}}, 0]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$or": [
+                                    {"$gt": [{"$ifNull": ["$archive_urls.total_urls", 0]}, 0]},
+                                    {"$gt": [{"$size": {"$ifNull": ["$archive_urls.all_urls", []]}}, 0]},
+                                    {"$gt": [
+                                        {"$size": {
+                                            "$filter": {
+                                                "input": "$web_applications",
+                                                "as": "wa",
+                                                "cond": {"$gt": [{"$ifNull": ["$$wa.archive_urls.total_urls", 0]}, 0]}
+                                            }
+                                        }},
+                                        0
+                                    ]}
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                }
+            }
+        },
+        # --- Cross-Document Domain Deduplication ---
+        {
+            "$addFields": {
+                "_has_webapp": {"$cond": [{"$ne": ["$web_app", None]}, 1, 0]},
+                "_has_system": {"$cond": [{"$ne": ["$system", None]}, 1, 0]}
+            }
+        },
+        {
+            "$sort": {
+                "is_root": -1,
+                "single_domain_only": -1,
+                "_has_webapp": -1,
+                "_has_system": -1,
+                "scanned_flag": -1,
+                "subdomain_scanned": -1
+            }
+        },
+        {
+            "$group": {
+                "_id": "$domain",
+                "orig_id": {"$first": "$_id"},
+                "domain": {"$first": "$domain"},
+                "root_domain": {"$first": "$root_domain"},
+                "is_root": {"$first": "$is_root"},
+                "source": {"$first": "$source"},
+                "subdomain_scanned": {"$max": "$subdomain_scanned"},
+                "scanned_flag": {"$max": "$scanned_flag"},
+                "on_hold_flag": {"$first": "$on_hold_flag"},
+                "single_domain_only": {"$first": "$single_domain_only"},
+                "scan_interval": {"$first": "$scan_interval"},
+                "subdomain_count": {"$first": "$subdomain_count"},
+                "recon_date": {"$first": "$recon_date"},
+                "systems_list": {"$push": "$system"},
+                "webapps_list": {"$push": "$web_app"},
+                "wafs_list": {"$push": "$waf"},
+                "lbs_list": {"$push": "$load_balancer"},
+                "all_target_ips": {"$push": "$target_ips"},
+                "has_api_routes": {"$max": "$has_api_routes"},
+                "has_cloud_assets": {"$max": "$has_cloud_assets"},
+                "has_secrets": {"$max": "$has_secrets"},
+                "has_jwt": {"$max": "$has_jwt"},
+                "has_base64": {"$max": "$has_base64"},
+                "has_alive_web_app": {"$max": "$has_alive_web_app"},
+                "has_historical_urls": {"$max": "$has_historical_urls"}
+            }
+        },
+        {
+            "$project": {
+                "_id": "$orig_id",
+                "domain": 1,
+                "root_domain": 1,
+                "is_root": 1,
+                "source": 1,
+                "subdomain_scanned": 1,
+                "scanned_flag": 1,
+                "on_hold_flag": 1,
+                "single_domain_only": 1,
+                "scan_interval": 1,
+                "subdomain_count": 1,
+                "recon_date": 1,
+                "system": {
+                    "$arrayElemAt": [
+                        {
+                            "$filter": {
+                                "input": "$systems_list",
+                                "as": "item",
+                                "cond": {"$ne": ["$$item", None]}
+                            }
+                        },
+                        0
+                    ]
+                },
+                "target_ips": {
+                    "$reduce": {
+                        "input": "$all_target_ips",
+                        "initialValue": [],
+                        "in": {"$setUnion": ["$$value", "$$this"]}
+                    }
+                },
+                "web_app": {
+                    "$arrayElemAt": [
+                        {
+                            "$filter": {
+                                "input": "$webapps_list",
+                                "as": "item",
+                                "cond": {"$ne": ["$$item", None]}
+                            }
+                        },
+                        0
+                    ]
+                },
+                "waf": {
+                    "$ifNull": [
+                        {
+                            "$arrayElemAt": [
+                                {
+                                    "$filter": {
+                                        "input": "$wafs_list",
+                                        "as": "w",
+                                        "cond": {"$and": [{"$ne": ["$$w", None]}, {"$eq": ["$$w.detected", True]}]}
+                                    }
+                                },
+                                0
+                            ]
+                        },
+                        {
+                            "$arrayElemAt": [
+                                {
+                                    "$filter": {
+                                        "input": "$wafs_list",
+                                        "as": "w",
+                                        "cond": {"$ne": ["$$w", None]}
+                                    }
+                                },
+                                0
+                            ]
+                        }
+                    ]
+                },
+                "load_balancer": {
+                    "$ifNull": [
+                        {
+                            "$arrayElemAt": [
+                                {
+                                    "$filter": {
+                                        "input": "$lbs_list",
+                                        "as": "l",
+                                        "cond": {"$and": [{"$ne": ["$$l", None]}, {"$eq": ["$$l.detected", True]}]}
+                                    }
+                                },
+                                0
+                            ]
+                        },
+                        {
+                            "$arrayElemAt": [
+                                {
+                                    "$filter": {
+                                        "input": "$lbs_list",
+                                        "as": "l",
+                                        "cond": {"$ne": ["$$l", None]}
+                                    }
+                                },
+                                0
+                            ]
+                        }
+                    ]
+                },
+                "has_api_routes": 1,
+                "has_cloud_assets": 1,
+                "has_secrets": 1,
+                "has_jwt": 1,
+                "has_base64": 1,
+                "has_alive_web_app": 1,
+                "has_historical_urls": 1
+            }
         }
     ]
     
     # Apply filters after flattening
     match_stage = {}
     if q:
-        safe_q = re.escape(q)
+        safe_q = re.escape(q.strip())
         match_stage["$or"] = [
             {"domain": {"$regex": safe_q, "$options": "i"}},
+            {"target_ips": {"$regex": safe_q, "$options": "i"}},
             {"system.services.software": {"$regex": safe_q, "$options": "i"}},
             {"system.services.service": {"$regex": safe_q, "$options": "i"}}
         ]
+    
+    if ip and ip.strip():
+        match_stage["target_ips"] = ip.strip()
     
     if tech:
         match_stage["web_app.tech_stack"] = {"$regex": re.escape(tech), "$options": "i"}
@@ -254,16 +655,75 @@ def get_flattened_pipeline(root_query: dict, q: Optional[str] = None, status_val
         else:
             match_stage["load_balancer.method"] = {"$regex": re.escape(lb), "$options": "i"}
 
+    if mutator:
+        mut_clean = str(mutator).strip().lower()
+        if mut_clean in ["true", "1", "yes", "permutator", "mutator", "environment_mutator"]:
+            match_stage["source"] = {"$in": ["environment_mutator", "subdomain_mutator"]}
+        elif mut_clean in ["false", "0", "no"]:
+            match_stage["source"] = {"$nin": ["environment_mutator", "subdomain_mutator"]}
+
+    # Additional Domain & Reconnaissance Findings Filters
+    if api_routes:
+        ar_clean = str(api_routes).strip().lower()
+        if ar_clean in ["true", "1", "yes"]:
+            match_stage["has_api_routes"] = True
+        elif ar_clean in ["false", "0", "no"]:
+            match_stage["has_api_routes"] = False
+
+    if cloud_assets:
+        ca_clean = str(cloud_assets).strip().lower()
+        if ca_clean in ["true", "1", "yes"]:
+            match_stage["has_cloud_assets"] = True
+        elif ca_clean in ["false", "0", "no"]:
+            match_stage["has_cloud_assets"] = False
+
+    if secrets:
+        sec_clean = str(secrets).strip().lower()
+        if sec_clean in ["true", "1", "yes"]:
+            match_stage["has_secrets"] = True
+        elif sec_clean in ["false", "0", "no"]:
+            match_stage["has_secrets"] = False
+
+    if jwt:
+        jwt_clean = str(jwt).strip().lower()
+        if jwt_clean in ["true", "1", "yes"]:
+            match_stage["has_jwt"] = True
+        elif jwt_clean in ["false", "0", "no"]:
+            match_stage["has_jwt"] = False
+
+    if base64:
+        b64_clean = str(base64).strip().lower()
+        if b64_clean in ["true", "1", "yes"]:
+            match_stage["has_base64"] = True
+        elif b64_clean in ["false", "0", "no"]:
+            match_stage["has_base64"] = False
+
+    if alive_apps:
+        aa_clean = str(alive_apps).strip().lower()
+        if aa_clean in ["true", "1", "yes"]:
+            match_stage["has_alive_web_app"] = True
+        elif aa_clean in ["false", "0", "no"]:
+            match_stage["has_alive_web_app"] = False
+
+    if historical:
+        h_clean = str(historical).strip().lower()
+        if h_clean in ["true", "1", "yes"]:
+            match_stage["has_historical_urls"] = True
+        elif h_clean in ["false", "0", "no"]:
+            match_stage["has_historical_urls"] = False
+
     if status_val:
         if status_val == "scanned":
-            # Consider an asset scanned if it has system data OR is a root marked as scanned
+            # Consider an asset scanned if it has system data OR has subdomain_scanned=True OR is a root marked as scanned
             pipeline.append({"$match": {"$or": [
                 {"system": {"$ne": None}},
+                {"subdomain_scanned": True},
                 {"$and": [{"is_root": True}, {"scanned_flag": True}]}
             ]}})
         elif status_val == "pending":
             pipeline.append({"$match": {"$and": [
                 {"system": None},
+                {"subdomain_scanned": {"$ne": True}},
                 {"$or": [
                     {"is_root": False},
                     {"$and": [{"is_root": True}, {"scanned_flag": False}]}
@@ -581,29 +1041,66 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         if domain_data.get("web_applications"):
             domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == domain_name]
 
-    # Filter cloud_footprint to only show buckets discovered on this specific target (q) and deduplicate URLs
-    if domain_data.get("infrastructure", {}).get("cloud_footprint"):
-        cf = domain_data["infrastructure"]["cloud_footprint"]
-        target_lower = q.lower().strip()
-        scoped_cf = {}
-        for bucket_key in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"]:
-            items = cf.get(bucket_key) or []
-            seen_urls = set()
-            filtered = []
-            for b in items:
-                if not isinstance(b, dict):
+    # Ensure infrastructure and cloud_footprint are populated and properly scoped
+    if "infrastructure" not in domain_data or not isinstance(domain_data["infrastructure"], dict):
+        domain_data["infrastructure"] = {}
+
+    target_lower = (q or domain_name).lower().strip()
+    is_root_view = (target_lower == domain_name.lower().strip())
+
+    cf = domain_data["infrastructure"].get("cloud_footprint") or {}
+    
+    # If this document has no cloud_footprint (e.g. it's a subdomain doc), try finding parent root domain's cloud_footprint
+    has_any_buckets = any(cf.get(k) for k in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"])
+    if not has_any_buckets:
+        parent_doc = await domains_col.find_one({"infrastructure.subdomains.name": target_lower}, {"infrastructure.cloud_footprint": 1})
+        if not parent_doc and not is_root_view:
+            parent_doc = await domains_col.find_one({"domain": domain_name}, {"infrastructure.cloud_footprint": 1})
+        if parent_doc and parent_doc.get("infrastructure", {}).get("cloud_footprint"):
+            cf = parent_doc["infrastructure"]["cloud_footprint"]
+
+    # Also merge any osint.cloud_assets if present
+    osint_assets = domain_data.get("osint", {}).get("cloud_assets") or []
+    for asset in osint_assets:
+        if isinstance(asset, dict):
+            p = asset.get("provider", "AWS S3")
+            status = "open" if asset.get("risk") == "Critical" or "open" in asset.get("status", "").lower() else "secured"
+            b_obj = {
+                "name": asset.get("name") or asset.get("url"),
+                "raw": asset.get("name") or asset.get("url"),
+                "url": asset.get("url"),
+                "provider": p,
+                "status": status,
+                "http_status": 200 if status == "open" else 403,
+                "details": f"{p} bucket ({status})",
+                "source_app": target_lower,
+                "discovered_by": "osint_agent"
+            }
+            cat = "s3_buckets" if "s3" in p.lower() else ("gcp_buckets" if "google" in p.lower() or "gcp" in p.lower() else "other_buckets")
+            if cat not in cf: cf[cat] = []
+            cf[cat].append(b_obj)
+
+    scoped_cf = {}
+    for bucket_key in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"]:
+        items = cf.get(bucket_key) or []
+        seen_urls = set()
+        filtered = []
+        for b in items:
+            if not isinstance(b, dict):
+                continue
+            src = (b.get("source_app") or "").lower().strip()
+            # If viewing root domain: show ALL buckets in the domain's footprint
+            # If viewing a specific subdomain: show buckets discovered on this target (or if src matches)
+            if not is_root_view:
+                if src and src != target_lower:
                     continue
-                src = (b.get("source_app") or "").lower().strip()
-                # Must match the specific target being viewed (or root if src is unset)
-                if src != target_lower and not (not src and target_lower == domain_name.lower().strip()):
-                    continue
-                url = (b.get("url") or b.get("raw") or b.get("name") or "").strip().lower().rstrip("/")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    filtered.append(b)
-            scoped_cf[bucket_key] = filtered
-        domain_data["infrastructure"]["cloud_footprint"] = scoped_cf
-            
+            url = (b.get("url") or b.get("raw") or b.get("name") or "").strip().lower().rstrip("/")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                filtered.append(b)
+        scoped_cf[bucket_key] = filtered
+    domain_data["infrastructure"]["cloud_footprint"] = scoped_cf
+        
     return domain_data
 
 @app.get("/api/suggestions")
@@ -619,21 +1116,49 @@ async def get_suggestions(q: str, user: dict = Depends(get_current_user)):
     results = await cursor.to_list(length=5)
     return [r["domain"] for r in results]
 
+import sqlite3
 from functools import lru_cache
 
-@lru_cache(maxsize=1024)
+GEOIP_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "geoip.sqlite")
+_geoip_conn = None
+
+def get_geoip_conn():
+    global _geoip_conn
+    if _geoip_conn is None and os.path.exists(GEOIP_DB_PATH):
+        try:
+            _geoip_conn = sqlite3.connect(f"file:{GEOIP_DB_PATH}?mode=ro", uri=True, check_same_thread=False)
+        except Exception:
+            _geoip_conn = None
+    return _geoip_conn
+
+CGNAT_NET = ipaddress.ip_network("100.64.0.0/10")
+
+@lru_cache(maxsize=4096)
 def get_country_code(ip: str) -> str:
-    """Very basic mock/heuristic for country code since we lack a GeoIP lib."""
-    if not ip or ip == "N/A" or ip.startswith("10.") or ip.startswith("192.168."):
-        return "US" # Default
-    # In a real app, we'd use geoip2 or an API. 
-    # For now, let's just rotate some codes based on the last digit of the IP for variety in the demo.
+    """Resolve accurate country code for an IP address using local GeoIP database."""
+    if not ip or ip == "N/A":
+        return "UNKNOWN"
     try:
-        last_digit = int(ip.split(".")[-1])
-        codes = ["GB", "US", "RU", "DE", "FR", "CN", "JP", "IN", "BR", "CA"]
-        return codes[last_digit % len(codes)]
-    except:
-        return "US"
+        ip_clean = str(ip).strip()
+        if ":" in ip_clean and not ip_clean.startswith("["):
+            ip_clean = ip_clean.split(":")[0]
+            
+        ip_obj = ipaddress.ip_address(ip_clean)
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or (ip_obj in CGNAT_NET):
+            return "PRIVATE"
+            
+        conn = get_geoip_conn()
+        if conn and isinstance(ip_obj, ipaddress.IPv4Address):
+            num = int(ip_obj)
+            res = conn.execute(
+                "SELECT country, end_ip FROM geoip WHERE start_ip <= ? ORDER BY start_ip DESC LIMIT 1",
+                (num,)
+            ).fetchone()
+            if res and num <= res[1]:
+                return res[0].upper()
+    except Exception:
+        pass
+    return "UNKNOWN"
 
 @app.get("/api/filters/options")
 async def get_filter_options(user: dict = Depends(get_current_user)):
@@ -660,11 +1185,36 @@ async def get_filter_options(user: dict = Depends(get_current_user)):
         if l and isinstance(l, str) and l.strip().lower() not in ["none", "null", "false"]
     ])), key=lambda s: s.lower())
 
+    # 4. Distinct Discovered IPs
+    ips_systems = await domains_col.distinct("systems.ip")
+    ips_sub_ip = await domains_col.distinct("infrastructure.subdomains.ip")
+    ips_sub_ips = await domains_col.distinct("infrastructure.subdomains.ips")
+    
+    all_raw_ips = set()
+    for ip_val in (ips_systems + ips_sub_ip + ips_sub_ips):
+        if not ip_val:
+            continue
+        if isinstance(ip_val, list):
+            for sub_val in ip_val:
+                if sub_val and isinstance(sub_val, str) and sub_val.strip() and sub_val.strip().lower() not in ["n/a", "none", "null"]:
+                    all_raw_ips.add(sub_val.strip())
+        elif isinstance(ip_val, str) and ip_val.strip() and ip_val.strip().lower() not in ["n/a", "none", "null"]:
+            all_raw_ips.add(ip_val.strip())
+            
+    def parse_ip_sort_key(ip_str):
+        try:
+            return (0, ipaddress.ip_address(ip_str))
+        except ValueError:
+            return (1, ip_str)
+
+    sorted_ips = sorted(list(all_raw_ips), key=parse_ip_sort_key)
+
     return {
         "status": "success",
         "technologies": techs,
         "wafs": all_wafs,
-        "load_balancers": all_lbs
+        "load_balancers": all_lbs,
+        "ips": sorted_ips
     }
 
 @app.get("/api/subdomains")
@@ -678,6 +1228,15 @@ async def get_subdomains(
     port: Optional[int] = None,
     waf: Optional[str] = None,
     lb: Optional[str] = None,
+    ip: Optional[str] = None,
+    mutator: Optional[str] = None,
+    api_routes: Optional[str] = None,
+    cloud_assets: Optional[str] = None,
+    secrets: Optional[str] = None,
+    jwt: Optional[str] = None,
+    base64: Optional[str] = None,
+    alive_apps: Optional[str] = None,
+    historical: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -686,7 +1245,24 @@ async def get_subdomains(
         raise HTTPException(status_code=401)
 
     root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
-    pipeline = get_flattened_pipeline(root_query, q, status_val, tech, port, waf, lb)
+    pipeline = get_flattened_pipeline(
+        root_query,
+        q,
+        status_val,
+        tech,
+        port,
+        waf,
+        lb,
+        mutator=mutator,
+        ip=ip,
+        api_routes=api_routes,
+        cloud_assets=cloud_assets,
+        secrets=secrets,
+        jwt=jwt,
+        base64=base64,
+        alive_apps=alive_apps,
+        historical=historical
+    )
     
     # Total count (Aggregation)
     count_pipeline = pipeline + [{"$count": "total"}]
@@ -717,25 +1293,40 @@ async def get_subdomains(
         web_app_info = d.get("web_app") or {}
         waf_info = d.get("waf") or {}
         lb_info = d.get("load_balancer") or {}
+        target_ips = [t for t in d.get("target_ips", []) if t]
         
-        ip = system_info.get("ip", "N/A")
+        if ip and ip.strip() in target_ips:
+            resolved_ip = ip.strip()
+        elif q and any(q.strip().lower() in t.lower() for t in target_ips):
+            matching_ips = [t for t in target_ips if q.strip().lower() in t.lower()]
+            resolved_ip = matching_ips[0]
+        elif system_info.get("ip"):
+            resolved_ip = system_info.get("ip")
+        elif target_ips:
+            resolved_ip = target_ips[0]
+        else:
+            resolved_ip = "N/A"
+            
         tech_stack = web_app_info.get("tech_stack", [])
         
         # Determine scanned status: 
-        # If we have system info, it's definitely scanned. Fallback to root's scanned_flag.
-        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
+        # If we have system info or subdomain_scanned flag, it's scanned. Fallback to root's scanned_flag.
+        is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
+        is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
         
         results.append({
             "id": str(d["_id"]),
             "domain": d["domain"],
-            "ip": ip,
+            "ip": resolved_ip,
             "scanned": is_scanned,
             "subdomain_count": d.get("subdomain_count", 0) if d.get("is_root") else 0,
             "technologies": tech_stack[:5],
             "tech_str": ", ".join(tech_stack),
-            "country_id": get_country_code(ip),
+            "country_id": get_country_code(resolved_ip),
             "recon_date": d.get("recon_date", "N/A"),
             "last_scanned": system_info.get("last_scanned", "Never"),
+            "source": d.get("source"),
+            "is_permutated": is_permutated,
             "waf": {
                 "detected": waf_info.get("detected", False),
                 "firewall": waf_info.get("firewall"),
@@ -745,7 +1336,14 @@ async def get_subdomains(
                 "detected": lb_info.get("detected", False),
                 "method": lb_info.get("method"),
                 "fqdns": lb_info.get("fqdns", [])
-            } if lb_info.get("detected") else None
+            } if lb_info.get("detected") else None,
+            "has_api_routes": bool(d.get("has_api_routes", False)),
+            "has_cloud_assets": bool(d.get("has_cloud_assets", False)),
+            "has_secrets": bool(d.get("has_secrets", False)),
+            "has_jwt": bool(d.get("has_jwt", False)),
+            "has_base64": bool(d.get("has_base64", False)),
+            "has_alive_web_app": bool(d.get("has_alive_web_app", False)),
+            "has_historical_urls": bool(d.get("has_historical_urls", False))
         })
 
     # Calculate total scanned assets globally (root + subdomains)
@@ -765,6 +1363,15 @@ async def export_subdomains(
     port: Optional[int] = None,
     waf: Optional[str] = None,
     lb: Optional[str] = None,
+    ip: Optional[str] = None,
+    mutator: Optional[str] = None,
+    api_routes: Optional[str] = None,
+    cloud_assets: Optional[str] = None,
+    secrets: Optional[str] = None,
+    jwt: Optional[str] = None,
+    base64: Optional[str] = None,
+    alive_apps: Optional[str] = None,
+    historical: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -773,7 +1380,24 @@ async def export_subdomains(
         raise HTTPException(status_code=401)
     
     root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
-    pipeline = get_flattened_pipeline(root_query, q, status_val, tech, port, waf, lb)
+    pipeline = get_flattened_pipeline(
+        root_query,
+        q,
+        status_val,
+        tech,
+        port,
+        waf,
+        lb,
+        mutator=mutator,
+        ip=ip,
+        api_routes=api_routes,
+        cloud_assets=cloud_assets,
+        secrets=secrets,
+        jwt=jwt,
+        base64=base64,
+        alive_apps=alive_apps,
+        historical=historical
+    )
     
     # Sorting
     sort_dir_num = 1 if sort_dir == "asc" else -1
@@ -788,18 +1412,37 @@ async def export_subdomains(
     for d in docs:
         system_info = d.get("system") or {}
         web_app_info = d.get("web_app") or {}
+        target_ips = [t for t in d.get("target_ips", []) if t]
         
-        ip = system_info.get("ip", "N/A")
+        if ip and ip.strip() in target_ips:
+            resolved_ip = ip.strip()
+        elif q and any(q.strip().lower() in t.lower() for t in target_ips):
+            matching_ips = [t for t in target_ips if q.strip().lower() in t.lower()]
+            resolved_ip = matching_ips[0]
+        elif system_info.get("ip"):
+            resolved_ip = system_info.get("ip")
+        elif target_ips:
+            resolved_ip = target_ips[0]
+        else:
+            resolved_ip = "N/A"
+            
         tech_stack = web_app_info.get("tech_stack", [])
-        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
+        is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         
         data.append({
             "Domain": d["domain"],
             "Status": "Scanned" if is_scanned else "Pending",
-            "IP Address": ip,
-            "Country": get_country_code(ip),
+            "IP Address": resolved_ip,
+            "Country": get_country_code(resolved_ip),
             "Type": "Root" if d.get("is_root") else "Subdomain",
             "Technologies": ", ".join(tech_stack),
+            "Alive Web App": "Yes" if d.get("has_alive_web_app") else "No",
+            "API Routes": "Yes" if d.get("has_api_routes") else "No",
+            "Cloud Assets": "Yes" if d.get("has_cloud_assets") else "No",
+            "Secrets/Tokens": "Yes" if d.get("has_secrets") else "No",
+            "JWT Tokens": "Yes" if d.get("has_jwt") else "No",
+            "Base64 Strings": "Yes" if d.get("has_base64") else "No",
+            "Historical URLs": "Yes" if d.get("has_historical_urls") else "No",
             "Added At": d.get("recon_date", "N/A")
         })
     
@@ -1030,7 +1673,14 @@ def build_leads_query(status, risk, title, target, status_code, start_date, end_
     if target:
         query["target"] = {"$regex": re.escape(target), "$options": "i"}
     if source:
-        query["source"] = source
+        src_clean = str(source).strip()
+        if src_clean.lower() in ["subdomain environment mutator", "environment_mutator", "subdomain_mutator", "permutator", "domain_permutator", "domain permutator"]:
+            query["$or"] = [
+                {"source": {"$regex": r"mutator|permutat", "$options": "i"}},
+                {"alert_type": "domain_permutator_discovered"}
+            ]
+        else:
+            query["source"] = source
     
     if status_code:
         query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
@@ -1182,8 +1832,10 @@ async def get_lead_sources(user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     sources = await leads_col.distinct("source")
-    # Filter out None and empty strings
-    return [s for s in sources if s]
+    source_list = [s for s in sources if s]
+    if "Subdomain Environment Mutator" not in source_list:
+        source_list.append("Subdomain Environment Mutator")
+    return sorted(source_list)
 
 @app.post("/api/leads/{lead_id}/mute")
 async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
@@ -1301,25 +1953,47 @@ async def export_leads(
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.post("/api/leads/{lead_id}/status")
-async def update_lead_status(lead_id: str, request: Request, status: str = Form(...), user: dict = Depends(get_current_user)):
+async def update_lead_status(lead_id: str, request: Request, status: str = Form(...), notes: Optional[str] = Form(None), user: dict = Depends(get_current_user)):
     check_analyst(user)
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+
     update_doc = {"status": status}
     if status == "investigating":
         update_doc["investigating_at"] = datetime.utcnow().isoformat()
-    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": update_doc})
+    if notes is not None:
+        update_doc["notes"] = notes
+    await leads_col.update_one({"_id": obj_id}, {"$set": update_doc})
+    
+    # Reactivate fingerprint suppression if returned back to alerts/new
+    if status == "new":
+        lead = await leads_col.find_one({"_id": obj_id})
+        if lead and lead.get("fingerprint"):
+            from app.database import db
+            fingerprints_col = db["alert_fingerprints"]
+            await fingerprints_col.update_one(
+                {"fingerprint": lead["fingerprint"]},
+                {"$set": {"status": "active"}}
+            )
     
     # Auto-mute if status is false_positive or benign
     if status in ["false_positive", "benign"]:
-        lead = await leads_col.find_one({"_id": ObjectId(lead_id)})
+        lead = await leads_col.find_one({"_id": obj_id})
         if lead:
             await apply_lead_mute(lead, user, request)
             
     return {"status": "success"}
 
 @app.post("/api/leads/{lead_id}/notes")
-async def update_lead_notes(lead_id: str, notes: str = Form(...), user: dict = Depends(get_current_user)):
+async def update_lead_notes(lead_id: str, notes: str = Form(""), user: dict = Depends(get_current_user)):
     check_analyst(user)
-    await leads_col.update_one({"_id": ObjectId(lead_id)}, {"$set": {"notes": notes}})
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    await leads_col.update_one({"_id": obj_id}, {"$set": {"notes": notes}})
     return {"status": "success"}
 
 @app.delete("/api/leads/{lead_id}")
@@ -2384,13 +3058,33 @@ async def get_domains(
     q: Optional[str] = None,
     status_val: Optional[str] = None,
     blacklisted: Optional[str] = None,
+    mutator: Optional[str] = None,
+    api_routes: Optional[str] = None,
+    cloud_assets: Optional[str] = None,
+    secrets: Optional[str] = None,
+    jwt: Optional[str] = None,
+    base64: Optional[str] = None,
+    alive_apps: Optional[str] = None,
+    historical: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
         raise HTTPException(status_code=401)
     
     root_query = get_query_filters(q, status_val, None, None, blacklisted)
-    pipeline = get_flattened_pipeline(root_query, q, status_val)
+    pipeline = get_flattened_pipeline(
+        root_query,
+        q,
+        status_val,
+        mutator=mutator,
+        api_routes=api_routes,
+        cloud_assets=cloud_assets,
+        secrets=secrets,
+        jwt=jwt,
+        base64=base64,
+        alive_apps=alive_apps,
+        historical=historical
+    )
     
     # Total count
     count_pipeline = pipeline + [{"$count": "total"}]
@@ -2411,13 +3105,9 @@ async def get_domains(
     
     results = []
     for d in docs:
-        is_scanned = True if d.get("system") else (d.get("scanned_flag", False) if d.get("is_root") else False)
+        is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
-        
-        # Get scan_interval from root domain data if it's a flattened subdomain doc
-        # In flattened view, we might need a separate lookup or projected field.
-        # For now, we'll try to find it in the projection if possible, but the current project doesn't have it.
-        # Let's assume we'll update the pipeline project stage to include it.
+        is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
         
         results.append({
             "id": str(d["_id"]),
@@ -2430,7 +3120,9 @@ async def get_domains(
             "last_scanned": last_scanned,
             "is_root": d.get("is_root", False),
             "single_domain_only": d.get("single_domain_only", False),
-            "scan_interval": d.get("scan_interval", 24) # Default to 24 if not set
+            "scan_interval": d.get("scan_interval", 24),
+            "source": d.get("source"),
+            "is_permutated": is_permutated
         })
     
     return {"domains": results, "total": total, "page": page, "limit": limit}
@@ -2847,10 +3539,13 @@ async def bulk_delete_webapp_findings(
     return {"status": "success", "count": result.modified_count}
 
 @app.post("/api/domains/{domain_id}/notes")
-async def update_domain_notes(domain_id: str, request: Request, notes: str = Form(...), user: dict = Depends(get_current_user)):
+async def update_domain_notes(domain_id: str, request: Request, notes: str = Form(""), user: dict = Depends(get_current_user)):
     check_analyst(user)
-    
-    await domains_col.update_one({"_id": ObjectId(domain_id)}, {"$set": {"notes": notes}})
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"notes": notes}})
     return {"status": "success"}
 
 @app.post("/api/domains/{domain_id}/scan-now")
@@ -2864,10 +3559,22 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
     root_domain = domain_doc["domain"]
     is_single = domain_doc.get("single_domain_only", False)
     
-    # 1. Reset scanned flag, on_hold flag, osint_complete, and archive_hunter_complete
+    # 1. Reset scanned flag, on_hold flag, osint_complete, archive_hunter_complete, and all subdomains
     await domains_col.update_one(
         {"_id": ObjectId(domain_id)},
-        {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
+        {"$set": {
+            "scanned": False,
+            "on_hold": False,
+            "osint_complete": False,
+            "archive_hunter_complete": False,
+            "last_scanned": "Never"
+        }}
+    )
+    await domains_col.update_one(
+        {"_id": ObjectId(domain_id), "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+        {"$set": {
+            "infrastructure.subdomains.$[].scanned": False
+        }}
     )
     
     # 2. Clear ALL old/stuck tasks for this domain to allow a clean re-entry
@@ -2878,13 +3585,27 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
         {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
-        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.utcnow()}
     ]
     if is_single:
         fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
     else:
         fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
         
+    # Queue verification for all existing subdomains so they are tested and scanned
+    subs = (domain_doc.get("infrastructure") or {}).get("subdomains", [])
+    for sub in subs:
+        sub_name = sub.get("name") if isinstance(sub, dict) else sub
+        if sub_name and sub_name != root_domain:
+            fresh_tasks.append({
+                "root_domain": root_domain,
+                "target": sub_name,
+                "task_type": "verification",
+                "status": "pending",
+                "created_at": datetime.utcnow()
+            })
+            
     await tasks_col.insert_many(fresh_tasks)
     
     await log_audit(user["username"], "SCAN_NOW", f"Triggered immediate scan for domain: {root_domain} (single={is_single})", request)
@@ -3029,10 +3750,22 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
         root_domain = domain_doc["domain"]
         is_single = domain_doc.get("single_domain_only", False)
         
-        # 1. Reset flags
+        # 1. Reset flags and subdomains
         await domains_col.update_one(
             {"_id": d_id},
-            {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
+            {"$set": {
+                "scanned": False,
+                "on_hold": False,
+                "osint_complete": False,
+                "archive_hunter_complete": False,
+                "last_scanned": "Never"
+            }}
+        )
+        await domains_col.update_one(
+            {"_id": d_id, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+            {"$set": {
+                "infrastructure.subdomains.$[].scanned": False
+            }}
         )
         
         # 2. Clear ALL old/stuck tasks
@@ -3043,17 +3776,104 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
             {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
             {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
             {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.utcnow()}
         ]
         if is_single:
             tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
         else:
             tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
             
+        subs = (domain_doc.get("infrastructure") or {}).get("subdomains", [])
+        for sub in subs:
+            sub_name = sub.get("name") if isinstance(sub, dict) else sub
+            if sub_name and sub_name != root_domain:
+                tasks_to_insert.append({
+                    "root_domain": root_domain,
+                    "target": sub_name,
+                    "task_type": "verification",
+                    "status": "pending",
+                    "created_at": datetime.utcnow()
+                })
+
         await tasks_col.insert_many(tasks_to_insert)
             
     await log_audit(user["username"], "BULK_SCAN_NOW", f"Triggered immediate scan for {len(ids)} domains", request)
     return {"status": "success"}
+
+@app.post("/api/domains/rescan-all")
+async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    
+    domains = await domains_col.find({"blacklisted": {"$ne": True}}).to_list(length=None)
+    if not domains:
+        return {"status": "error", "message": "No active domains found to scan"}
+        
+    now = datetime.utcnow()
+    
+    # 1. Reset all root domains and all subdomains safely
+    await domains_col.update_many(
+        {"blacklisted": {"$ne": True}},
+        {"$set": {
+            "scanned": False,
+            "on_hold": False,
+            "osint_complete": False,
+            "archive_hunter_complete": False,
+            "last_scanned": "Never"
+        }}
+    )
+    await domains_col.update_many(
+        {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+        {"$set": {
+            "infrastructure.subdomains.$[].scanned": False
+        }}
+    )
+    
+    # 2. Clear all existing tasks
+    await tasks_col.delete_many({})
+    
+    # 3. Queue fresh tasks for all root domains + all existing subdomains
+    all_tasks = []
+    for d in domains:
+        root_domain = d["domain"]
+        is_single = d.get("single_domain_only", False)
+        
+        domain_tasks = [
+            {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": now},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": now},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": now},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": now},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now}
+        ]
+        if is_single:
+            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": now})
+        else:
+            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": now})
+            
+        subs = (d.get("infrastructure") or {}).get("subdomains", [])
+        for sub in subs:
+            sub_name = sub.get("name") if isinstance(sub, dict) else sub
+            if sub_name and sub_name != root_domain:
+                domain_tasks.append({
+                    "root_domain": root_domain,
+                    "target": sub_name,
+                    "task_type": "verification",
+                    "status": "pending",
+                    "created_at": now
+                })
+                
+        all_tasks.extend(domain_tasks)
+        
+    if all_tasks:
+        await tasks_col.insert_many(all_tasks)
+        
+    await log_audit(user["username"], "RESCAN_ALL", f"Initiated global rescan across {len(domains)} domains with {len(all_tasks)} tasks queued", request)
+    return {
+        "status": "success",
+        "message": f"Global rescan initiated! Reset {len(domains)} domains and queued {len(all_tasks)} tasks across all domains and subdomains.",
+        "domains_count": len(domains),
+        "tasks_count": len(all_tasks)
+    }
 
 # --- Bulk Actions Endpoints ---
 
@@ -3206,6 +4026,83 @@ async def get_tasks(
     
     return {"tasks": tasks, "total": total, "page": page, "limit": limit}
 
+@app.get("/api/tasks/stats")
+async def get_tasks_stats(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    # 1. Task counts by status
+    task_pipeline = [
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+    ]
+    task_agg = await tasks_col.aggregate(task_pipeline).to_list(length=20)
+    task_counts = {item["_id"]: item["count"] for item in task_agg if item.get("_id")}
+    
+    completed_tasks = task_counts.get("completed", 0)
+    processing_tasks = task_counts.get("processing", 0)
+    pending_tasks = task_counts.get("pending", 0)
+    failed_tasks = task_counts.get("failed", 0)
+    remaining_tasks = pending_tasks + processing_tasks
+    total_tasks = completed_tasks + remaining_tasks + failed_tasks
+    task_percent = round((completed_tasks / total_tasks * 100), 1) if total_tasks > 0 else 100.0
+
+    # 2. (Sub)domains counts
+    root_total = await domains_col.count_documents({"blacklisted": {"$ne": True}})
+    root_completed = await domains_col.count_documents({"blacklisted": {"$ne": True}, "scanned": True})
+    root_remaining = max(0, root_total - root_completed)
+    
+    sub_total = 0
+    sub_completed = 0
+    
+    cursor = domains_col.find(
+        {"blacklisted": {"$ne": True}},
+        {"infrastructure.subdomains": 1, "systems.target": 1}
+    )
+    async for d in cursor:
+        subs = (d.get("infrastructure") or {}).get("subdomains", []) or []
+        sub_total += len(subs)
+        system_targets = {s.get("target") for s in d.get("systems", []) or []}
+        for s in subs:
+            s_name = s.get("name") if isinstance(s, dict) else s
+            if (isinstance(s, dict) and s.get("scanned")) or s_name in system_targets:
+                sub_completed += 1
+                
+    sub_remaining = max(0, sub_total - sub_completed)
+    combined_total = root_total + sub_total
+    combined_completed = root_completed + sub_completed
+    combined_remaining = max(0, combined_total - combined_completed)
+    combined_percent = round((combined_completed / combined_total * 100), 1) if combined_total > 0 else 100.0
+
+    return {
+        "tasks": {
+            "total": total_tasks,
+            "completed": completed_tasks,
+            "remaining": remaining_tasks,
+            "processing": processing_tasks,
+            "pending": pending_tasks,
+            "failed": failed_tasks,
+            "percent": task_percent
+        },
+        "domains": {
+            "total": combined_total,
+            "completed": combined_completed,
+            "remaining": combined_remaining,
+            "percent": combined_percent,
+            "breakdown": {
+                "roots": {
+                    "total": root_total,
+                    "completed": root_completed,
+                    "remaining": root_remaining
+                },
+                "subdomains": {
+                    "total": sub_total,
+                    "completed": sub_completed,
+                    "remaining": sub_remaining
+                }
+            }
+        }
+    }
+
 @app.delete("/api/tasks/clear")
 async def clear_all_tasks(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
@@ -3237,6 +4134,11 @@ async def cleanup_old_tasks():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(cleanup_old_tasks())
+    try:
+        from tools.sync_cloud_footprint import sync_all_cloud_storage
+        asyncio.create_task(sync_all_cloud_storage())
+    except Exception as e:
+        print(f"Failed to start cloud storage sync task: {e}")
 
 @app.get("/api/tools")
 async def get_tools(user: dict = Depends(get_current_user)):
@@ -3304,6 +4206,7 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
     docs = await cursor.to_list(length=50)
     root_summaries = []
     results = []
+    seen_results_targets = set()
     
     for d in docs:
         doc_id = str(d["_id"])
@@ -3352,7 +4255,8 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
         
         if search_term:
             # If root domain matches search term, include root item
-            if search_term in root_domain.lower():
+            if search_term in root_domain.lower() and root_domain.lower() not in seen_results_targets:
+                seen_results_targets.add(root_domain.lower())
                 results.append({
                     "id": doc_id,
                     "root_domain": root_domain,
@@ -3364,7 +4268,9 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
             
             # Check matching subdomains
             for sub in all_subdomains:
-                if search_term in sub.lower():
+                sub_clean = sub.lower()
+                if search_term in sub_clean and sub_clean not in seen_results_targets:
+                    seen_results_targets.add(sub_clean)
                     results.append({
                         "id": doc_id,
                         "root_domain": root_domain,
@@ -3377,14 +4283,16 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
                         break
         else:
             # Default: include root domain
-            results.append({
-                "id": doc_id,
-                "root_domain": root_domain,
-                "target": root_domain,
-                "is_subdomain": False,
-                "single_domain_only": is_single,
-                "subdomains_count": len(all_subdomains)
-            })
+            if root_domain.lower() not in seen_results_targets:
+                seen_results_targets.add(root_domain.lower())
+                results.append({
+                    "id": doc_id,
+                    "root_domain": root_domain,
+                    "target": root_domain,
+                    "is_subdomain": False,
+                    "single_domain_only": is_single,
+                    "subdomains_count": len(all_subdomains)
+                })
             
         if len(results) >= 60:
             break
@@ -3769,7 +4677,9 @@ DEFAULT_ALERT_SETTINGS = {
     "tech_stack_changes": True,
     "security_header_regressions": True,
     # Historical Archive Hunter
-    "archive_historical_leaks": True
+    "archive_historical_leaks": True,
+    # Domain Permutator
+    "domain_permutator_discovered": True
 }
 
 DEFAULT_SCANNING_SETTINGS = {

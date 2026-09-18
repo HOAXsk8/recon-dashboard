@@ -213,7 +213,8 @@ class OsintAgent(BaseAgent):
                     f"Send a test email spoofing admin@{domain} to verify inbox delivery.",
                     "Implement a DMARC policy of p=reject with valid rua/ruf reporting addresses.",
                     "Ensure SPF hardfail (-all) is configured and aligned with DKIM selectors."
-                ]
+                ],
+                alert_type="osint_email_spoofing"
             )
 
         return result
@@ -418,7 +419,8 @@ class OsintAgent(BaseAgent):
                             exploitation_suggestions=[
                                 f"Inspect bucket contents using CLI tool: aws s3 ls s3://{res['name']} --no-sign-request",
                                 "Restrict bucket ACL and enable Block Public Access immediately."
-                            ]
+                            ],
+                            alert_type="osint_public_buckets"
                         )
 
         return found_assets
@@ -438,6 +440,26 @@ class OsintAgent(BaseAgent):
 
         # 3. Cloud Storage Asset Enumeration
         cloud_assets = await self.check_cloud_assets(domain)
+        for asset in (cloud_assets or []):
+            if isinstance(asset, dict):
+                is_crit = asset.get("risk") == "Critical" or "open" in asset.get("status", "").lower()
+                status = "open" if is_crit else "secured"
+                http_status = 200 if status == "open" else 403
+                await self.sync_bucket_to_footprint(
+                    target=domain,
+                    bucket_data={
+                        "name": asset.get("name") or asset.get("url"),
+                        "raw": asset.get("name") or asset.get("url"),
+                        "url": asset.get("url"),
+                        "provider": asset.get("provider") or "AWS S3",
+                        "status": status,
+                        "http_status": http_status,
+                        "details": asset.get("details") or (f"{asset.get('provider')} bucket allows public read/listing (HTTP 200)" if status == "open" else f"{asset.get('provider')} bucket is protected (HTTP 403)"),
+                        "source_app": domain,
+                        "discovered_by": self.agent_name,
+                        "discovered_at": datetime.datetime.utcnow().isoformat()
+                    }
+                )
 
         # Retain existing leaked credentials or empty list
         existing_osint = domain_doc.get("osint", {})

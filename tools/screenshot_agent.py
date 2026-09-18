@@ -33,6 +33,16 @@ class ScreenshotAgent(BaseAgent):
             "--disable-sync",
             "--disable-default-apps",
             "--hide-scrollbars",
+            # Bypass SSL certificate interstitials and "Your connection is not private" warning
+            "--ignore-certificate-errors",
+            "--ignore-ssl-errors=yes",
+            "--ignore-certificate-errors-spki-list",
+            "--allow-insecure-localhost",
+            "--allow-running-insecure-content",
+            "--disable-web-security",
+            "--test-type",
+            "--disable-blink-features=AutomationControlled",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "--window-size=1280,800",
             "--virtual-time-budget=3000",
             f"--screenshot={output_path}",
@@ -46,7 +56,7 @@ class ScreenshotAgent(BaseAgent):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20)
             
             # Check if screenshot was successfully created
             if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
@@ -67,18 +77,21 @@ class ScreenshotAgent(BaseAgent):
             logger.error(f"Error capturing screenshot for {url}: {e}")
             return None
 
-    async def process_domain_webapps(self, doc):
+    async def process_domain_webapps(self, doc, target_filter=None, force=False):
         domain = doc.get("domain")
         webapps = doc.get("web_applications", [])
         if not webapps:
             return
 
         for i, app in enumerate(webapps):
-            # Skip if already captured
-            if app.get("screenshot"):
+            target = app.get("target") or domain
+            if target_filter and target_filter.lower() != target.lower() and target_filter.lower() != domain.lower():
                 continue
 
-            target = app.get("target") or domain
+            # Skip if already captured and not forced
+            if app.get("screenshot") and not force:
+                continue
+
             url = app.get("url")
             if not url:
                 continue
@@ -91,6 +104,9 @@ class ScreenshotAgent(BaseAgent):
                         "$set": {
                             "web_applications.$.screenshot": screenshot_rel_path,
                             "web_applications.$.screenshot_at": datetime.datetime.utcnow().isoformat()
+                        },
+                        "$unset": {
+                            "web_applications.$.screenshot_failed": ""
                         }
                     }
                 )
@@ -117,12 +133,12 @@ class ScreenshotAgent(BaseAgent):
             root_domain = task["root_domain"]
             target = task.get("target", root_domain)
             doc = await self.domains_col.find_one({
-                "domain": root_domain,
+                "$or": [{"domain": root_domain}, {"domain": target}, {"web_applications.target": target}],
                 "blacklisted": {"$ne": True},
                 "on_hold": {"$ne": True}
             })
             if doc:
-                await self.process_domain_webapps(doc)
+                await self.process_domain_webapps(doc, target_filter=target, force=True)
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},
                 {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}

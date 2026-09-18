@@ -396,6 +396,34 @@ class SourceCodeAnalyzer(BaseAgent):
                     if not val or len(val) < 6:
                         continue
 
+                    # Reject URLs, file paths, and assets
+                    if val.startswith(("http://", "https://", "/", "./", "../")) or "://" in val:
+                        continue
+                    if any(val.lower().endswith(ext) for ext in [".js", ".css", ".html", ".png", ".jpg", ".jpeg", ".svg", ".json", ".map", ".wasm"]):
+                        continue
+
+                    # Reject code identifiers, function names, and common false positives
+                    low = val.lower()
+                    if any(kw in low for kw in ["recaptcha", "challenge", "qrcode", "hidden", "javascript", "function", "undefined", "null", "placeholder", "default", "element", "variable", "redirect"]):
+                        continue
+
+                    # Reject pure alphabetical camelCase/PascalCase identifiers
+                    if re.match(r'^[a-zA-Z]+$', val) and stype not in ["SSH Private Key"]:
+                        continue
+
+                    # Bearer Token validation
+                    if stype == "Bearer Token":
+                        token_part = val[7:].strip() if val.lower().startswith("bearer ") else val
+                        if token_part.lower() in ["token", "undefined", "null", "string", "test", "bearer", "accesstoken", "access_token", "jwt", "auth"]:
+                            continue
+                        if len(token_part) < 20:
+                            continue
+
+                    # Real AWS Secret Keys are base64-encoded random bytes (160-bit) with high entropy
+                    if stype == "AWS Secret Key":
+                        if not (any(c.isupper() for c in val) and any(c.islower() for c in val) and any(c.isdigit() for c in val)):
+                            continue
+
                     # Filter out placeholders
                     if any(ph in val.lower() for ph in placeholder_terms):
                         continue

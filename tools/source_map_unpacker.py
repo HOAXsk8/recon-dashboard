@@ -597,32 +597,44 @@ class SourceMapUnpacker(BaseAgent):
                 if existing_lead:
                     lead_id = str(existing_lead["_id"])
                 elif recreate_alerts:
-                    # Recreate deleted alert
-                    fp = hashlib.sha256(f"{target}|JS Discovery: Exposed Source Map|{sm_url}".encode()).hexdigest()
-                    # Remove from suppressed if present
-                    await self.fingerprints_col.delete_one({"fingerprint": fp})
-                    
-                    new_lead = {
-                        "title": "JS Discovery: Exposed Source Map",
-                        "description": f"JavaScript source map reference detected at {sm_url}. Source maps can expose unminified original source trees.",
-                        "target": target,
-                        "risk_level": "medium",
-                        "status": "new",
-                        "source": "Dynamic JS Recon & Extractor",
-                        "timestamp": datetime.datetime.utcnow().isoformat(),
-                        "details": f"Source Map URL: {sm_url}\nHost: {target}",
-                        "exploitation_suggestions": (
-                            "### Source Map Decompilation\n\n"
-                            "1. **Unpack Source**: Use tools like `shuji` or `sourcemapper` to reconstruct original TypeScript/JavaScript source files.\n"
-                            "2. **Code Audit**: Inspect comments, internal API paths, and developer notes in the reconstructed source."
-                        ),
-                        "fingerprint": fp,
-                        "acknowledged": False,
-                        "response_size": 0
-                    }
-                    ins = await self.leads_col.insert_one(new_lead)
-                    lead_id = str(ins.inserted_id)
-                    recreated_alerts_count += 1
+                    # Check global alert settings before recreating alert
+                    can_alert = True
+                    try:
+                        settings_doc = await self.settings_col.find_one({"key": "global_settings"})
+                        if settings_doc and "alerts" in settings_doc:
+                            val = settings_doc["alerts"].get("js_source_maps")
+                            if val is False or str(val).lower() == "false" or val == 0:
+                                can_alert = False
+                    except Exception:
+                        pass
+
+                    if can_alert:
+                        fp = hashlib.sha256(f"{target}|JS Discovery: Exposed Source Map|{sm_url}".encode()).hexdigest()
+                        # Remove from suppressed if present
+                        await self.fingerprints_col.delete_one({"fingerprint": fp})
+                        
+                        new_lead = {
+                            "title": "JS Discovery: Exposed Source Map",
+                            "description": f"JavaScript source map reference detected at {sm_url}. Source maps can expose unminified original source trees.",
+                            "target": target,
+                            "risk_level": "medium",
+                            "status": "new",
+                            "source": "Dynamic JS Recon & Extractor",
+                            "timestamp": datetime.datetime.utcnow().isoformat(),
+                            "details": f"Source Map URL: {sm_url}\nHost: {target}",
+                            "exploitation_suggestions": (
+                                "### Source Map Decompilation\n\n"
+                                "1. **Unpack Source**: Use tools like `shuji` or `sourcemapper` to reconstruct original TypeScript/JavaScript source files.\n"
+                                "2. **Code Audit**: Inspect comments, internal API paths, and developer notes in the reconstructed source."
+                            ),
+                            "fingerprint": fp,
+                            "acknowledged": False,
+                            "response_size": 0,
+                            "alert_type": "js_source_maps"
+                        }
+                        ins = await self.leads_col.insert_one(new_lead)
+                        lead_id = str(ins.inserted_id)
+                        recreated_alerts_count += 1
 
                 # 3. Unpack source map
                 try:

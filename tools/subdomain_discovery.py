@@ -138,7 +138,66 @@ class SubdomainDiscoveryAgent(BaseAgent):
                         live_mutations = await resolver.filter_live_candidates(new_mutations, root_domain)
                         if live_mutations:
                             logger.info(f"Subdomain Discovery: Found {len(live_mutations)} LIVE permutation/mutated subdomains: {list(live_mutations.keys())}")
-                            all_found.update(live_mutations.keys())
+                            now_iso = datetime.datetime.utcnow().isoformat()
+                            for mut_host, mut_ips in live_mutations.items():
+                                clean_mut = mut_host.strip().lower().rstrip(".")
+                                if not self.is_in_scope(clean_mut, root_domain):
+                                    continue
+
+                                # Only add to domains to be scanned and alert if not in domains already
+                                try:
+                                    already_in_domains = await self.domains_col.find_one({
+                                        "$or": [
+                                            {"domain": clean_mut},
+                                            {"infrastructure.subdomains.name": clean_mut}
+                                        ]
+                                    })
+                                    if already_in_domains:
+                                        logger.info(f"Permutated domain {clean_mut} already exists in domains inventory. Skipping scan queue and alert.")
+                                        continue
+
+                                    res = await self.domains_col.update_one(
+                                        {"domain": root_domain, "infrastructure.subdomains.name": {"$ne": clean_mut}},
+                                        {"$push": {
+                                            "infrastructure.subdomains": {
+                                                "name": clean_mut,
+                                                "added_at": now_iso,
+                                                "source": "environment_mutator",
+                                                "ips": mut_ips
+                                            }
+                                        }}
+                                    )
+
+                                    if res.modified_count > 0:
+                                        # Only add to scan queue if newly added to domains
+                                        all_found.add(clean_mut)
+
+                                        # Trigger permutator alert ONLY when newly added to domains to be scanned
+                                        ip_str = ", ".join(mut_ips) if mut_ips else "N/A"
+                                        await self.create_alert(
+                                            title=f"Permutated Subdomain Discovered: {clean_mut}",
+                                            description=f"A live permutated domain `{clean_mut}` was discovered by the Subdomain Environment Mutator for root `{root_domain}`.\n\n"
+                                                        f"- **Root Domain**: `{root_domain}`\n"
+                                                        f"- **Permutated Host**: `{clean_mut}`\n"
+                                                        f"- **Resolved IP(s)**: `{ip_str}`\n"
+                                                        f"- **Source**: `environment_mutator`\n\n"
+                                                        f"This asset was discovered through taxonomy and wordlist permutation analysis. Inspect for exposed staging, development, or internal services.",
+                                            target=clean_mut,
+                                            risk_level="low",
+                                            details={
+                                                "root_domain": root_domain,
+                                                "hostname": clean_mut,
+                                                "ips": mut_ips,
+                                                "source": "environment_mutator",
+                                                "discovered_at": now_iso
+                                            },
+                                            exploitation_suggestions="1. Run alive probing to inspect active web endpoints and response codes.\n"
+                                                                     "2. Perform port scanning on the newly discovered IP address.\n"
+                                                                     "3. Check for exposed development/staging credentials or unauthenticated administration consoles.",
+                                            alert_type="domain_permutator_discovered"
+                                        )
+                                except Exception as sub_err:
+                                    logger.error(f"Error saving live mutation {clean_mut}: {sub_err}")
             except Exception as mut_err:
                 logger.warning(f"Subdomain Discovery: Domain permutation step skipped due to error: {mut_err}")
 
