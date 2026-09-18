@@ -10,14 +10,14 @@
     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-2 border-b border-slate-800/80">
         <div>
             <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow-inner">
+                <div class="w-10 h-10 rounded-2xl bg-tech-accent/15 border border-tech-accent/30 flex items-center justify-center text-tech-accent shadow-inner">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
                     </svg>
                 </div>
                 <div>
                     <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase flex items-center gap-2">
-                        Findings <span class="text-purple-400 font-extrabold">& Exploits</span>
+                        Findings <span class="text-tech-accent font-extrabold">& Exploits</span>
                     </h1>
                     <p class="text-slate-400 text-xs sm:text-sm mt-0.5">Confirmed vulnerability documentation, proof-of-concepts, and remediation workflows</p>
                 </div>
@@ -45,10 +45,10 @@
                 <span class="text-[10px] font-black uppercase text-amber-400">Medium</span>
                 <span id="stat-medium" class="text-sm font-black text-amber-300 font-mono">0</span>
             </div>
-            <div class="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-center space-x-2">
-                <span class="w-2 h-2 rounded-full bg-purple-400"></span>
-                <span class="text-[10px] font-black uppercase text-purple-300">Confirmed</span>
-                <span id="stat-confirmed" class="text-sm font-black text-purple-200 font-mono">0</span>
+            <div class="px-3 py-1.5 bg-tech-accent/10 border border-tech-accent/20 rounded-xl flex items-center space-x-2">
+                <span class="w-2 h-2 rounded-full bg-tech-accent"></span>
+                <span class="text-[10px] font-black uppercase text-tech-accent">Confirmed</span>
+                <span id="stat-confirmed" class="text-sm font-black text-tech-accent font-mono">0</span>
             </div>
             <div class="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-2">
                 <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -58,7 +58,7 @@
 
             <!-- Action Buttons -->
             <div class="flex items-center space-x-2 ml-auto lg:ml-2">
-                <button onclick="openCreateFindingModal()" class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-purple-900/30 flex items-center space-x-2 active:scale-95">
+                <button onclick="openCreateFindingModal()" class="px-4 py-2 bg-tech-accent text-tech-bg hover:opacity-90 rounded-xl text-xs font-bold transition-all shadow-lg shadow-tech-accent/20 flex items-center space-x-2 active:scale-95">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     <span>New Finding</span>
                 </button>
@@ -76,12 +76,12 @@
     <div class="bg-tech-panel/80 p-3 sm:p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-wrap items-center gap-3">
         <!-- Search Input -->
         <div class="relative flex-1 min-w-[220px]">
-            <input type="text" id="filter-search" oninput="debounceFilter()" placeholder="Search title, target, notes, CVE..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all">
+            <input type="text" id="filter-search" oninput="debounceFilter()" placeholder="Search title, target, notes, CVE..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
             <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
         </div>
 
         <!-- Severity Filter -->
-        <select id="filter-severity" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition-all">
+        <select id="filter-severity" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-tech-accent transition-all">
             <option value="all">All Severities</option>
             <option value="critical">Critical</option>
             <option value="high">High</option>
@@ -91,7 +91,7 @@
         </select>
 
         <!-- Status Filter -->
-        <select id="filter-status" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition-all">
+        <select id="filter-status" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-tech-accent transition-all">
             <option value="all">All Statuses</option>
             <option value="confirmed">Confirmed</option>
             <option value="in_progress">In Progress</option>
@@ -100,7 +100,7 @@
         </select>
 
         <!-- Category Filter -->
-        <select id="filter-category" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition-all">
+        <select id="filter-category" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-tech-accent transition-all">
             <option value="all">All Categories</option>
             <option value="SQL Injection">SQL Injection</option>
             <option value="Cross-Site Scripting (XSS)">Cross-Site Scripting (XSS)</option>
@@ -114,7 +114,7 @@
         </select>
 
         <!-- Sort Select -->
-        <select id="filter-sort" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 transition-all">
+        <select id="filter-sort" onchange="loadFindings()" class="bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-tech-accent transition-all">
             <option value="updated_at:desc">Recently Updated</option>
             <option value="created_at:desc">Recently Created</option>
             <option value="severity:desc">Highest Severity</option>
@@ -132,7 +132,7 @@
             <div class="px-5 py-4 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
                 <div class="flex items-center space-x-2">
                     <span class="text-xs font-black uppercase tracking-wider text-slate-400">Findings Queue</span>
-                    <span id="queue-count-badge" class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-mono font-bold">0</span>
+                    <span id="queue-count-badge" class="px-2 py-0.5 rounded-full bg-tech-accent/15 text-tech-accent border border-tech-accent/30 text-[10px] font-mono font-bold">0</span>
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">Select to edit</span>
             </div>
@@ -153,7 +153,7 @@
                 </div>
                 <h3 class="text-lg font-bold text-white mb-1">No Finding Selected</h3>
                 <p class="text-slate-400 text-xs max-w-md leading-relaxed mb-6">Choose a finding from the left queue to view and edit details, syntax-highlighted code blocks, PoCs, and notes — or create a new one.</p>
-                <button onclick="openCreateFindingModal()" class="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-purple-900/40 flex items-center space-x-2">
+                <button onclick="openCreateFindingModal()" class="px-5 py-2.5 bg-tech-accent text-tech-bg hover:opacity-90 rounded-xl text-xs font-bold transition-all shadow-lg shadow-tech-accent/20 flex items-center space-x-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     <span>Create New Finding</span>
                 </button>
@@ -165,17 +165,17 @@
                 <!-- Workspace Top Controls Bar -->
                 <div class="px-6 py-4 bg-slate-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
                     <div class="flex-1 min-w-[280px]">
-                        <input type="text" id="edit-title" oninput="markDirty()" class="w-full bg-transparent text-lg sm:text-xl font-black text-white focus:outline-none border-b border-transparent focus:border-purple-500 transition-colors placeholder-slate-600" placeholder="Finding Title / Vulnerability Name">
+                        <input type="text" id="edit-title" oninput="markDirty()" class="w-full bg-transparent text-lg sm:text-xl font-black text-white focus:outline-none border-b border-transparent focus:border-tech-accent transition-colors placeholder-slate-600" placeholder="Finding Title / Vulnerability Name">
                         <div class="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-400">
                             <span id="detail-created-meta" class="font-mono text-[11px] text-slate-500"></span>
-                            <span id="detail-promoted-meta" class="hidden font-mono text-[11px] text-purple-400 font-bold"></span>
+                            <span id="detail-promoted-meta" class="hidden font-mono text-[11px] text-tech-accent font-bold"></span>
                         </div>
                     </div>
 
                     <!-- Header Quick Controls -->
                     <div class="flex items-center space-x-2.5">
                         <span id="save-status-indicator" class="text-xs font-mono text-slate-500 mr-1">All saved</span>
-                        <button id="save-finding-btn" onclick="saveActiveFinding()" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-950/30 flex items-center space-x-1.5 active:scale-95" title="Save Finding (Ctrl+S / Cmd+S)">
+                        <button id="save-finding-btn" onclick="saveActiveFinding()" class="px-4 py-2 bg-tech-accent hover:opacity-90 text-tech-bg rounded-xl text-xs font-bold transition-all shadow-md shadow-tech-accent/20 flex items-center space-x-1.5 active:scale-95" title="Save Finding (Ctrl+S / Cmd+S)">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                             <span>Save</span>
                         </button>
@@ -191,7 +191,7 @@
                     <!-- Severity -->
                     <div>
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Severity</label>
-                        <select id="edit-severity" onchange="markDirty()" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-purple-500 transition-all">
+                        <select id="edit-severity" onchange="markDirty()" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                             <option value="critical">Critical</option>
                             <option value="high">High</option>
                             <option value="medium">Medium</option>
@@ -203,7 +203,7 @@
                     <!-- Status -->
                     <div>
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Status</label>
-                        <select id="edit-status" onchange="markDirty()" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-purple-500 transition-all">
+                        <select id="edit-status" onchange="markDirty()" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                             <option value="confirmed">Confirmed</option>
                             <option value="in_progress">In Progress</option>
                             <option value="remediated">Remediated</option>
@@ -214,14 +214,14 @@
                     <!-- Category -->
                     <div>
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Category</label>
-                        <input type="text" id="edit-category" oninput="markDirty()" placeholder="e.g. SQL Injection" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500 transition-all">
+                        <input type="text" id="edit-category" oninput="markDirty()" placeholder="e.g. SQL Injection" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                     </div>
 
                     <!-- Target URL / Endpoint -->
                     <div class="col-span-2 sm:col-span-2">
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Target Asset / URL</label>
                         <div class="flex items-center space-x-1.5">
-                            <input type="text" id="edit-target" oninput="markDirty()" placeholder="https://example.com/api/v1/..." class="flex-1 bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-mono text-tech-accent focus:outline-none focus:border-purple-500 transition-all">
+                            <input type="text" id="edit-target" oninput="markDirty()" placeholder="https://example.com/api/v1/..." class="flex-1 bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-mono text-tech-accent focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                             <button onclick="openTargetInNewTab()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-slate-700" title="Open Target in New Tab">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                             </button>
@@ -231,7 +231,7 @@
                     <!-- CVSS / CVE Identifier -->
                     <div>
                         <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">CVE / CWE</label>
-                        <input type="text" id="edit-cve" oninput="markDirty()" placeholder="CVE-2024-XXXX" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-purple-500 transition-all">
+                        <input type="text" id="edit-cve" oninput="markDirty()" placeholder="CVE-2024-XXXX" class="w-full bg-slate-900 border border-slate-700/70 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                     </div>
 
                 </div>
@@ -242,7 +242,7 @@
                     <div class="flex flex-wrap items-center gap-1">
                         <!-- Mode Selector -->
                         <div class="bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/80 flex items-center mr-2">
-                            <button id="view-mode-split" onclick="setViewMode('split')" class="px-2.5 py-1 rounded-md text-xs font-bold transition-all bg-purple-600 text-white shadow-sm" title="Split Screen: Editor + Live Preview">
+                            <button id="view-mode-split" onclick="setViewMode('split')" class="px-2.5 py-1 rounded-md text-xs font-bold transition-all bg-tech-accent text-tech-bg shadow-sm" title="Split Screen: Editor + Live Preview">
                                 Split
                             </button>
                             <button id="view-mode-write" onclick="setViewMode('write')" class="px-2.5 py-1 rounded-md text-xs font-bold transition-all text-slate-400 hover:text-white" title="Write Markdown Only">
@@ -283,19 +283,19 @@
                         <!-- Code Block Inserts -->
                         <div class="flex items-center space-x-1">
                             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Code:</span>
-                            <button onclick="insertCodeBlock('http')" class="px-2 py-1 bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert HTTP Request/Response Block">
+                            <button onclick="insertCodeBlock('http')" class="px-2 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert HTTP Request/Response Block">
                                 HTTP
                             </button>
-                            <button onclick="insertCodeBlock('bash')" class="px-2 py-1 bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert Bash / cURL Block">
+                            <button onclick="insertCodeBlock('bash')" class="px-2 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert Bash / cURL Block">
                                 Bash
                             </button>
-                            <button onclick="insertCodeBlock('python')" class="px-2 py-1 bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert Python Exploit Script">
+                            <button onclick="insertCodeBlock('python')" class="px-2 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert Python Exploit Script">
                                 Python
                             </button>
-                            <button onclick="insertCodeBlock('json')" class="px-2 py-1 bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert JSON Payload">
+                            <button onclick="insertCodeBlock('json')" class="px-2 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert JSON Payload">
                                 JSON
                             </button>
-                            <button onclick="insertCodeBlock('sql')" class="px-2 py-1 bg-slate-800 hover:bg-purple-600 hover:text-white text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert SQL Injection Payload">
+                            <button onclick="insertCodeBlock('sql')" class="px-2 py-1 bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-slate-300 rounded text-[11px] font-mono font-bold transition-colors" title="Insert SQL Injection Payload">
                                 SQL
                             </button>
                         </div>
@@ -303,7 +303,7 @@
 
                     <!-- Right Toolbar: Quick Templates Dropdown -->
                     <div class="flex items-center space-x-2">
-                        <select id="quick-template-select" onchange="insertTemplate(this.value); this.value='';" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-purple-500 transition-all cursor-pointer">
+                        <select id="quick-template-select" onchange="insertTemplate(this.value); this.value='';" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all cursor-pointer">
                             <option value="">+ Insert Template...</option>
                             <option value="http_poc">HTTP Request / PoC Block</option>
                             <option value="repro_steps">Reproduction Steps</option>
@@ -323,7 +323,7 @@
 
                     <!-- Live Preview Pane -->
                     <div id="pane-preview" class="flex-1 h-full overflow-y-auto p-6 bg-slate-950/70 custom-scrollbar">
-                        <div id="notes-rendered-preview" class="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:font-black prose-headings:text-white prose-p:text-slate-300 prose-a:text-tech-accent prose-code:text-purple-300 prose-code:bg-slate-900/80 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-800 prose-pre:rounded-2xl prose-pre:shadow-xl">
+                        <div id="notes-rendered-preview" class="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:font-black prose-headings:text-white prose-p:text-slate-300 prose-a:text-tech-accent prose-code:text-tech-accent prose-code:bg-slate-900/80 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-800 prose-pre:rounded-2xl prose-pre:shadow-xl">
                             <!-- Rendered Markdown with Prism highlighting and Copy buttons -->
                         </div>
                     </div>
@@ -345,7 +345,7 @@
             <!-- Modal Header -->
             <div class="px-6 py-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
                 <div class="flex items-center space-x-3">
-                    <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                    <div class="w-8 h-8 rounded-xl bg-tech-accent/15 text-tech-accent border border-tech-accent/30 flex items-center justify-center">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     </div>
                     <div>
@@ -362,18 +362,18 @@
             <form id="create-finding-form" onsubmit="handleCreateFinding(event)" class="p-6 space-y-4">
                 <div>
                     <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Title <span class="text-rose-500">*</span></label>
-                    <input type="text" id="new-title" required placeholder="e.g. Unauthenticated Remote Code Execution via Log Viewer" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all">
+                    <input type="text" id="new-title" required placeholder="e.g. Unauthenticated Remote Code Execution via Log Viewer" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Target Asset / URL <span class="text-rose-500">*</span></label>
-                        <input type="text" id="new-target" required placeholder="https://api.target.com/v1/auth" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm font-mono text-tech-accent placeholder-slate-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all">
+                        <input type="text" id="new-target" required placeholder="https://api.target.com/v1/auth" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm font-mono text-tech-accent placeholder-slate-500 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                     </div>
 
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Category</label>
-                        <input type="text" id="new-category" list="category-options" placeholder="Select or type category..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-all">
+                        <input type="text" id="new-category" list="category-options" placeholder="Select or type category..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                         <datalist id="category-options">
                             <option value="SQL Injection">
                             <option value="Cross-Site Scripting (XSS)">
@@ -391,7 +391,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Severity</label>
-                        <select id="new-severity" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-purple-500 transition-all">
+                        <select id="new-severity" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                             <option value="critical">Critical</option>
                             <option value="high" selected>High</option>
                             <option value="medium">Medium</option>
@@ -402,7 +402,7 @@
 
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Status</label>
-                        <select id="new-status" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-purple-500 transition-all">
+                        <select id="new-status" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                             <option value="confirmed" selected>Confirmed</option>
                             <option value="in_progress">In Progress</option>
                             <option value="remediated">Remediated</option>
@@ -412,27 +412,27 @@
 
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">CVE / CWE</label>
-                        <input type="text" id="new-cve" placeholder="CVE-2024-..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-all">
+                        <input type="text" id="new-cve" placeholder="CVE-2024-..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all">
                     </div>
                 </div>
 
                 <div>
                     <div class="flex items-center justify-between mb-1">
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-400">Initial Notes & PoC (Markdown)</label>
-                        <select onchange="applyInitialNotesTemplate(this.value); this.value='';" class="bg-slate-800 text-[11px] text-purple-400 font-bold rounded px-2 py-0.5 border border-slate-700 focus:outline-none">
+                        <select onchange="applyInitialNotesTemplate(this.value); this.value='';" class="bg-slate-800 text-[11px] text-tech-accent font-bold rounded px-2 py-0.5 border border-slate-700 focus:outline-none">
                             <option value="">Load Template...</option>
                             <option value="http">HTTP PoC Template</option>
                             <option value="full">Full Report Template</option>
                         </select>
                     </div>
-                    <textarea id="new-notes" rows="8" placeholder="Document exploit steps, HTTP requests, or reproduction details..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3.5 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all resize-none"></textarea>
+                    <textarea id="new-notes" rows="8" placeholder="Document exploit steps, HTTP requests, or reproduction details..." class="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-3.5 text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-tech-accent focus:ring-1 focus:ring-tech-accent transition-all resize-none"></textarea>
                 </div>
 
                 <div class="pt-3 border-t border-slate-800 flex items-center justify-end space-x-3">
                     <button type="button" onclick="closeCreateFindingModal()" class="px-4 py-2.5 text-xs font-bold text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors">
                         Cancel
                     </button>
-                    <button type="submit" id="new-submit-btn" class="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-purple-950/30 flex items-center space-x-2">
+                    <button type="submit" id="new-submit-btn" class="px-5 py-2.5 bg-tech-accent text-tech-bg hover:opacity-90 rounded-xl text-xs font-bold transition-all shadow-lg shadow-tech-accent/20 flex items-center space-x-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                         <span>Create Finding</span>
                     </button>
@@ -444,8 +444,8 @@
 </div>
 
 <!-- Floating Toast Notification -->
-<div id="findings-toast" class="fixed bottom-6 right-6 z-[110] hidden px-4 py-3 rounded-2xl bg-slate-900 border border-purple-500/50 shadow-2xl text-xs font-bold text-white flex items-center space-x-2.5 animate-bounce-short">
-    <div id="toast-icon" class="w-2.5 h-2.5 rounded-full bg-purple-400"></div>
+<div id="findings-toast" class="fixed bottom-6 right-6 z-[110] hidden px-4 py-3 rounded-2xl bg-slate-900 border border-tech-accent/50 shadow-2xl text-xs font-bold text-white flex items-center space-x-2.5 animate-bounce-short">
+    <div id="toast-icon" class="w-2.5 h-2.5 rounded-full bg-tech-accent"></div>
     <span id="toast-msg">Notification message</span>
 </div>
 
@@ -477,8 +477,8 @@ pre[class*="language-"] {
 
 .code-copy-btn:hover {
     color: #ffffff;
-    background-color: #3b82f6;
-    border-color: #60a5fa;
+    background-color: rgb(var(--color-tech-accent-rgb));
+    border-color: rgb(var(--color-tech-accent-rgb));
 }
 
 .code-copy-btn.copied {
@@ -613,7 +613,7 @@ function renderFindingsList() {
         const timeStr = f.updated_at ? formatRelativeTime(f.updated_at) : '';
 
         return `
-            <div id="finding-card-${f._id}" onclick="selectFinding('${f._id}')" class="p-3.5 rounded-2xl cursor-pointer transition-all border ${isActive ? 'bg-slate-800/90 border-purple-500/60 ring-1 ring-purple-500/40 shadow-lg' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700/80'} group">
+            <div id="finding-card-${f._id}" onclick="selectFinding('${f._id}')" class="p-3.5 rounded-2xl cursor-pointer transition-all border ${isActive ? 'bg-slate-800/90 border-tech-accent/60 ring-1 ring-tech-accent/40 shadow-lg' : 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700/80'} group">
                 <div class="flex items-center justify-between gap-2 mb-1.5">
                     <div class="flex items-center space-x-1.5">
                         <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase font-mono ${sevColor}">
@@ -625,7 +625,7 @@ function renderFindingsList() {
                     </div>
                     <span class="text-[10px] text-slate-500 font-mono">${timeStr}</span>
                 </div>
-                <h4 class="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-300 transition-colors">
+                <h4 class="text-xs font-bold text-white line-clamp-1 group-hover:text-tech-accent transition-colors">
                     ${escapeHtml(f.title || 'Untitled Finding')}
                 </h4>
                 <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
@@ -650,7 +650,7 @@ function getSeverityColorClasses(sev) {
 
 function getStatusColorClasses(st) {
     const s = String(st || '').toLowerCase();
-    if (s === 'confirmed') return 'bg-purple-500/15 text-purple-300 border border-purple-500/30';
+    if (s === 'confirmed') return 'bg-tech-accent/15 text-tech-accent border border-tech-accent/30';
     if (s === 'in_progress') return 'bg-sky-500/15 text-sky-300 border border-sky-500/30';
     if (s === 'remediated') return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
     return 'bg-slate-800 text-slate-300 border border-slate-700';
@@ -683,13 +683,13 @@ async function selectFinding(id) {
 
 function highlightActiveCard(id) {
     document.querySelectorAll('[id^="finding-card-"]').forEach(card => {
-        card.classList.remove('bg-slate-800/90', 'border-purple-500/60', 'ring-1', 'ring-purple-500/40', 'shadow-lg');
+        card.classList.remove('bg-slate-800/90', 'border-tech-accent/60', 'ring-1', 'ring-tech-accent/40', 'shadow-lg');
         card.classList.add('bg-slate-900/40', 'border-slate-800/80');
     });
     const activeCard = document.getElementById(`finding-card-${id}`);
     if (activeCard) {
         activeCard.classList.remove('bg-slate-900/40', 'border-slate-800/80');
-        activeCard.classList.add('bg-slate-800/90', 'border-purple-500/60', 'ring-1', 'ring-purple-500/40', 'shadow-lg');
+        activeCard.classList.add('bg-slate-800/90', 'border-tech-accent/60', 'ring-1', 'ring-tech-accent/40', 'shadow-lg');
     }
 }
 
@@ -811,25 +811,25 @@ function setViewMode(mode) {
     const btnPreview = document.getElementById('view-mode-preview');
 
     [btnSplit, btnWrite, btnPreview].forEach(b => {
-        b.classList.remove('bg-purple-600', 'text-white', 'shadow-sm');
+        b.classList.remove('bg-tech-accent', 'text-tech-bg', 'shadow-sm');
         b.classList.add('text-slate-400');
     });
 
     if (mode === 'split') {
         writePane.classList.remove('hidden');
         previewPane.classList.remove('hidden');
-        btnSplit.classList.add('bg-purple-600', 'text-white', 'shadow-sm');
+        btnSplit.classList.add('bg-tech-accent', 'text-tech-bg', 'shadow-sm');
         btnSplit.classList.remove('text-slate-400');
         renderLivePreview();
     } else if (mode === 'write') {
         writePane.classList.remove('hidden');
         previewPane.classList.add('hidden');
-        btnWrite.classList.add('bg-purple-600', 'text-white', 'shadow-sm');
+        btnWrite.classList.add('bg-tech-accent', 'text-tech-bg', 'shadow-sm');
         btnWrite.classList.remove('text-slate-400');
     } else if (mode === 'preview') {
         writePane.classList.add('hidden');
         previewPane.classList.remove('hidden');
-        btnPreview.classList.add('bg-purple-600', 'text-white', 'shadow-sm');
+        btnPreview.classList.add('bg-tech-accent', 'text-tech-bg', 'shadow-sm');
         btnPreview.classList.remove('text-slate-400');
         renderLivePreview();
     }
@@ -1073,8 +1073,8 @@ function showToast(msg, type = 'success') {
         toastIcon.className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
         toast.className = 'fixed bottom-6 right-6 z-[110] px-4 py-3 rounded-2xl bg-slate-900 border border-rose-500/50 shadow-2xl text-xs font-bold text-white flex items-center space-x-2.5 animate-bounce-short';
     } else {
-        toastIcon.className = 'w-2.5 h-2.5 rounded-full bg-purple-400';
-        toast.className = 'fixed bottom-6 right-6 z-[110] px-4 py-3 rounded-2xl bg-slate-900 border border-purple-500/50 shadow-2xl text-xs font-bold text-white flex items-center space-x-2.5 animate-bounce-short';
+        toastIcon.className = 'w-2.5 h-2.5 rounded-full bg-tech-accent';
+        toast.className = 'fixed bottom-6 right-6 z-[110] px-4 py-3 rounded-2xl bg-slate-900 border border-tech-accent/50 shadow-2xl text-xs font-bold text-white flex items-center space-x-2.5 animate-bounce-short';
     }
 
     toast.classList.remove('hidden');

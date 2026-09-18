@@ -56,6 +56,14 @@
                         <option value="">All Sources</option>
                         <option value="true">🧬 Permutator Only</option>
                     </select>
+                    <select id="filter-takeover" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
+                        <option value="">Takeover (All)</option>
+                        <option value="true">⚠️ Dangling Takeover Only</option>
+                    </select>
+                    <select id="filter-hide-parked" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
+                        <option value="">Noise Filter (Off)</option>
+                        <option value="true">🚫 Hide Parked & CDN Errors</option>
+                    </select>
                 </div>
             </div>
             <div class="relative max-w-sm w-full">
@@ -297,10 +305,14 @@ async function loadDomains() {
     const statusVal = document.getElementById('filter-status').value;
     const blacklistedVal = document.getElementById('filter-blacklisted').value;
     const mutatorVal = document.getElementById('filter-mutator') ? document.getElementById('filter-mutator').value : '';
+    const takeoverVal = document.getElementById('filter-takeover') ? document.getElementById('filter-takeover').value : '';
+    const hideParkedVal = document.getElementById('filter-hide-parked') ? document.getElementById('filter-hide-parked').value : '';
 
     try {
         let url = `/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&status_val=${statusVal}&blacklisted=${blacklistedVal}&_t=${Date.now()}`;
         if (mutatorVal) url += `&mutator=${encodeURIComponent(mutatorVal)}`;
+        if (takeoverVal) url += `&takeover=${encodeURIComponent(takeoverVal)}`;
+        if (hideParkedVal) url += `&hide_parked=${encodeURIComponent(hideParkedVal)}`;
         const response = await fetch(url);
         const data = await response.json();
         
@@ -337,6 +349,11 @@ async function loadDomains() {
                 `;
             }
 
+            const takeoverBadge = domain.dangling_takeover ? `<span class="px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse inline-flex items-center gap-1" title="Dangling DNS Takeover Identified: ${domain.cname || ''} (${domain.takeover_provider || ''})">⚠️ TAKEOVER</span>` : '';
+            const asnBadge = domain.asn ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-mono" title="${domain.as_org || ''} ${domain.cidr ? '| ' + domain.cidr : ''}">${domain.asn}</span>` : '';
+            const apiBadge = domain.has_api_specs ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[9px] font-mono font-bold" title="OpenAPI / Swagger Spec Discovered">Swagger/API</span>` : '';
+            const gqlBadge = domain.has_graphql ? `<span class="px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-500 border border-pink-500/20 text-[9px] font-mono font-bold" title="GraphQL Introspection Enabled">GraphQL</span>` : '';
+
             rowHtml += `
                 <td class="px-6 py-4 font-mono font-bold text-tech-accent hover:underline cursor-pointer" onclick="window.location.href='/dashboard?q=' + encodeURIComponent('${domain.domain}')">
                     <span class="inline-flex items-center flex-wrap gap-1">
@@ -344,6 +361,10 @@ async function loadDomains() {
                         ${!domain.is_root ? '<span class="px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
                         ${domain.single_domain_only ? '<span class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold uppercase tracking-wider" title="Single target only (subdomain discovery disabled)">Single Target</span>' : ''}
                         ${(domain.is_permutated || domain.source === 'environment_mutator') ? '<span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 text-[9px] font-bold uppercase tracking-wider font-mono inline-flex items-center gap-0.5 shadow-sm" title="Discovered via Subdomain Permutator">🧬 Permutator</span>' : ''}
+                        ${takeoverBadge}
+                        ${asnBadge}
+                        ${apiBadge}
+                        ${gqlBadge}
                     </span>
                 </td>
                 <td class="px-6 py-4">${statusBadge}</td>

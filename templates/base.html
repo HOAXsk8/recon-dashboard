@@ -1825,10 +1825,10 @@
                 </a>
                 <a href="/findings" class="sidebar-link flex items-center justify-between px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Findings">
                     <div class="flex items-center space-x-3 min-w-0">
-                        <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                         <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Findings</span>
                     </div>
-                    <span id="sidebar-findings-badge" class="sidebar-alert-badge-full hidden px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-black">0</span>
+                    <span id="sidebar-findings-badge" class="sidebar-alert-badge-full hidden px-2 py-0.5 rounded-full bg-tech-accent/15 text-tech-accent border border-tech-accent/30 text-[10px] font-black">0</span>
                     <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Findings</div>
                 </a>
                 <a href="/investigate" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Investigate">
@@ -1989,8 +1989,8 @@
 
     {% if not embedded %}
     <!-- Global Domain Overview Popup Modal Overlay -->
-    <div id="domain-overview-modal" class="fixed inset-0 z-[200] hidden overflow-hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 md:p-6 animate-fade-in" onclick="if(event.target === this) closeDomainOverviewModal()">
-        <div class="relative w-full max-w-7xl h-[92vh] bg-tech-panel rounded-3xl border border-slate-700 shadow-3xl flex flex-col overflow-hidden" onclick="event.stopPropagation()">
+    <div id="domain-overview-modal" class="fixed inset-0 z-[200] hidden overflow-hidden bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 md:p-[4vh] animate-fade-in" onclick="if(event.target === this) closeDomainOverviewModal()">
+        <div class="relative w-full h-full bg-tech-panel rounded-3xl border border-slate-700 shadow-3xl flex flex-col overflow-hidden" onclick="event.stopPropagation()">
             <!-- Top Bar with domain title, open in new tab shortcut, and close button -->
             <div class="px-6 py-3.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
                 <div class="flex items-center space-x-3 truncate">

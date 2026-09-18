@@ -113,7 +113,10 @@ def get_flattened_pipeline(
     jwt: Optional[str] = None,
     base64: Optional[str] = None,
     alive_apps: Optional[str] = None,
-    historical: Optional[str] = None
+    historical: Optional[str] = None,
+    takeover: Optional[str] = None,
+    hide_parked: Optional[str] = None,
+    api_spec: Optional[str] = None
 ):
     pipeline = [
         {"$match": root_query},
@@ -171,6 +174,13 @@ def get_flattened_pipeline(
                 "scan_interval": {"$ifNull": ["$scan_interval", 24]},
                 "subdomain_count": 1,
                 "recon_date": {"$ifNull": ["$targets.added_at", "$added_at"]},
+                "asn": {"$ifNull": ["$targets.asn", "$infrastructure.asn_data.primary_asn"]},
+                "as_org": {"$ifNull": ["$targets.as_org", "$infrastructure.asn_data.primary_org"]},
+                "cidr": {"$ifNull": ["$targets.cidr", None]},
+                "ptr": {"$ifNull": ["$targets.ptr", None]},
+                "dangling_takeover": {"$ifNull": ["$targets.dangling_takeover", False]},
+                "cname": {"$ifNull": ["$targets.cname", None]},
+                "takeover_provider": {"$ifNull": ["$targets.takeover_provider", None]},
                 "system": {
                     "$arrayElemAt": [
                         {
@@ -272,6 +282,13 @@ def get_flattened_pipeline(
                 "scan_interval": 1,
                 "subdomain_count": 1,
                 "recon_date": 1,
+                "asn": 1,
+                "as_org": 1,
+                "cidr": 1,
+                "ptr": 1,
+                "dangling_takeover": 1,
+                "cname": 1,
+                "takeover_provider": 1,
                 "system": 1,
                 "target_ips": 1,
                 "web_app": 1,
@@ -448,6 +465,26 @@ def get_flattened_pipeline(
                         True,
                         False
                     ]
+                },
+                "has_api_specs": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.api_specifications", []]}}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$api_specifications", []]}}, 0]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
+                "has_graphql": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [{"$size": {"$ifNull": ["$web_app.dynamic_js.graphql_endpoints", []]}}, 0]},
+                            {"$gt": [{"$size": {"$ifNull": ["$graphql_endpoints", []]}}, 0]}
+                        ]},
+                        True,
+                        False
+                    ]
                 }
             }
         },
@@ -494,7 +531,16 @@ def get_flattened_pipeline(
                 "has_jwt": {"$max": "$has_jwt"},
                 "has_base64": {"$max": "$has_base64"},
                 "has_alive_web_app": {"$max": "$has_alive_web_app"},
-                "has_historical_urls": {"$max": "$has_historical_urls"}
+                "has_historical_urls": {"$max": "$has_historical_urls"},
+                "asn": {"$first": "$asn"},
+                "as_org": {"$first": "$as_org"},
+                "cidr": {"$first": "$cidr"},
+                "ptr": {"$first": "$ptr"},
+                "dangling_takeover": {"$max": "$dangling_takeover"},
+                "cname": {"$first": "$cname"},
+                "takeover_provider": {"$first": "$takeover_provider"},
+                "has_api_specs": {"$max": "$has_api_specs"},
+                "has_graphql": {"$max": "$has_graphql"}
             }
         },
         {
@@ -604,7 +650,16 @@ def get_flattened_pipeline(
                 "has_jwt": 1,
                 "has_base64": 1,
                 "has_alive_web_app": 1,
-                "has_historical_urls": 1
+                "has_historical_urls": 1,
+                "asn": 1,
+                "as_org": 1,
+                "cidr": 1,
+                "ptr": 1,
+                "dangling_takeover": 1,
+                "cname": 1,
+                "takeover_provider": 1,
+                "has_api_specs": 1,
+                "has_graphql": 1
             }
         }
     ]
@@ -711,6 +766,30 @@ def get_flattened_pipeline(
             match_stage["has_historical_urls"] = True
         elif h_clean in ["false", "0", "no"]:
             match_stage["has_historical_urls"] = False
+
+    if takeover:
+        to_clean = str(takeover).strip().lower()
+        if to_clean in ["true", "1", "yes"]:
+            match_stage["dangling_takeover"] = True
+        elif to_clean in ["false", "0", "no"]:
+            match_stage["dangling_takeover"] = False
+
+    if hide_parked and str(hide_parked).strip().lower() in ["true", "1", "yes"]:
+        match_stage["$nor"] = [
+            {"web_app.status": {"$in": [502, 503, 521, 522, 523]}},
+            {"web_app.title": {"$regex": r"(parked|domain for sale|buy this domain|default web site page|iis windows server|apache2 ubuntu default page|nginx test page)", "$options": "i"}}
+        ]
+
+    if api_spec:
+        as_clean = str(api_spec).strip().lower()
+        if as_clean in ["true", "1", "yes"]:
+            match_stage["$or"] = [
+                {"has_api_specs": True},
+                {"has_graphql": True}
+            ]
+        elif as_clean in ["false", "0", "no"]:
+            match_stage["has_api_specs"] = False
+            match_stage["has_graphql"] = False
 
     if status_val:
         if status_val == "scanned":
@@ -1100,6 +1179,21 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
                 filtered.append(b)
         scoped_cf[bucket_key] = filtered
     domain_data["infrastructure"]["cloud_footprint"] = scoped_cf
+
+    # Ensure DNS records, ASN data, API specifications, and History are populated
+    if not is_root_view:
+        for s in (domain_data.get("infrastructure", {}).get("subdomains") or []):
+            if isinstance(s, dict) and s.get("name", "").lower().strip() == target_lower:
+                domain_data["current_subdomain"] = s
+                break
+
+    # Sort history latest first for timeline rendering
+    if domain_data.get("history") and isinstance(domain_data["history"], list):
+        domain_data["history"] = sorted(
+            domain_data["history"],
+            key=lambda x: str(x.get("timestamp", "")),
+            reverse=True
+        )[:150]
         
     return domain_data
 
@@ -1237,6 +1331,9 @@ async def get_subdomains(
     base64: Optional[str] = None,
     alive_apps: Optional[str] = None,
     historical: Optional[str] = None,
+    takeover: Optional[str] = None,
+    hide_parked: Optional[str] = None,
+    api_spec: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -1261,7 +1358,10 @@ async def get_subdomains(
         jwt=jwt,
         base64=base64,
         alive_apps=alive_apps,
-        historical=historical
+        historical=historical,
+        takeover=takeover,
+        hide_parked=hide_parked,
+        api_spec=api_spec
     )
     
     # Total count (Aggregation)
@@ -1343,7 +1443,16 @@ async def get_subdomains(
             "has_jwt": bool(d.get("has_jwt", False)),
             "has_base64": bool(d.get("has_base64", False)),
             "has_alive_web_app": bool(d.get("has_alive_web_app", False)),
-            "has_historical_urls": bool(d.get("has_historical_urls", False))
+            "has_historical_urls": bool(d.get("has_historical_urls", False)),
+            "asn": d.get("asn"),
+            "as_org": d.get("as_org"),
+            "cidr": d.get("cidr"),
+            "ptr": d.get("ptr"),
+            "dangling_takeover": bool(d.get("dangling_takeover", False)),
+            "cname": d.get("cname"),
+            "takeover_provider": d.get("takeover_provider"),
+            "has_api_specs": bool(d.get("has_api_specs", False)),
+            "has_graphql": bool(d.get("has_graphql", False))
         })
 
     # Calculate total scanned assets globally (root + subdomains)
@@ -3066,6 +3175,9 @@ async def get_domains(
     base64: Optional[str] = None,
     alive_apps: Optional[str] = None,
     historical: Optional[str] = None,
+    takeover: Optional[str] = None,
+    hide_parked: Optional[str] = None,
+    api_spec: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -3083,7 +3195,10 @@ async def get_domains(
         jwt=jwt,
         base64=base64,
         alive_apps=alive_apps,
-        historical=historical
+        historical=historical,
+        takeover=takeover,
+        hide_parked=hide_parked,
+        api_spec=api_spec
     )
     
     # Total count
@@ -3122,7 +3237,16 @@ async def get_domains(
             "single_domain_only": d.get("single_domain_only", False),
             "scan_interval": d.get("scan_interval", 24),
             "source": d.get("source"),
-            "is_permutated": is_permutated
+            "is_permutated": is_permutated,
+            "asn": d.get("asn"),
+            "as_org": d.get("as_org"),
+            "cidr": d.get("cidr"),
+            "ptr": d.get("ptr"),
+            "dangling_takeover": bool(d.get("dangling_takeover", False)),
+            "cname": d.get("cname"),
+            "takeover_provider": d.get("takeover_provider"),
+            "has_api_specs": bool(d.get("has_api_specs", False)),
+            "has_graphql": bool(d.get("has_graphql", False))
         })
     
     return {"domains": results, "total": total, "page": page, "limit": limit}

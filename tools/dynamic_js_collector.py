@@ -12,6 +12,7 @@ from typing import Dict, List, Set, Tuple, Optional, Any
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from base_agent import BaseAgent, logger
 from playwright.async_api import async_playwright
+from api_schema_discovery import ApiSchemaDiscovery
 
 
 class DynamicJsCollectorAgent(BaseAgent):
@@ -25,10 +26,12 @@ class DynamicJsCollectorAgent(BaseAgent):
       2. Hidden API routes & endpoints
       3. Sensitive secrets, tokens, and credentials
       4. Exposed Source Map files (.js.map)
+      5. OpenAPI / Swagger & GraphQL schemas
     """
 
     def __init__(self):
         super().__init__("dynamic_js_collector", "Dynamic JS Recon & Extractor")
+        self.api_discovery = ApiSchemaDiscovery()
         
         # High-confidence regex for common credentials / tokens in JS
         self.secret_patterns = {
@@ -1062,6 +1065,72 @@ class DynamicJsCollectorAgent(BaseAgent):
                     alert_type="js_jwt_tokens"
                 )
 
+            # F) Auto-discover OpenAPI / Swagger specifications and GraphQL endpoints
+            api_res = None
+            try:
+                logger.info(f"Probing OpenAPI & GraphQL endpoints on {target_url}...")
+                api_res = await self.api_discovery.discover(target_url)
+
+                # Emit alerts if Swagger/OpenAPI spec found
+                if api_res.get("openapi_specs"):
+                    for spec in api_res["openapi_specs"]:
+                        await self.create_alert(
+                            title="API Discovery: Exposed OpenAPI/Swagger Spec",
+                            description=f"Exposed API Specification found at {spec['url']} with {spec.get('routes_count', 0)} endpoints documented.",
+                            target=target,
+                            risk_level="medium",
+                            details=(
+                                f"Specification URL: {spec['url']}\n"
+                                f"Title: {spec.get('title')}\n"
+                                f"Version: {spec.get('version')}\n"
+                                f"Total Routes: {spec.get('routes_count', 0)}\n"
+                                f"Sample Routes:\n" + "\n".join([f"  {r.get('method')} {r.get('path')}" for r in spec.get('routes', [])[:10]])
+                            ),
+                            exploitation_suggestions=(
+                                "### API Specification Security Review\n\n"
+                                "1. **Analyze Endpoints**: Review uncovered internal, admin, or debug endpoints.\n"
+                                "2. **Check Authentication**: Verify whether all sensitive routes enforce authentication/authorization tokens.\n"
+                                "3. **Test Parameter Tampering**: Review request parameter schemas for missing server-side validation or mass assignment vulnerabilities."
+                            ),
+                            alert_type="api_spec_discovered"
+                        )
+
+                # Emit alerts if GraphQL introspection is enabled
+                if api_res.get("graphql_endpoints"):
+                    for gql in api_res["graphql_endpoints"]:
+                        if gql.get("introspection_enabled"):
+                            await self.create_alert(
+                                title="API Discovery: GraphQL Schema Introspection Enabled",
+                                description=f"GraphQL endpoint at {gql['url']} has public schema introspection enabled ({gql.get('queries_count', 0)} queries, {gql.get('mutations_count', 0)} mutations).",
+                                target=target,
+                                risk_level="medium",
+                                details=(
+                                    f"GraphQL Endpoint: {gql['url']}\n"
+                                    f"Introspection Enabled: True\n"
+                                    f"Available Queries ({gql.get('queries_count', 0)}): {', '.join(gql.get('queries', [])[:15])}\n"
+                                    f"Available Mutations ({gql.get('mutations_count', 0)}): {', '.join(gql.get('mutations', [])[:15])}\n"
+                                    f"Total Types: {gql.get('total_types', 0)}"
+                                ),
+                                exploitation_suggestions=(
+                                    "### GraphQL Security Review\n\n"
+                                    "1. **Audit Mutations**: Check sensitive mutation operations (e.g. user creation, password resets, payment updates) for authorization bypass.\n"
+                                    "2. **Production Hardening**: Disable schema introspection in production environments to prevent schema disclosure."
+                                ),
+                                alert_type="graphql_introspection_enabled"
+                            )
+                        elif gql.get("ide_exposed"):
+                            await self.create_alert(
+                                title="API Discovery: GraphQL IDE Exposed",
+                                description=f"GraphQL interactive IDE/Playground exposed at {gql['url']}.",
+                                target=target,
+                                risk_level="low",
+                                details=f"Target URL: {gql['url']}\nIDE Exposed: True",
+                                exploitation_suggestions="Disable public interactive GraphQL playground/GraphiQL console on production systems.",
+                                alert_type="graphql_ide_exposed"
+                            )
+            except Exception as api_err:
+                logger.warning(f"API & GraphQL auto-discovery error on {target_url}: {api_err}")
+
             # 5. Store aggregated findings in domain document & web application inventory
             s3_items = []
             azure_items = []
@@ -1167,7 +1236,11 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "jwt_count": len(all_jwts),
                 "extracted_base64": list(all_base64.values())[:100],
                 "base64_count": len(all_base64),
-                "sourcemaps": all_sourcemaps
+                "sourcemaps": all_sourcemaps,
+                "api_specifications": (api_res.get("openapi_specs") if api_res else []) or [],
+                "api_ui_endpoints": (api_res.get("api_ui_endpoints") if api_res else []) or [],
+                "graphql_endpoints": (api_res.get("graphql_endpoints") if api_res else []) or [],
+                "api_discovered_routes": (api_res.get("discovered_routes") if api_res else []) or []
             }
 
             # Attach findings to the specific web application entry in web_applications
@@ -1218,6 +1291,21 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "dynamic_js": recon_summary
                     }}
                 )
+
+            # Store any discovered API specs and GraphQL endpoints at the domain level for fast querying
+            if api_res and (api_res.get("openapi_specs") or api_res.get("graphql_endpoints") or api_res.get("api_ui_endpoints")):
+                add_to_set = {}
+                if api_res.get("openapi_specs"):
+                    add_to_set["api_specifications"] = {"$each": api_res["openapi_specs"]}
+                if api_res.get("graphql_endpoints"):
+                    add_to_set["graphql_endpoints"] = {"$each": api_res["graphql_endpoints"]}
+                if api_res.get("api_ui_endpoints"):
+                    add_to_set["api_ui_endpoints"] = {"$each": api_res["api_ui_endpoints"]}
+                if add_to_set:
+                    await self.domains_col.update_one(
+                        {"domain": root_domain},
+                        {"$addToSet": add_to_set}
+                    )
 
             logger.info(
                 f"Dynamic JS Recon Complete for {target}: "

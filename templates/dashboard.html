@@ -71,7 +71,7 @@
             <!-- Advanced Filters -->
             <div class="space-y-2.5">
                 <!-- Row 1: Infrastructure & Network -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
                     <select id="filter-status" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Status (All)</option>
                         <option value="scanned">Scanned</option>
@@ -102,10 +102,14 @@
                         <option value="">Source (All)</option>
                         <option value="true">🧬 Permutator Only</option>
                     </select>
+                    <select id="filter-takeover" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">Takeover (All)</option>
+                        <option value="true">⚠️ Dangling Takeover Only</option>
+                    </select>
                 </div>
 
                 <!-- Row 2: Recon Intelligence & Findings -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-2.5">
                     <select id="filter-alive-apps" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Web Apps (All)</option>
                         <option value="true">🌐 Alive Web Apps Only</option>
@@ -140,6 +144,14 @@
                         <option value="">Historical URLs (All)</option>
                         <option value="true">🏛️ Has Historical URLs</option>
                         <option value="false">No Historical URLs</option>
+                    </select>
+                    <select id="filter-api-spec" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">API Specs (All)</option>
+                        <option value="true">📑 OpenAPI/GraphQL</option>
+                    </select>
+                    <select id="filter-hide-parked" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">Noise Filter (Off)</option>
+                        <option value="true">🚫 Hide Parked/CDN</option>
                     </select>
                 </div>
 
@@ -240,8 +252,8 @@
 
 <!-- Modal for Detailed View -->
 <div id="detail-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-slate-900/40 backdrop-blur-xl">
-    <div class="min-h-screen p-4 md:p-10">
-        <div class="max-w-7xl mx-auto bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
+    <div class="min-h-screen p-3 sm:p-4 md:p-[4vh]">
+        <div class="w-full mx-auto bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
             <!-- Modal Header -->
             <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-tech-panel/90 backdrop-blur z-20 rounded-t-3xl">
                 <div class="flex items-center space-x-6">
@@ -264,6 +276,10 @@
                 <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Analysis Summary</button>
                 <button onclick="switchTab('exploitation')" id="tab-exploitation" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Exploitation Suggestions</button>
                 <button onclick="switchTab('infrastructure')" id="tab-infrastructure" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Infrastructure</button>
+                <button onclick="switchTab('dns_intel')" id="tab-dns_intel" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">DNS & ASN Intel</button>
+                <button onclick="switchTab('apis')" id="tab-apis" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">APIs & Schemas</button>
+                <button onclick="switchTab('timeline')" id="tab-timeline" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Drift & Timeline</button>
+                <button onclick="switchTab('topology')" id="tab-topology" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Topology Graph</button>
                 <button onclick="switchTab('systems')" id="tab-systems" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Systems & Network</button>
                 <button onclick="switchTab('webapps')" id="tab-webapps" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Web Applications</button>
                 <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">OSINT</button>
@@ -404,11 +420,14 @@
         const jwt = document.getElementById('filter-jwt') ? document.getElementById('filter-jwt').value : '';
         const base64 = document.getElementById('filter-base64') ? document.getElementById('filter-base64').value : '';
         const historical = document.getElementById('filter-historical') ? document.getElementById('filter-historical').value : '';
+        const takeover = document.getElementById('filter-takeover') ? document.getElementById('filter-takeover').value : '';
+        const hideParked = document.getElementById('filter-hide-parked') ? document.getElementById('filter-hide-parked').value : '';
+        const apiSpec = document.getElementById('filter-api-spec') ? document.getElementById('filter-api-spec').value : '';
         const limit = document.getElementById('limit-select').value;
         const tbody = document.getElementById('inventory-table-body');
 
         // Update active filters counter pill
-        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, mutator, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, currentPortFilter].filter(Boolean).length;
+        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, mutator, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, currentPortFilter].filter(Boolean).length;
         const pill = document.getElementById('active-filters-pill');
         if (pill) {
             if (activeCount > 0) {
@@ -443,6 +462,9 @@
             if (jwt) params.append('jwt', jwt);
             if (base64) params.append('base64', base64);
             if (historical) params.append('historical', historical);
+            if (takeover) params.append('takeover', takeover);
+            if (hideParked) params.append('hide_parked', hideParked);
+            if (apiSpec) params.append('api_spec', apiSpec);
             
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
@@ -468,6 +490,8 @@
                     const findingBadges = [
                         item.has_alive_web_app ? '<span class="px-1.5 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold" title="Alive Web Application Identified">🌐 App</span>' : '',
                         item.has_api_routes ? '<span class="px-1.5 py-0.5 bg-indigo-500/15 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold" title="Discovered API Routes">⚡ API</span>' : '',
+                        item.has_api_specs ? '<span class="px-1.5 py-0.5 bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-md text-[9px] font-bold" title="OpenAPI / Swagger Spec Discovered">📑 OpenAPI</span>' : '',
+                        item.has_graphql ? '<span class="px-1.5 py-0.5 bg-pink-500/15 border border-pink-500/30 text-pink-600 dark:text-pink-400 rounded-md text-[9px] font-bold" title="GraphQL Introspection Enabled">⚛️ GraphQL</span>' : '',
                         item.has_cloud_assets ? '<span class="px-1.5 py-0.5 bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 rounded-md text-[9px] font-bold" title="Cloud Storage Buckets / Assets">☁️ Cloud</span>' : '',
                         item.has_secrets ? '<span class="px-1.5 py-0.5 bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 rounded-md text-[9px] font-bold" title="Hardcoded Secrets / Tokens Discovered">🔑 Secret</span>' : '',
                         item.has_jwt ? '<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Extracted JWT Tokens">🎫 JWT</span>' : '',
@@ -478,6 +502,9 @@
                     const isSubdomain = item.subdomain_count === 0 && item.domain.split('.').length > 2;
                     const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/15 border border-tech-accent/30 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
                     const mutatorBadge = (item.is_permutated || item.source === 'environment_mutator') ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-[9px] text-purple-600 dark:text-purple-400 font-bold uppercase tracking-wider font-mono inline-flex items-center gap-0.5 shadow-sm" title="Discovered via Subdomain Permutator">🧬 Permutator</span>' : '';
+                    const takeoverBadge = item.dangling_takeover ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse inline-flex items-center gap-1" title="Dangling DNS Takeover Identified: ${item.cname || ''} (${item.takeover_provider || ''})">⚠️ TAKEOVER</span>` : '';
+                    const ptrText = item.ptr ? `<span class="text-slate-500 text-[10px]">(${item.ptr})</span>` : '';
+                    const asnBadge = item.asn ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold" title="${item.as_org || ''} ${item.cidr ? '| ' + item.cidr : ''}">${item.asn}</span>` : '';
 
                     let countryDisplay = '<span class="text-xs font-mono text-slate-500">N/A</span>';
                     if (item.country_id && item.country_id !== 'UNKNOWN' && item.country_id !== 'N/A') {
@@ -504,8 +531,13 @@
                                         <span class="font-bold text-slate-900 dark:text-slate-100 group-hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${item.domain}')">${item.domain}</span>
                                         ${typeBadge}
                                         ${mutatorBadge}
+                                        ${takeoverBadge}
                                     </div>
-                                    <span class="text-xs text-slate-500 dark:text-slate-400 font-mono">${item.ip}</span>
+                                    <div class="flex items-center flex-wrap gap-1.5 mt-0.5">
+                                        <span class="text-xs text-slate-500 dark:text-slate-400 font-mono">${item.ip}</span>
+                                        ${ptrText}
+                                        ${asnBadge}
+                                    </div>
                                 </div>
                             </div>
                         </td>
@@ -679,6 +711,12 @@
         if (base64Select) base64Select.value = '';
         const historicalSelect = document.getElementById('filter-historical');
         if (historicalSelect) historicalSelect.value = '';
+        const takeoverSelect = document.getElementById('filter-takeover');
+        if (takeoverSelect) takeoverSelect.value = '';
+        const hideParkedSelect = document.getElementById('filter-hide-parked');
+        if (hideParkedSelect) hideParkedSelect.value = '';
+        const apiSpecSelect = document.getElementById('filter-api-spec');
+        if (apiSpecSelect) apiSpecSelect.value = '';
         currentPortFilter = null;
         resetAndFetch();
     }
@@ -1156,10 +1194,25 @@
                             <div class="max-h-[600px] overflow-y-auto pr-2">
                                 <table class="w-full text-left text-sm">
                                     <thead class="text-slate-600 dark:text-slate-400 uppercase text-xs sticky top-0 bg-slate-50 dark:bg-tech-bg border-b border-slate-200 dark:border-slate-800">
-                                        <tr><th class="pb-3 px-2">Name</th><th class="pb-3 px-2">IP</th><th class="pb-3 px-2">Type</th></tr>
+                                        <tr><th class="pb-3 px-2">Name</th><th class="pb-3 px-2">IP / PTR</th><th class="pb-3 px-2">ASN / Network</th><th class="pb-3 px-2">Status</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-                                        ${subs.map(s => `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"><td class="py-2 px-2 font-mono text-tech-accent cursor-pointer hover:underline" onclick="showDomainMenu(event, '${s.name}')">${s.name}</td><td class="py-2 px-2 font-mono text-slate-600 dark:text-slate-400">${s.ip || 'N/A'}</td><td class="py-2 px-2"><span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded text-[10px] uppercase font-bold">${s.type}</span></td></tr>`).join('') || '<tr><td colspan="3" class="py-4 text-center text-slate-500">None found</td></tr>'}
+                                        ${subs.map(s => {
+                                            const takeoverFlag = s.dangling_takeover ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse" title="Dangling Takeover: ' + (s.cname || '') + ' (' + (s.takeover_provider || '') + ')">⚠️ TAKEOVER</span>' : '';
+                                            const ptrStr = s.ptr ? '<span class="text-slate-400 text-[10px] block font-mono">' + s.ptr + '</span>' : '';
+                                            const asnStr = s.asn ? '<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-mono">' + s.asn + (s.as_org ? ' (' + s.as_org.substring(0, 15) + ')' : '') + '</span>' : '<span class="text-slate-500 font-mono text-xs">N/A</span>';
+                                            const statusBadge = s.alive ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">Alive</span>' : (s.dangling_takeover ? '<span class="px-2 py-0.5 rounded bg-red-500/20 text-red-500 text-[10px] font-black uppercase animate-pulse">Dangling</span>' : '<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 text-[10px] font-bold uppercase">Unresponsive</span>');
+                                            return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                                <td class="py-2.5 px-2 font-mono text-tech-accent cursor-pointer hover:underline" onclick="showDomainMenu(event, '${s.name}')">
+                                                    <div class="flex items-center flex-wrap gap-1"><span>${s.name}</span>${takeoverFlag}</div>
+                                                </td>
+                                                <td class="py-2.5 px-2 font-mono text-slate-600 dark:text-slate-300">
+                                                    <div>${s.ip || 'N/A'}${ptrStr}</div>
+                                                </td>
+                                                <td class="py-2.5 px-2">${asnStr}</td>
+                                                <td class="py-2.5 px-2">${statusBadge}</td>
+                                            </tr>`;
+                                        }).join('') || '<tr><td colspan="4" class="py-4 text-center text-slate-500">None found</td></tr>'}
                                     </tbody>
                                 </table>
                             </div>
@@ -1339,6 +1392,427 @@
                         </div>
                     </div>
                 `;
+                break;
+            case 'dns_intel':
+                const dnsData = data.dns_records || (data.infrastructure && data.infrastructure.dns_records) || {};
+                const asnData = data.asn_data || (data.infrastructure && data.infrastructure.asn_data) || {};
+                const txtTokens = dnsData.txt_tokens || [];
+                const spfData = dnsData.spf || {};
+                const caaList = dnsData.caa || [];
+                const srvList = dnsData.srv || [];
+                const mxList = dnsData.mx || [];
+                const adjHosts = asnData.adjacent_hosts || [];
+                const primaryAsn = asnData.primary_asn || (data.current_subdomain && data.current_subdomain.asn) || 'N/A';
+                const primaryOrg = asnData.primary_org || (data.current_subdomain && data.current_subdomain.as_org) || 'Unknown Org';
+                const primaryCidr = asnData.primary_cidr || (data.current_subdomain && data.current_subdomain.cidr) || 'N/A';
+                const reversePtr = asnData.reverse_ptr || (data.current_subdomain && data.current_subdomain.ptr) || 'N/A';
+
+                content.innerHTML = `
+                    <div class="space-y-8">
+                        <!-- ASN & BGP Network Header -->
+                        <div class="bg-gradient-to-r from-slate-900 via-tech-bg to-slate-900 p-6 rounded-3xl border border-tech-accent/30 shadow-xl">
+                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
+                                <div>
+                                    <span class="text-[10px] uppercase font-bold tracking-widest text-tech-accent">Autonomous System & Network Routing</span>
+                                    <h3 class="text-2xl font-black text-white flex items-center gap-3 font-mono mt-1">
+                                        <span>${primaryAsn}</span>
+                                        <span class="text-base font-medium text-slate-300 font-sans">• ${primaryOrg}</span>
+                                    </h3>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold">
+                                        CIDR: ${primaryCidr}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+                                <div class="bg-slate-800/40 p-3 rounded-xl border border-slate-700/40">
+                                    <span class="text-slate-500 text-[10px] uppercase font-bold block mb-1">Reverse PTR Hostname</span>
+                                    <span class="text-tech-accent select-all">${reversePtr}</span>
+                                </div>
+                                <div class="bg-slate-800/40 p-3 rounded-xl border border-slate-700/40">
+                                    <span class="text-slate-500 text-[10px] uppercase font-bold block mb-1">Adjacent Sweep Hosts</span>
+                                    <span class="text-slate-200">${adjHosts.length} live PTR records identified</span>
+                                </div>
+                                <div class="bg-slate-800/40 p-3 rounded-xl border border-slate-700/40">
+                                    <span class="text-slate-500 text-[10px] uppercase font-bold block mb-1">BGP Routing Source</span>
+                                    <span class="text-slate-200">Team Cymru Global BGP Route Service</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grid 1: Verification Tokens & SPF/Mail -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- Verification Tokens -->
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                                    <h4 class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                        TXT Identity & Verification Tokens
+                                    </h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">${txtTokens.length} Tokens</span>
+                                </div>
+                                ${txtTokens.length === 0 ? '<p class="text-xs text-slate-500 italic py-4">No 3rd-party identity tokens discovered in TXT records.</p>' : `
+                                    <div class="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                                        ${txtTokens.map(t => `
+                                            <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col gap-1.5 hover:border-tech-accent transition-colors">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono">${t.provider || 'Identity Token'}</span>
+                                                    <button onclick="navigator.clipboard.writeText('${t.token}'); alert('Token copied!');" class="text-[10px] font-mono text-tech-accent hover:underline">Copy</button>
+                                                </div>
+                                                <p class="font-mono text-xs text-slate-800 dark:text-slate-200 break-all select-all">${t.token}</p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+
+                            <!-- SPF & Mail Security -->
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                                    <h4 class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                        SPF Authorized Senders & MX Routing
+                                    </h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${spfData.raw ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-slate-700 text-slate-400'}">${spfData.raw ? 'SPF Configured' : 'No SPF'}</span>
+                                </div>
+                                ${spfData.raw ? `
+                                    <div class="space-y-3">
+                                        <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 font-mono text-xs text-indigo-300 break-all select-all">
+                                            ${spfData.raw}
+                                        </div>
+                                        ${(spfData.includes && spfData.includes.length) ? `
+                                            <div>
+                                                <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">Authorized Sender Services</span>
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    ${spfData.includes.map(inc => `<span class="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono text-xs">${inc}</span>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                        ${(spfData.ip4 && spfData.ip4.length) ? `
+                                            <div>
+                                                <span class="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">Authorized IP4 Ranges</span>
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    ${spfData.ip4.map(ip => `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs">${ip}</span>`).join('')}
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                ` : '<p class="text-xs text-slate-500 italic py-4">No SPF record identified for this target.</p>'}
+
+                                <!-- MX Records -->
+                                <div class="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                    <span class="text-[10px] uppercase font-bold text-slate-500 block mb-2">Mail Exchange (MX) Priority</span>
+                                    ${mxList.length ? `
+                                        <div class="space-y-1.5 max-h-[140px] overflow-y-auto">
+                                            ${mxList.map(m => `
+                                                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-xs font-mono">
+                                                    <span class="text-slate-800 dark:text-slate-200">${m.exchange}</span>
+                                                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-bold text-[10px]">Priority ${m.preference}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    ` : '<p class="text-xs text-slate-500 italic">No MX records configured.</p>'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grid 2: CAA & SRV Records -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- CAA Records -->
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                                    <h4 class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                        CAA Permitted Certificate Authorities
+                                    </h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${caaList.length} Rules</span>
+                                </div>
+                                ${caaList.length === 0 ? '<p class="text-xs text-slate-500 italic py-4">No CAA certificate restriction rules found. Any public CA can issue certificates.</p>' : `
+                                    <div class="space-y-2 max-h-[220px] overflow-y-auto">
+                                        ${caaList.map(c => `
+                                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs font-mono">
+                                                <span class="font-bold text-emerald-400">${c.value}</span>
+                                                <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-[10px] uppercase">${c.tag} (flag: ${c.flags})</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+
+                            <!-- SRV Endpoints -->
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
+                                    <h4 class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <svg class="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                        SRV Service Discovery Endpoints
+                                    </h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">${srvList.length} Services</span>
+                                </div>
+                                ${srvList.length === 0 ? '<p class="text-xs text-slate-500 italic py-4">No common SRV service records (autodiscover, sip, xmpp, ldap) resolved.</p>' : `
+                                    <div class="space-y-2 max-h-[220px] overflow-y-auto">
+                                        ${srvList.map(s => `
+                                            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs font-mono flex items-center justify-between">
+                                                <div>
+                                                    <span class="font-bold text-cyan-400">${s.service}</span>
+                                                    <span class="text-slate-400 text-[10px] block">${s.target}:${s.port}</span>
+                                                </div>
+                                                <span class="text-slate-500 text-[10px]">Priority ${s.priority} • Weight ${s.weight}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                `}
+                            </div>
+                        </div>
+
+                        <!-- Adjacent Host IP Sweep -->
+                        ${adjHosts.length ? `
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <h4 class="font-bold text-slate-900 dark:text-white mb-3 text-sm">Adjacent Subnet Reverse PTR Sweep (${adjHosts.length} live hostnames)</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-[280px] overflow-y-auto">
+                                    ${adjHosts.map(h => `
+                                        <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs font-mono">
+                                            <span class="text-tech-accent font-bold block">${h.ip}</span>
+                                            <span class="text-slate-400 text-[10px] truncate block" title="${h.ptr}">${h.ptr}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                break;
+            case 'apis':
+                const openApiSpecs = Array.isArray(data.api_specifications) ? [...data.api_specifications] : [];
+                const gqlEndpoints = Array.isArray(data.graphql_endpoints) ? [...data.graphql_endpoints] : [];
+                const uiDocs = Array.isArray(data.api_ui_endpoints) ? [...data.api_ui_endpoints] : [];
+
+                (data.web_applications || []).forEach(w => {
+                    const dyn = w.dynamic_js || {};
+                    if (dyn.api_specifications) {
+                        dyn.api_specifications.forEach(s => {
+                            if (!openApiSpecs.some(ex => ex.url === s.url)) openApiSpecs.push(s);
+                        });
+                    }
+                    if (dyn.graphql_endpoints) {
+                        dyn.graphql_endpoints.forEach(g => {
+                            if (!gqlEndpoints.some(ex => ex.url === g.url)) gqlEndpoints.push(g);
+                        });
+                    }
+                    if (dyn.api_ui_endpoints) {
+                        dyn.api_ui_endpoints.forEach(u => {
+                            if (!uiDocs.some(ex => ex.url === u.url)) uiDocs.push(u);
+                        });
+                    }
+                });
+
+                content.innerHTML = `
+                    <div class="space-y-8">
+                        <!-- Header Stats -->
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <span class="text-xs uppercase font-bold text-slate-500">OpenAPI Specifications</span>
+                                    <p class="text-3xl font-black text-slate-900 dark:text-white mt-1">${openApiSpecs.length}</p>
+                                </div>
+                                <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-xl">📑</div>
+                            </div>
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <span class="text-xs uppercase font-bold text-slate-500">GraphQL Endpoints</span>
+                                    <p class="text-3xl font-black text-slate-900 dark:text-white mt-1">${gqlEndpoints.length}</p>
+                                </div>
+                                <div class="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-500 flex items-center justify-center font-bold text-xl">⚛️</div>
+                            </div>
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <span class="text-xs uppercase font-bold text-slate-500">API Documentation Portals</span>
+                                    <p class="text-3xl font-black text-slate-900 dark:text-white mt-1">${uiDocs.length}</p>
+                                </div>
+                                <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center font-bold text-xl">📖</div>
+                            </div>
+                        </div>
+
+                        <!-- Discovered API UIs -->
+                        ${uiDocs.length ? `
+                            <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                <h4 class="font-bold text-slate-900 dark:text-white text-sm mb-3">Interactive API Documentation Portals (Swagger UI / ReDoc)</h4>
+                                <div class="flex flex-wrap gap-3">
+                                    ${uiDocs.map(u => `
+                                        <a href="${u.url}" target="_blank" rel="noopener noreferrer" class="px-4 py-2 rounded-xl bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 text-xs font-mono font-bold hover:bg-cyan-500/20 transition-all flex items-center gap-2">
+                                            <span>🔗 ${u.ui_type || 'API Docs'}:</span>
+                                            <span class="text-slate-300 font-normal">${u.url}</span>
+                                        </a>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- GraphQL Introspection Sections -->
+                        ${gqlEndpoints.length ? `
+                            <div class="space-y-6">
+                                <h4 class="font-bold text-slate-900 dark:text-white text-base">GraphQL Introspection Endpoints</h4>
+                                ${gqlEndpoints.map(gql => `
+                                    <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-pink-500/30 shadow-sm space-y-4">
+                                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                                            <div class="flex items-center gap-2 font-mono">
+                                                <span class="px-2 py-0.5 rounded bg-pink-500/15 text-pink-400 font-bold text-xs">POST</span>
+                                                <span class="text-slate-900 dark:text-white font-bold select-all">${gql.url}</span>
+                                            </div>
+                                            <span class="px-3 py-1 rounded-full text-xs font-bold ${gql.introspection_enabled ? 'bg-red-500/15 text-red-500 border border-red-500/30 animate-pulse' : 'bg-slate-700 text-slate-300'}">
+                                                ${gql.introspection_enabled ? '⚠️ Introspection Enabled' : 'Introspection Blocked'}
+                                            </span>
+                                        </div>
+                                        ${gql.introspection_enabled ? `
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div>
+                                                    <span class="text-xs uppercase font-bold text-slate-500 block mb-2">Available Queries (${gql.queries_count || 0})</span>
+                                                    <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 max-h-[180px] overflow-y-auto space-y-1">
+                                                        ${(gql.queries || []).map(q => `<div class="font-mono text-xs text-tech-accent">• ${q}</div>`).join('') || '<span class="text-xs text-slate-500">None</span>'}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <span class="text-xs uppercase font-bold text-slate-500 block mb-2">Available Mutations (${gql.mutations_count || 0})</span>
+                                                    <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 max-h-[180px] overflow-y-auto space-y-1">
+                                                        ${(gql.mutations || []).map(m => `<div class="font-mono text-xs text-pink-400">• ${m}</div>`).join('') || '<span class="text-xs text-slate-500">None</span>'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+
+                        <!-- OpenAPI Specifications -->
+                        <div class="space-y-6">
+                            <h4 class="font-bold text-slate-900 dark:text-white text-base">OpenAPI / Swagger Specifications</h4>
+                            ${openApiSpecs.length === 0 ? '<p class="text-xs text-slate-500 italic py-6">No OpenAPI or Swagger JSON specifications discovered on live web application targets.</p>' : `
+                                ${openApiSpecs.map(spec => `
+                                    <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+                                            <div>
+                                                <h5 class="text-lg font-bold text-slate-900 dark:text-white">${spec.title || 'REST API Specification'}</h5>
+                                                <a href="${spec.url}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-tech-accent hover:underline">${spec.url}</a>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 text-xs font-mono font-bold">v${spec.version || '1.0'}</span>
+                                                <span class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-mono">${spec.routes_count || (spec.routes || []).length} Routes</span>
+                                            </div>
+                                        </div>
+                                        <!-- Routes table -->
+                                        <div class="max-h-[360px] overflow-y-auto">
+                                            <table class="w-full text-left text-xs font-mono">
+                                                <thead class="bg-slate-50 dark:bg-slate-800/40 text-slate-500 uppercase sticky top-0">
+                                                    <tr><th class="py-2 px-3">Method</th><th class="py-2 px-3">Path</th><th class="py-2 px-3">Summary</th><th class="py-2 px-3">Params</th></tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                                                    ${(spec.routes || []).map(r => {
+                                                        const m = (r.method || 'GET').toUpperCase();
+                                                        let mColor = 'bg-blue-500/20 text-blue-400';
+                                                        if (m === 'POST') mColor = 'bg-emerald-500/20 text-emerald-400';
+                                                        if (m === 'DELETE') mColor = 'bg-red-500/20 text-red-400';
+                                                        if (m === 'PUT' || m === 'PATCH') mColor = 'bg-amber-500/20 text-amber-400';
+                                                        return `
+                                                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                                                                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded font-bold ${mColor}">${m}</span></td>
+                                                                <td class="py-2 px-3 text-slate-200 font-bold select-all">${r.path}</td>
+                                                                <td class="py-2 px-3 text-slate-400 truncate max-w-xs">${r.summary || r.operation_id || '-'}</td>
+                                                                <td class="py-2 px-3 text-slate-500">${r.parameters_count || 0}</td>
+                                                            </tr>
+                                                        `;
+                                                    }).join('')}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            `}
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'timeline':
+                const historyList = Array.isArray(data.history) ? data.history : [];
+                content.innerHTML = `
+                    <div class="space-y-6">
+                        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                            <div>
+                                <h4 class="text-xl font-bold text-slate-900 dark:text-white">Perimeter Drift & Event Timeline</h4>
+                                <p class="text-xs text-slate-500 mt-0.5">Historical tracking of DNS resolutions, open/closed ports, and asset additions over time.</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-tech-accent/10 text-tech-accent border border-tech-accent/20">
+                                ${historyList.length} Drift Events
+                            </span>
+                        </div>
+
+                        ${historyList.length === 0 ? '<p class="text-xs text-slate-500 italic py-10 text-center">No drift events recorded yet. Events are logged automatically as scans execute.</p>' : `
+                            <div class="relative pl-6 space-y-6 before:content-[\'\'] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-800">
+                                ${historyList.map(ev => {
+                                    const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : 'Recent';
+                                    let dotColor = 'bg-tech-accent shadow-cyan-500/50';
+                                    let badgeColor = 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
+                                    if (ev.severity === 'critical' || ev.event_type === 'dangling_takeover_detected') {
+                                        dotColor = 'bg-red-500 shadow-red-500/50 animate-ping';
+                                        badgeColor = 'bg-red-500/20 text-red-400 border-red-500/40';
+                                    } else if (ev.event_type === 'port_opened' || ev.severity === 'high') {
+                                        dotColor = 'bg-amber-500 shadow-amber-500/50';
+                                        badgeColor = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+                                    } else if (ev.event_type === 'port_closed') {
+                                        dotColor = 'bg-slate-500';
+                                        badgeColor = 'bg-slate-800 text-slate-400 border-slate-700';
+                                    }
+
+                                    return `
+                                        <div class="relative flex items-start gap-4">
+                                            <div class="absolute -left-6 top-1.5 w-3.5 h-3.5 rounded-full ${dotColor} shadow-md border-2 border-tech-bg"></div>
+                                            <div class="p-4 rounded-2xl bg-white dark:bg-tech-bg border border-slate-200 dark:border-slate-800 shadow-xs flex-grow space-y-1">
+                                                <div class="flex items-center justify-between flex-wrap gap-2">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border font-mono ${badgeColor}">
+                                                            ${(ev.event_type || 'Event').replace(/_/g, ' ')}
+                                                        </span>
+                                                        <span class="font-bold text-slate-800 dark:text-slate-200 text-xs font-mono">${ev.target || data.domain}</span>
+                                                    </div>
+                                                    <span class="text-[11px] font-mono text-slate-500">${ts}</span>
+                                                </div>
+                                                <p class="text-sm text-slate-700 dark:text-slate-300 font-mono pt-1">${ev.details || ''}</p>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                `;
+                break;
+            case 'topology':
+                content.innerHTML = `
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                            <div>
+                                <h4 class="text-lg font-bold text-slate-900 dark:text-white">Infrastructure Relationship Topology</h4>
+                                <p class="text-xs text-slate-500">Interactive visual map of root domain, subdomains, network IPs, and cloud assets.</p>
+                            </div>
+                            <div class="flex items-center gap-3 text-xs font-mono flex-wrap">
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-tech-accent inline-block"></span> Root Domain</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Alive Subdomain</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> Takeover / Alert</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span> IP / ASN</span>
+                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Cloud Storage</span>
+                            </div>
+                        </div>
+                        <div id="topology-container" class="w-full h-[580px] bg-slate-950 rounded-3xl border border-slate-800 relative overflow-hidden flex items-center justify-center">
+                            <canvas id="topology-canvas" class="w-full h-full cursor-grab"></canvas>
+                            <div class="absolute bottom-4 right-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-xs font-mono z-10">
+                                <button onclick="window.topologyZoom(1.2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors">+</button>
+                                <button onclick="window.topologyZoom(0.8)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors">-</button>
+                                <button onclick="window.topologyReset()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white transition-colors">Reset</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                setTimeout(() => initTopologyGraph(data), 50);
                 break;
             case 'systems':
                 const systems = data.systems || [];
@@ -3387,5 +3861,535 @@
             closeBypassContent();
         }
     });
+
+    // ==========================================
+    // RECON TOPOLOGY GRAPH (HTML5 CANVAS)
+    // ==========================================
+    let topoState = {
+        animId: null,
+        canvas: null,
+        ctx: null,
+        nodes: [],
+        edges: [],
+        scale: 1,
+        panX: 0,
+        panY: 0,
+        isPanning: false,
+        draggedNode: null,
+        hoveredNode: null,
+        startX: 0,
+        startY: 0
+    };
+
+    window.topologyZoom = function(factor) {
+        if (!topoState.canvas) return;
+        const newScale = Math.min(Math.max(topoState.scale * factor, 0.3), 3.5);
+        const cx = topoState.canvas.clientWidth / 2;
+        const cy = topoState.canvas.clientHeight / 2;
+        topoState.panX = cx - (cx - topoState.panX) * (newScale / topoState.scale);
+        topoState.panY = cy - (cy - topoState.panY) * (newScale / topoState.scale);
+        topoState.scale = newScale;
+        topoTriggerDraw();
+    };
+
+    window.topologyReset = function() {
+        if (!topoState.canvas) return;
+        topoState.scale = 1;
+        topoState.panX = topoState.canvas.clientWidth / 2;
+        topoState.panY = topoState.canvas.clientHeight / 2;
+        topoTriggerDraw();
+    };
+
+    function topoTriggerDraw() {
+        if (!topoState.animRunning) {
+            topoState.animRunning = true;
+            requestAnimationFrame(topoSimulateAndDraw);
+        }
+    }
+
+    function initTopologyGraph(data) {
+        const container = document.getElementById('topology-container');
+        const canvas = document.getElementById('topology-canvas');
+        if (!container || !canvas || !data) return;
+
+        if (topoState.animId) {
+            cancelAnimationFrame(topoState.animId);
+            topoState.animId = null;
+        }
+
+        topoState.canvas = canvas;
+        topoState.ctx = canvas.getContext('2d');
+        const rect = container.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        topoState.panX = rect.width / 2;
+        topoState.panY = rect.height / 2;
+        topoState.scale = 1;
+        topoState.nodes = [];
+        topoState.edges = [];
+        topoState.animRunning = true;
+
+        // Build Graph Data
+        const nodesMap = new Map();
+        const edges = [];
+
+        // 1. Root Node
+        const rootDomain = data.domain || 'Root Domain';
+        const rootNode = {
+            id: 'root',
+            label: rootDomain,
+            type: 'root',
+            color: '#10b981',
+            strokeColor: '#34d399',
+            radius: 20,
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+            fixed: true,
+            info: { domain: rootDomain, subdomainsCount: 0 }
+        };
+        nodesMap.set('root', rootNode);
+
+        // 2. Subdomains
+        const rawSubs = data.infrastructure?.subdomains || data.subdomains || [];
+        const subs = Array.isArray(rawSubs) ? rawSubs : [];
+        rootNode.info.subdomainsCount = subs.length;
+
+        // Map ASN groups & buckets
+        const asnMap = new Map();
+        const maxSubs = Math.min(subs.length, 60); // Cap at 60 for optimal layout responsiveness
+
+        subs.slice(0, maxSubs).forEach((sub, idx) => {
+            const subName = typeof sub === 'string' ? sub : (sub.subdomain || sub.name || `sub-${idx}`);
+            const isTakeover = sub.dangling_takeover || (sub.takeover_provider && sub.takeover_provider.length > 0);
+            const subId = `sub_${subName}`;
+
+            const angle = (idx / Math.max(maxSubs, 1)) * Math.PI * 2;
+            const dist = 140 + Math.random() * 50;
+
+            const subNode = {
+                id: subId,
+                label: subName,
+                type: isTakeover ? 'takeover' : 'subdomain',
+                color: isTakeover ? '#ef4444' : '#38bdf8',
+                strokeColor: isTakeover ? '#f87171' : '#7dd3fc',
+                radius: isTakeover ? 15 : 11,
+                x: Math.cos(angle) * dist,
+                y: Math.sin(angle) * dist,
+                vx: 0,
+                vy: 0,
+                info: {
+                    name: subName,
+                    ip: sub.ip || 'Unknown',
+                    asn: sub.asn ? `${sub.asn} (${sub.as_org || ''})` : null,
+                    takeover: isTakeover ? (sub.takeover_provider || 'Dangling CNAME') : null,
+                    cname: sub.cname || null
+                }
+            };
+            nodesMap.set(subId, subNode);
+            edges.push({ source: 'root', target: subId, type: isTakeover ? 'takeover' : 'sub' });
+
+            // ASN / IP Node
+            if (sub.asn || sub.ip) {
+                const asnKey = sub.asn ? `asn_${sub.asn}` : `ip_${sub.ip}`;
+                if (!asnMap.has(asnKey) && asnMap.size < 12) {
+                    const asnLabel = sub.asn ? `AS${sub.asn.replace(/[^0-9]/g, '')}` : sub.ip;
+                    const asnNode = {
+                        id: asnKey,
+                        label: sub.as_org ? `${asnLabel} - ${sub.as_org.slice(0, 15)}` : asnLabel,
+                        type: 'asn',
+                        color: '#818cf8',
+                        strokeColor: '#a5b4fc',
+                        radius: 14,
+                        x: subNode.x * 1.5 + (Math.random() - 0.5) * 60,
+                        y: subNode.y * 1.5 + (Math.random() - 0.5) * 60,
+                        vx: 0,
+                        vy: 0,
+                        info: {
+                            asn: sub.asn,
+                            org: sub.as_org,
+                            cidr: sub.cidr,
+                            ip: sub.ip
+                        }
+                    };
+                    nodesMap.set(asnKey, asnNode);
+                    asnMap.set(asnKey, asnNode);
+                }
+                if (nodesMap.has(asnKey)) {
+                    edges.push({ source: subId, target: asnKey, type: 'asn' });
+                }
+            }
+        });
+
+        // 3. Cloud Buckets
+        const cloud = data.cloud || {};
+        const buckets = [
+            ...(cloud.s3_buckets || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'AWS S3' })),
+            ...(cloud.azure_blobs || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'Azure Blob' })),
+            ...(cloud.gcp_buckets || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'GCP Bucket' }))
+        ];
+
+        buckets.slice(0, 15).forEach((b, idx) => {
+            if (!b.name) return;
+            const bId = `bucket_${b.name}`;
+            const angle = (idx / Math.max(buckets.length, 1)) * Math.PI * 2 + 0.3;
+            const bNode = {
+                id: bId,
+                label: b.name.length > 20 ? b.name.slice(0, 18) + '...' : b.name,
+                type: 'cloud',
+                color: '#f59e0b',
+                strokeColor: '#fbbf24',
+                radius: 12,
+                x: Math.cos(angle) * 230,
+                y: Math.sin(angle) * 230,
+                vx: 0,
+                vy: 0,
+                info: {
+                    name: b.name,
+                    provider: b.provider
+                }
+            };
+            nodesMap.set(bId, bNode);
+            edges.push({ source: 'root', target: bId, type: 'cloud' });
+        });
+
+        topoState.nodes = Array.from(nodesMap.values());
+        topoState.edges = edges;
+
+        // Mouse Event Listeners
+        const getMousePos = (e) => {
+            const r = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - r.left,
+                y: e.clientY - r.top,
+                worldX: (e.clientX - r.left - topoState.panX) / topoState.scale,
+                worldY: (e.clientY - r.top - topoState.panY) / topoState.scale
+            };
+        };
+
+        const findNodeAt = (wx, wy) => {
+            for (let i = topoState.nodes.length - 1; i >= 0; i--) {
+                const n = topoState.nodes[i];
+                const dx = n.x - wx;
+                const dy = n.y - wy;
+                if (Math.sqrt(dx * dx + dy * dy) <= n.radius + 4) {
+                    return n;
+                }
+            }
+            return null;
+        };
+
+        canvas.onmousedown = (e) => {
+            const pos = getMousePos(e);
+            const node = findNodeAt(pos.worldX, pos.worldY);
+            if (node) {
+                topoState.draggedNode = node;
+                canvas.classList.remove('cursor-grab');
+                canvas.classList.add('cursor-grabbing');
+            } else {
+                topoState.isPanning = true;
+                topoState.startX = pos.x - topoState.panX;
+                topoState.startY = pos.y - topoState.panY;
+                canvas.classList.remove('cursor-grab');
+                canvas.classList.add('cursor-move');
+            }
+            topoTriggerDraw();
+        };
+
+        window.onmousemove = (e) => {
+            if (!topoState.canvas) return;
+            const pos = getMousePos(e);
+
+            if (topoState.draggedNode) {
+                topoState.draggedNode.x = pos.worldX;
+                topoState.draggedNode.y = pos.worldY;
+                topoState.draggedNode.vx = 0;
+                topoState.draggedNode.vy = 0;
+                topoTriggerDraw();
+            } else if (topoState.isPanning) {
+                topoState.panX = pos.x - topoState.startX;
+                topoState.panY = pos.y - topoState.startY;
+                topoTriggerDraw();
+            } else {
+                const node = findNodeAt(pos.worldX, pos.worldY);
+                if (node !== topoState.hoveredNode) {
+                    topoState.hoveredNode = node;
+                    canvas.style.cursor = node ? 'pointer' : 'grab';
+                    topoTriggerDraw();
+                }
+            }
+        };
+
+        window.onmouseup = () => {
+            if (topoState.draggedNode) {
+                topoState.draggedNode = null;
+                canvas.classList.remove('cursor-grabbing');
+                canvas.classList.add('cursor-grab');
+            }
+            if (topoState.isPanning) {
+                topoState.isPanning = false;
+                canvas.classList.remove('cursor-move');
+                canvas.classList.add('cursor-grab');
+            }
+        };
+
+        canvas.onwheel = (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.1 : 0.9;
+            const pos = getMousePos(e);
+            const newScale = Math.min(Math.max(topoState.scale * factor, 0.3), 3.5);
+            topoState.panX = pos.x - (pos.x - topoState.panX) * (newScale / topoState.scale);
+            topoState.panY = pos.y - (pos.y - topoState.panY) * (newScale / topoState.scale);
+            topoState.scale = newScale;
+            topoTriggerDraw();
+        };
+
+        topoTriggerDraw();
+    }
+
+    function topoSimulateAndDraw() {
+        const { canvas, ctx, nodes, edges } = topoState;
+        if (!canvas || !ctx) {
+            topoState.animRunning = false;
+            return;
+        }
+
+        const dpr = window.devicePixelRatio || 1;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+
+        if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+        }
+
+        // Force Simulation Step
+        let maxMovement = 0;
+        const nodeMap = new Map();
+        nodes.forEach(n => nodeMap.set(n.id, n));
+
+        // 1. Coulomb Repulsion
+        for (let i = 0; i < nodes.length; i++) {
+            const n1 = nodes[i];
+            for (let j = i + 1; j < nodes.length; j++) {
+                const n2 = nodes[j];
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                if (dist < 320) {
+                    const force = 3000 / (dist * dist);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    if (!n1.fixed && n1 !== topoState.draggedNode) {
+                        n1.vx -= fx;
+                        n1.vy -= fy;
+                    }
+                    if (!n2.fixed && n2 !== topoState.draggedNode) {
+                        n2.vx += fx;
+                        n2.vy += fy;
+                    }
+                }
+            }
+        }
+
+        // 2. Spring Attraction along Edges
+        edges.forEach(e => {
+            const s = nodeMap.get(e.source);
+            const t = nodeMap.get(e.target);
+            if (!s || !t) return;
+            const dx = t.x - s.x;
+            const dy = t.y - s.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const targetDist = e.type === 'sub' ? 120 : (e.type === 'asn' ? 90 : 160);
+            const force = (dist - targetDist) * 0.035;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+
+            if (!s.fixed && s !== topoState.draggedNode) {
+                s.vx += fx;
+                s.vy += fy;
+            }
+            if (!t.fixed && t !== topoState.draggedNode) {
+                t.vx -= fx;
+                t.vy -= fy;
+            }
+        });
+
+        // 3. Central Gravity & Position Integration
+        nodes.forEach(n => {
+            if (n.fixed || n === topoState.draggedNode) return;
+            const distCenter = Math.sqrt(n.x * n.x + n.y * n.y) || 1;
+            n.vx -= (n.x / distCenter) * 0.4;
+            n.vy -= (n.y / distCenter) * 0.4;
+
+            n.vx *= 0.85; // Damping
+            n.vy *= 0.85;
+
+            const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+            if (speed > maxMovement) maxMovement = speed;
+
+            n.x += n.vx;
+            n.y += n.vy;
+        });
+
+        // Render Canvas
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(dpr, dpr);
+
+        // Background high-tech grid
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(0, 0, width, height);
+
+        // Apply Pan & Zoom
+        ctx.translate(topoState.panX, topoState.panY);
+        ctx.scale(topoState.scale, topoState.scale);
+
+        // Draw Dot Grid in World Space
+        ctx.fillStyle = 'rgba(51, 65, 85, 0.25)';
+        const gridSize = 40;
+        const startX = Math.floor((-topoState.panX / topoState.scale) / gridSize) * gridSize - 80;
+        const endX = startX + Math.ceil(width / topoState.scale) + 160;
+        const startY = Math.floor((-topoState.panY / topoState.scale) / gridSize) * gridSize - 80;
+        const endY = startY + Math.ceil(height / topoState.scale) + 160;
+
+        for (let x = startX; x < endX; x += gridSize) {
+            for (let y = startY; y < endY; y += gridSize) {
+                ctx.fillRect(x, y, 1.5, 1.5);
+            }
+        }
+
+        // Draw Edges
+        edges.forEach(e => {
+            const s = nodeMap.get(e.source);
+            const t = nodeMap.get(e.target);
+            if (!s || !t) return;
+
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(t.x, t.y);
+
+            if (e.type === 'takeover') {
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                ctx.lineWidth = 2.2;
+                ctx.setLineDash([4, 4]);
+            } else if (e.type === 'cloud') {
+                ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+                ctx.lineWidth = 1.6;
+                ctx.setLineDash([5, 5]);
+            } else if (e.type === 'asn') {
+                ctx.strokeStyle = 'rgba(129, 140, 248, 0.4)';
+                ctx.lineWidth = 1.4;
+                ctx.setLineDash([]);
+            } else {
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+                ctx.lineWidth = 1.2;
+                ctx.setLineDash([]);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        });
+
+        // Draw Nodes
+        nodes.forEach(n => {
+            const isHovered = topoState.hoveredNode === n;
+            const isDragged = topoState.draggedNode === n;
+
+            // Outer Glow if Hovered or Takeover
+            if (isHovered || isDragged || n.type === 'takeover') {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.radius + (n.type === 'takeover' ? 8 : 6), 0, Math.PI * 2);
+                ctx.fillStyle = n.type === 'takeover' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.2)';
+                ctx.fill();
+            }
+
+            // Node Circle
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+            ctx.fillStyle = n.color;
+            ctx.fill();
+            ctx.lineWidth = isHovered ? 3 : 2;
+            ctx.strokeStyle = isHovered ? '#ffffff' : n.strokeColor;
+            ctx.stroke();
+
+            // Node Label
+            ctx.font = `${n.type === 'root' ? 'bold 12px' : '10px'} JetBrains Mono, monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Background pill for label
+            const labelText = n.label;
+            const metrics = ctx.measureText(labelText);
+            const textWidth = metrics.width;
+            const textY = n.y + n.radius + 12;
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(n.x - textWidth / 2 - 4, textY - 7, textWidth + 8, 14);
+
+            ctx.fillStyle = isHovered ? '#38bdf8' : (n.type === 'takeover' ? '#fca5a5' : '#cbd5e1');
+            ctx.fillText(labelText, n.x, textY);
+        });
+
+        // Draw Hover Details Overlay in Screen Coordinates
+        ctx.restore();
+
+        if (topoState.hoveredNode) {
+            const n = topoState.hoveredNode;
+            const sx = n.x * topoState.scale + topoState.panX;
+            const sy = n.y * topoState.scale + topoState.panY;
+
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            const cardWidth = 240;
+            const cardHeight = n.type === 'takeover' ? 110 : (n.type === 'asn' ? 95 : 75);
+            let cx = sx + 20;
+            let cy = sy - cardHeight / 2;
+
+            if (cx + cardWidth > width - 20) cx = sx - cardWidth - 20;
+            if (cy + cardHeight > height - 20) cy = height - cardHeight - 20;
+            if (cy < 20) cy = 20;
+
+            // Card background
+            ctx.fillStyle = '#0f172a';
+            ctx.strokeStyle = n.color;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.roundRect(cx, cy, cardWidth, cardHeight, 12);
+            ctx.fill();
+            ctx.stroke();
+
+            // Card Content
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px JetBrains Mono, monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(n.label.slice(0, 26), cx + 12, cy + 22);
+
+            ctx.font = '11px JetBrains Mono, monospace';
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillText(`Type: ${n.type.toUpperCase()}`, cx + 12, cy + 40);
+
+            if (n.info.ip && n.info.ip !== 'Unknown') {
+                ctx.fillText(`IP: ${n.info.ip}`, cx + 12, cy + 56);
+            }
+            if (n.info.asn) {
+                ctx.fillText(`ASN: ${n.info.asn.slice(0, 24)}`, cx + 12, cy + 72);
+            }
+            if (n.info.takeover) {
+                ctx.fillStyle = '#ef4444';
+                ctx.font = 'bold 11px JetBrains Mono, monospace';
+                ctx.fillText(`⚠️ Takeover: ${n.info.takeover}`, cx + 12, cy + 88);
+            }
+            ctx.restore();
+        }
+
+        // Keep loop running while settling or dragging/panning
+        if (maxMovement > 0.05 || topoState.draggedNode || topoState.isPanning) {
+            topoState.animId = requestAnimationFrame(topoSimulateAndDraw);
+        } else {
+            topoState.animRunning = false;
+        }
+    }
 </script>
 {% endblock %}

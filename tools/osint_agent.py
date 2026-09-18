@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dns.resolver
 import httpx
 from base_agent import BaseAgent, logger
+from dns_analytics import DnsRecordHarvester, AsnNetworkResolver
 
 class OsintAgent(BaseAgent):
     def __init__(self):
@@ -461,6 +462,35 @@ class OsintAgent(BaseAgent):
                     }
                 )
 
+        # 4. Advanced DNS Record Analytics (TXT, MX, SRV, CAA, SOA, NS)
+        logger.info(f"[{domain}] Harvesting deep DNS records and service configurations...")
+        dns_harvester = DnsRecordHarvester()
+        dns_records = {}
+        try:
+            dns_records = await dns_harvester.harvest(domain)
+        except Exception as de:
+            logger.error(f"[{domain}] Error harvesting DNS records: {de}")
+
+        # 5. ASN, Network Range & Infrastructure Mapping
+        logger.info(f"[{domain}] Resolving BGP ASN, CIDR prefixes and reverse PTRs...")
+        asn_resolver = AsnNetworkResolver()
+        all_ips = list(set((dns_records.get("a") or []) + (dns_records.get("aaaa") or [])))
+        subs = (domain_doc.get("infrastructure") or {}).get("subdomains", [])
+        for s in subs:
+            if isinstance(s, dict) and s.get("ip"):
+                all_ips.append(s["ip"])
+
+        asn_map = {}
+        adjacent_hosts = []
+        try:
+            asn_map = await asn_resolver.resolve_batch(all_ips)
+            # Reverse PTR sweep on primary domain IPs (range exploration)
+            for ip in (dns_records.get("a") or [])[:2]:
+                swept = await asn_resolver.sweep_range_ptrs(ip, count=8)
+                adjacent_hosts.extend(swept)
+        except Exception as ae:
+            logger.error(f"[{domain}] Error resolving ASNs: {ae}")
+
         # Retain existing leaked credentials or empty list
         existing_osint = domain_doc.get("osint", {})
         leaked_creds = existing_osint.get("leaked_credentials", [])
@@ -471,6 +501,9 @@ class OsintAgent(BaseAgent):
             "organization": corp_id["organization"],
             "social_links": corp_id["social_links"],
             "mail_security": mail_sec,
+            "dns_records": dns_records,
+            "asn_data": asn_map,
+            "adjacent_hosts": adjacent_hosts,
             "corporate_identity": {
                 "organization": corp_id["organization"],
                 "email_pattern": corp_id["email_pattern"],
@@ -483,17 +516,24 @@ class OsintAgent(BaseAgent):
                 "social_count": len(corp_id["social_links"]),
                 "cloud_assets_count": len(cloud_assets),
                 "security_vendors_count": len(mail_sec["security_vendors"]),
-                "verified_services_count": len(mail_sec["verified_services"]),
+                "verified_services_count": len(mail_sec["verified_services"]) + len(dns_records.get("identity_tokens", [])),
+                "identity_tokens_count": len(dns_records.get("identity_tokens", [])),
+                "authorized_senders_count": len(dns_records.get("authorized_senders", [])),
+                "srv_services_count": len(dns_records.get("srv", [])),
+                "caa_authorities_count": len(dns_records.get("ssl_authorities", [])),
                 "spoofing_risk": mail_sec["spoofing_risk"]
             }
         }
 
-        # Save to Database
+        # Save to Database (save directly at root of domain document as well for fast indexing)
         await self.domains_col.update_one(
             {"_id": domain_doc["_id"]},
             {
                 "$set": {
                     "osint": osint_payload,
+                    "dns_records": dns_records,
+                    "asn_data": asn_map,
+                    "adjacent_hosts": adjacent_hosts,
                     "osint_complete": True,
                     "osint_updated_at": datetime.datetime.utcnow().isoformat()
                 }

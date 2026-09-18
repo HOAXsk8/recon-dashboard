@@ -1,11 +1,18 @@
 import asyncio
 import datetime
 import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from base_agent import BaseAgent, logger
+from dns_analytics import TakeoverDetector, AsnNetworkResolver
 
 class AliveCheckAgent(BaseAgent):
     def __init__(self):
         super().__init__("alive_check", "Subdomain Alive Checking Tool")
+        self.takeover_detector = TakeoverDetector()
+        self.asn_resolver = AsnNetworkResolver()
 
     async def get_ip(self, target):
         """Resolve target to IP address."""
@@ -67,10 +74,128 @@ class AliveCheckAgent(BaseAgent):
                 logger.info(f"Target {target} is a Wildcard FP (No ports open).")
                 alive = False
 
-            if alive:
-                # 3. Add to domains collection if it's a subdomain
+            # 3. Autonomous Subdomain Takeover & Dangling DNS check
+            takeover_res = None
+            try:
+                takeover_res = await self.takeover_detector.audit_subdomain_takeover(target)
+                if takeover_res:
+                    logger.warning(f"DANGLING DNS / TAKEOVER DETECTED on {target} -> {takeover_res.get('cname')} ({takeover_res.get('provider')})")
+                    await self.create_alert(
+                        title=f"Subdomain Takeover Risk: Dangling CNAME on {target}",
+                        description=(
+                            f"The subdomain {target} points via CNAME to {takeover_res.get('cname')} ({takeover_res.get('provider')}). "
+                            f"The canonical service appears unallocated or de-provisioned (Evidence: {takeover_res.get('fingerprint')}), "
+                            f"allowing an adversary to claim the resource and hijack the domain."
+                        ),
+                        target=target,
+                        risk_level=takeover_res.get("risk", "high"),
+                        details=takeover_res,
+                        exploitation_suggestions=[
+                            f"Attempt to claim/register the {takeover_res.get('provider')} resource ({takeover_res.get('cname')}) in your cloud account to verify ownership.",
+                            f"If the service was decommissioned, remove the dangling CNAME DNS record for {target} immediately.",
+                            "Audit DNS zones for other dangling aliases pointing to obsolete cloud services."
+                        ],
+                        alert_type="dangling_dns_takeover"
+                    )
+            except Exception as te:
+                logger.error(f"Error auditing takeover for {target}: {te}")
+
+            # 4. Resolve ASN, Org, and Reverse PTR for discovered IP
+            asn_info = {}
+            if target_ip:
+                try:
+                    asn_info = await self.asn_resolver.resolve_ip(target_ip)
+                except Exception as ae:
+                    logger.debug(f"Error resolving ASN for {target_ip}: {ae}")
+
+            # 5. Build Subdomain Metadata & Track Infrastructure Drift History
+            domain_doc = await self.domains_col.find_one(
+                {"domain": root_domain, "infrastructure.subdomains.name": target},
+                {"infrastructure.subdomains.$": 1}
+            )
+            existing_sub = None
+            if domain_doc and domain_doc.get("infrastructure", {}).get("subdomains"):
+                existing_sub = domain_doc["infrastructure"]["subdomains"][0]
+
+            now_iso = datetime.datetime.utcnow().isoformat()
+            history_events = []
+
+            if existing_sub:
+                old_ip = existing_sub.get("ip")
+                if old_ip and target_ip and old_ip != target_ip:
+                    history_events.append({
+                        "timestamp": now_iso,
+                        "event_type": "dns_ip_change",
+                        "target": target,
+                        "details": f"DNS IP address changed from {old_ip} to {target_ip}",
+                        "severity": "info"
+                    })
+            elif target != root_domain and (alive or takeover_res):
+                history_events.append({
+                    "timestamp": now_iso,
+                    "event_type": "subdomain_discovered",
+                    "target": target,
+                    "details": f"Discovered subdomain {target} ({target_ip or 'No IP'})",
+                    "severity": "info"
+                })
+
+            if takeover_res:
+                history_events.append({
+                    "timestamp": now_iso,
+                    "event_type": "dangling_takeover_detected",
+                    "target": target,
+                    "details": f"Dangling CNAME takeover identified on {target} -> {takeover_res.get('cname')}",
+                    "severity": "critical"
+                })
+
+            if history_events:
+                await self.domains_col.update_one(
+                    {"domain": root_domain},
+                    {"$push": {"history": {"$each": history_events, "$slice": -300}}}
+                )
+
+            sub_update_fields = {
+                "infrastructure.subdomains.$.alive": alive,
+                "infrastructure.subdomains.$.last_scanned": now_iso
+            }
+            if target_ip:
+                sub_update_fields["infrastructure.subdomains.$.ip"] = target_ip
+            if asn_info.get("asn"):
+                sub_update_fields["infrastructure.subdomains.$.asn"] = asn_info.get("asn")
+                sub_update_fields["infrastructure.subdomains.$.as_org"] = asn_info.get("org")
+                sub_update_fields["infrastructure.subdomains.$.cidr"] = asn_info.get("cidr")
+            if asn_info.get("ptr"):
+                sub_update_fields["infrastructure.subdomains.$.ptr"] = asn_info.get("ptr")
+
+            if takeover_res:
+                sub_update_fields["infrastructure.subdomains.$.dangling_takeover"] = True
+                sub_update_fields["infrastructure.subdomains.$.cname"] = takeover_res.get("cname")
+                sub_update_fields["infrastructure.subdomains.$.takeover_provider"] = takeover_res.get("provider")
+                sub_update_fields["infrastructure.subdomains.$.takeover_risk"] = takeover_res.get("risk")
+
+            if alive or takeover_res:
+                # Add to domains collection if it's a subdomain and not yet present
                 if target != root_domain:
-                    # Atomically add only if not already present by name
+                    new_sub_doc = {
+                        "name": target,
+                        "alive": alive,
+                        "added_at": now_iso,
+                        "last_scanned": now_iso
+                    }
+                    if target_ip:
+                        new_sub_doc["ip"] = target_ip
+                    if asn_info.get("asn"):
+                        new_sub_doc["asn"] = asn_info.get("asn")
+                        new_sub_doc["as_org"] = asn_info.get("org")
+                        new_sub_doc["cidr"] = asn_info.get("cidr")
+                    if asn_info.get("ptr"):
+                        new_sub_doc["ptr"] = asn_info.get("ptr")
+                    if takeover_res:
+                        new_sub_doc["dangling_takeover"] = True
+                        new_sub_doc["cname"] = takeover_res.get("cname")
+                        new_sub_doc["takeover_provider"] = takeover_res.get("provider")
+                        new_sub_doc["takeover_risk"] = takeover_res.get("risk")
+
                     await self.domains_col.update_one(
                         {
                             "domain": root_domain,
@@ -78,18 +203,14 @@ class AliveCheckAgent(BaseAgent):
                         },
                         {
                             "$push": {
-                                "infrastructure.subdomains": {
-                                    "name": target,
-                                    "added_at": datetime.datetime.utcnow().isoformat()
-                                }
+                                "infrastructure.subdomains": new_sub_doc
                             }
                         }
                     )
-                
-                # 4. Add discovery task for recursion (ONLY if it's not a wildcard child or we really trust it)
-                # For now, let's limit recursion to 2 levels to prevent explosion
+
+                # Add discovery task for recursion (depth < 2)
                 depth = target.count(".") - root_domain.count(".")
-                if depth < 2:
+                if depth < 2 and alive:
                     exists_disc = await self.tasks_col.find_one({
                         "root_domain": root_domain,
                         "target": target,
@@ -104,35 +225,32 @@ class AliveCheckAgent(BaseAgent):
                             "created_at": datetime.datetime.utcnow()
                         })
 
-                # 5. Add scan task
-                exists_scan = await self.tasks_col.find_one({
-                    "root_domain": root_domain,
-                    "target": target,
-                    "task_type": "scan"
-                })
-                if not exists_scan:
-                    await self.tasks_col.insert_one({
+                # Add scan task if alive
+                if alive:
+                    exists_scan = await self.tasks_col.find_one({
                         "root_domain": root_domain,
                         "target": target,
-                        "task_type": "scan",
-                        "status": "pending",
-                        "created_at": datetime.datetime.utcnow()
+                        "task_type": "scan"
                     })
+                    if not exists_scan:
+                        await self.tasks_col.insert_one({
+                            "root_domain": root_domain,
+                            "target": target,
+                            "task_type": "scan",
+                            "status": "pending",
+                            "created_at": datetime.datetime.utcnow()
+                        })
 
-                # Record alive status in infrastructure.subdomains
+                # Record full enriched status in infrastructure.subdomains
                 if target != root_domain:
                     await self.domains_col.update_one(
                         {"domain": root_domain, "infrastructure.subdomains.name": target},
-                        {"$set": {
-                            "infrastructure.subdomains.$.alive": True,
-                            "infrastructure.subdomains.$.last_scanned": datetime.datetime.utcnow().isoformat()
-                        }}
+                        {"$set": sub_update_fields}
                     )
 
-                logger.info(f"Target {target} is ALIVE and added to pipeline.")
+                logger.info(f"Target {target} processed (alive={alive}, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
             else:
                 logger.info(f"Target {target} is DEAD or Wildcard FP.")
-                # Mark dead subdomains as scanned and alive=False so they do not stay stuck in Pending
                 if target != root_domain:
                     await self.domains_col.update_one(
                         {"domain": root_domain, "infrastructure.subdomains.name": target},

@@ -78,6 +78,34 @@ class PortScannerAgent(BaseAgent):
         
         details = f"A change in the open ports was detected for {target}.\n\nPrevious ports: {', '.join(old_set) or 'None'}\nNew ports: {', '.join(new_set) or 'None'}"
         exploitation = f"### Port Analysis\n\n1. **Verify Services**: For new ports, identify the service running and check for vulnerabilities.\n2. **Firewall Check**: Ensure that newly opened ports are intended to be public.\n3. **Decommissioning**: If ports were closed, verify if it was a planned decommission or a service failure."
+
+        now_iso = datetime.datetime.utcnow().isoformat()
+        history_events = []
+        if added:
+            history_events.append({
+                "timestamp": now_iso,
+                "event_type": "port_opened",
+                "target": target,
+                "details": f"Ports opened: {', '.join(added)}",
+                "severity": "high" if any(p.split('/')[0] in ['22', '3389', '21', '23', '445'] for p in added) else "medium"
+            })
+        if removed:
+            history_events.append({
+                "timestamp": now_iso,
+                "event_type": "port_closed",
+                "target": target,
+                "details": f"Ports closed: {', '.join(removed)}",
+                "severity": "low"
+            })
+        if history_events:
+            try:
+                await self.domains_col.update_one(
+                    {"domain": root_domain},
+                    {"$push": {"history": {"$each": history_events, "$slice": -300}}}
+                )
+            except Exception as he:
+                logger.warning(f"Failed to record port change history: {he}")
+
         return await self.create_alert(title, description, target, risk, details, exploitation, alert_type="port_scanner_changes")
 
     async def update_scan_results_in_db(self, root_domain, target, ip, services):
