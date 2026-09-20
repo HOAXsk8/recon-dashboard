@@ -116,7 +116,8 @@ def get_flattened_pipeline(
     historical: Optional[str] = None,
     takeover: Optional[str] = None,
     hide_parked: Optional[str] = None,
-    api_spec: Optional[str] = None
+    api_spec: Optional[str] = None,
+    drift: Optional[str] = None
 ):
     pipeline = [
         {"$match": root_query},
@@ -152,6 +153,7 @@ def get_flattened_pipeline(
                 "systems": {"$ifNull": ["$systems", []]},
                 "web_applications": {"$ifNull": ["$web_applications", []]},
                 "archive_urls": 1,
+                "history": {"$ifNull": ["$history", []]},
                 "scanned": 1,
                 "blacklisted": 1,
                 "on_hold": 1,
@@ -233,6 +235,7 @@ def get_flattened_pipeline(
                 "web_applications": 1,
                 "infrastructure": 1,
                 "archive_urls": 1,
+                "history": 1,
                 "waf": {
                     "$ifNull": [
                         "$targets.waf",
@@ -485,6 +488,21 @@ def get_flattened_pipeline(
                         True,
                         False
                     ]
+                },
+                "subdomain_drift_events": {
+                    "$filter": {
+                        "input": {"$ifNull": ["$history", []]},
+                        "as": "h",
+                        "cond": {
+                            "$and": [
+                                {"$ne": ["$is_root", True]},
+                                {"$or": [
+                                    {"$eq": [{"$toLower": "$$h.target"}, {"$toLower": "$domain"}]},
+                                    {"$in": [{"$toLower": "$$h.target"}, {"$map": {"input": "$target_ips", "as": "tip", "in": {"$toLower": "$$tip"}}}]}
+                                ]}
+                            ]
+                        }
+                    }
                 }
             }
         },
@@ -492,7 +510,9 @@ def get_flattened_pipeline(
         {
             "$addFields": {
                 "_has_webapp": {"$cond": [{"$ne": ["$web_app", None]}, 1, 0]},
-                "_has_system": {"$cond": [{"$ne": ["$system", None]}, 1, 0]}
+                "_has_system": {"$cond": [{"$ne": ["$system", None]}, 1, 0]},
+                "subdomain_drift_count": {"$size": "$subdomain_drift_events"},
+                "latest_subdomain_drift_time": {"$max": "$subdomain_drift_events.timestamp"}
             }
         },
         {
@@ -540,7 +560,9 @@ def get_flattened_pipeline(
                 "cname": {"$first": "$cname"},
                 "takeover_provider": {"$first": "$takeover_provider"},
                 "has_api_specs": {"$max": "$has_api_specs"},
-                "has_graphql": {"$max": "$has_graphql"}
+                "has_graphql": {"$max": "$has_graphql"},
+                "subdomain_drift_count": {"$max": "$subdomain_drift_count"},
+                "latest_subdomain_drift_time": {"$max": "$latest_subdomain_drift_time"}
             }
         },
         {
@@ -659,7 +681,9 @@ def get_flattened_pipeline(
                 "cname": 1,
                 "takeover_provider": 1,
                 "has_api_specs": 1,
-                "has_graphql": 1
+                "has_graphql": 1,
+                "subdomain_drift_count": {"$ifNull": ["$subdomain_drift_count", 0]},
+                "latest_subdomain_drift_time": 1
             }
         }
     ]
@@ -790,6 +814,23 @@ def get_flattened_pipeline(
         elif as_clean in ["false", "0", "no"]:
             match_stage["has_api_specs"] = False
             match_stage["has_graphql"] = False
+
+    if drift:
+        dr_clean = str(drift).strip().lower()
+        if dr_clean in ["true", "1", "yes", "has_drift"]:
+            match_stage["is_root"] = False
+            match_stage["subdomain_drift_count"] = {"$gt": 0}
+        elif dr_clean in ["recent", "24h", "new", "today"]:
+            cutoff_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+            match_stage["is_root"] = False
+            match_stage["latest_subdomain_drift_time"] = {"$gte": cutoff_24h}
+        elif dr_clean in ["7d", "week", "recent_7d"]:
+            cutoff_7d = (datetime.utcnow() - timedelta(days=7)).isoformat()
+            match_stage["is_root"] = False
+            match_stage["latest_subdomain_drift_time"] = {"$gte": cutoff_7d}
+        elif dr_clean in ["false", "0", "no", "none"]:
+            match_stage["is_root"] = False
+            match_stage["subdomain_drift_count"] = {"$lte": 0}
 
     if status_val:
         if status_val == "scanned":
@@ -1009,27 +1050,35 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         raise HTTPException(status_code=401)
     
     # Clean query
-    q = q.strip().lower()
+    raw_q = q.strip()
+    q = raw_q.lower()
+    clean_q = re.sub(r'^https?://', '', q).split('/')[0].split(':')[0].strip()
     
+    query_variants = list(dict.fromkeys([q, clean_q, raw_q]))
+
     # 1. Try exact domain match
-    domain_data = await domains_col.find_one({"domain": q})
+    domain_data = await domains_col.find_one({"domain": {"$in": query_variants}})
     
     # 2. Try exact subdomain match across all collections/arrays
     if not domain_data:
-        domain_data = await domains_col.find_one({"infrastructure.subdomains.name": q})
+        domain_data = await domains_col.find_one({"infrastructure.subdomains.name": {"$in": query_variants}})
     if not domain_data:
-        domain_data = await domains_col.find_one({"systems.target": q})
+        domain_data = await domains_col.find_one({"systems.target": {"$in": query_variants}})
     if not domain_data:
-        domain_data = await domains_col.find_one({"web_applications.target": q})
+        domain_data = await domains_col.find_one({"web_applications.target": {"$in": query_variants}})
     if not domain_data:
-        domain_data = await domains_col.find_one({"subdomains.subdomain": q})
+        domain_data = await domains_col.find_one({"subdomains.subdomain": {"$in": query_variants}})
+    if not domain_data:
+        domain_data = await domains_col.find_one({"infrastructure.subdomains.ip": {"$in": query_variants}})
+    if not domain_data:
+        domain_data = await domains_col.find_one({"systems.ip": {"$in": query_variants}})
     
     # 3. Fallback to partial match on domain
     if not domain_data:
-        domain_data = await domains_col.find_one({"domain": {"$regex": re.escape(q), "$options": "i"}})
+        domain_data = await domains_col.find_one({"domain": {"$regex": re.escape(clean_q or q), "$options": "i"}})
     
     if not domain_data:
-        return {"error": "Domain not found"}
+        return {"error": f"Domain '{raw_q}' not found"}
     
     await log_audit(user["username"], "query", f"Searched for domain: {q}", request)
     
@@ -1144,6 +1193,7 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         if isinstance(asset, dict):
             p = asset.get("provider", "AWS S3")
             status = "open" if asset.get("risk") == "Critical" or "open" in asset.get("status", "").lower() else "secured"
+            actual_source = (asset.get("source_app") or domain_name).lower().strip()
             b_obj = {
                 "name": asset.get("name") or asset.get("url"),
                 "raw": asset.get("name") or asset.get("url"),
@@ -1152,7 +1202,7 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
                 "status": status,
                 "http_status": 200 if status == "open" else 403,
                 "details": f"{p} bucket ({status})",
-                "source_app": target_lower,
+                "source_app": actual_source,
                 "discovered_by": "osint_agent"
             }
             cat = "s3_buckets" if "s3" in p.lower() else ("gcp_buckets" if "google" in p.lower() or "gcp" in p.lower() else "other_buckets")
@@ -1167,11 +1217,11 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         for b in items:
             if not isinstance(b, dict):
                 continue
-            src = (b.get("source_app") or "").lower().strip()
-            # If viewing root domain: show ALL buckets in the domain's footprint
-            # If viewing a specific subdomain: show buckets discovered on this target (or if src matches)
+            src = (b.get("source_app") or domain_name).lower().strip()
+            # If viewing root domain: show all buckets in the domain's entire footprint
+            # If viewing a specific subdomain: ONLY show buckets explicitly detected on this subdomain
             if not is_root_view:
-                if src and src != target_lower:
+                if src != target_lower:
                     continue
             url = (b.get("url") or b.get("raw") or b.get("name") or "").strip().lower().rstrip("/")
             if url and url not in seen_urls:
@@ -1179,6 +1229,17 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
                 filtered.append(b)
         scoped_cf[bucket_key] = filtered
     domain_data["infrastructure"]["cloud_footprint"] = scoped_cf
+
+    # Scope OSINT cloud assets when viewing a specific subdomain
+    if "osint" in domain_data and isinstance(domain_data["osint"], dict):
+        raw_osint_cloud = domain_data["osint"].get("cloud_assets") or []
+        if not is_root_view:
+            filtered_osint = [
+                c for c in raw_osint_cloud
+                if isinstance(c, dict) and (c.get("source_app") or domain_name).lower().strip() == target_lower
+            ]
+            domain_data["osint"]["cloud_assets"] = filtered_osint
+            domain_data["osint"]["cloud_assets_count"] = len(filtered_osint)
 
     # Ensure DNS records, ASN data, API specifications, and History are populated
     if not is_root_view:
@@ -1189,11 +1250,46 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
 
     # Sort history latest first for timeline rendering
     if domain_data.get("history") and isinstance(domain_data["history"], list):
-        domain_data["history"] = sorted(
+        all_sorted = sorted(
             domain_data["history"],
             key=lambda x: str(x.get("timestamp", "")),
             reverse=True
-        )[:150]
+        )
+        domain_data["perimeter_history"] = all_sorted[:150]
+        domain_data["is_subdomain_view"] = not is_root_view
+
+        if not is_root_view:
+            sub_ips = set()
+            for sub in (domain_data.get("infrastructure", {}).get("subdomains") or []):
+                if isinstance(sub, dict) and sub.get("name", "").lower().strip() == target_lower:
+                    if sub.get("ip"):
+                        if isinstance(sub["ip"], list):
+                            for ip in sub["ip"]:
+                                if ip:
+                                    sub_ips.add(str(ip).lower().strip())
+                        else:
+                            sub_ips.add(str(sub["ip"]).lower().strip())
+                    if sub.get("ips") and isinstance(sub["ips"], list):
+                        for ip in sub["ips"]:
+                            if ip:
+                                sub_ips.add(str(ip).lower().strip())
+
+            def is_sub_match(ev):
+                if not isinstance(ev, dict):
+                    return False
+                ev_target = str(ev.get("target") or "").lower().strip()
+                clean_ev = re.sub(r'^https?://', '', ev_target).split('/')[0].split(':')[0].strip()
+                return (
+                    clean_ev == target_lower or
+                    clean_ev == clean_q or
+                    ev_target == target_lower or
+                    (clean_ev in sub_ips if sub_ips else False) or
+                    (ev_target in sub_ips if sub_ips else False)
+                )
+
+            domain_data["history"] = [ev for ev in all_sorted if is_sub_match(ev)][:150]
+        else:
+            domain_data["history"] = all_sorted[:150]
         
     return domain_data
 
@@ -1334,6 +1430,7 @@ async def get_subdomains(
     takeover: Optional[str] = None,
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
+    drift: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -1361,7 +1458,8 @@ async def get_subdomains(
         historical=historical,
         takeover=takeover,
         hide_parked=hide_parked,
-        api_spec=api_spec
+        api_spec=api_spec,
+        drift=drift
     )
     
     # Total count (Aggregation)
@@ -1414,6 +1512,9 @@ async def get_subdomains(
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
         
+        sub_drift_count = int(d.get("subdomain_drift_count", 0))
+        latest_drift_time = d.get("latest_subdomain_drift_time")
+        
         results.append({
             "id": str(d["_id"]),
             "domain": d["domain"],
@@ -1452,7 +1553,10 @@ async def get_subdomains(
             "cname": d.get("cname"),
             "takeover_provider": d.get("takeover_provider"),
             "has_api_specs": bool(d.get("has_api_specs", False)),
-            "has_graphql": bool(d.get("has_graphql", False))
+            "has_graphql": bool(d.get("has_graphql", False)),
+            "subdomain_drift_count": sub_drift_count,
+            "latest_subdomain_drift_time": latest_drift_time,
+            "has_subdomain_drift": sub_drift_count > 0
         })
 
     # Calculate total scanned assets globally (root + subdomains)
@@ -1481,6 +1585,7 @@ async def export_subdomains(
     base64: Optional[str] = None,
     alive_apps: Optional[str] = None,
     historical: Optional[str] = None,
+    drift: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -1505,7 +1610,8 @@ async def export_subdomains(
         jwt=jwt,
         base64=base64,
         alive_apps=alive_apps,
-        historical=historical
+        historical=historical,
+        drift=drift
     )
     
     # Sorting
@@ -3178,6 +3284,7 @@ async def get_domains(
     takeover: Optional[str] = None,
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
+    drift: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -3198,7 +3305,8 @@ async def get_domains(
         historical=historical,
         takeover=takeover,
         hide_parked=hide_parked,
-        api_spec=api_spec
+        api_spec=api_spec,
+        drift=drift
     )
     
     # Total count
@@ -3223,6 +3331,8 @@ async def get_domains(
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
         is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
+        sub_drift_count = int(d.get("subdomain_drift_count", 0))
+        latest_drift_time = d.get("latest_subdomain_drift_time")
         
         results.append({
             "id": str(d["_id"]),
@@ -3246,7 +3356,10 @@ async def get_domains(
             "cname": d.get("cname"),
             "takeover_provider": d.get("takeover_provider"),
             "has_api_specs": bool(d.get("has_api_specs", False)),
-            "has_graphql": bool(d.get("has_graphql", False))
+            "has_graphql": bool(d.get("has_graphql", False)),
+            "subdomain_drift_count": sub_drift_count,
+            "latest_subdomain_drift_time": latest_drift_time,
+            "has_subdomain_drift": sub_drift_count > 0
         })
     
     return {"domains": results, "total": total, "page": page, "limit": limit}
@@ -3695,7 +3808,7 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
         }}
     )
     await domains_col.update_one(
-        {"_id": ObjectId(domain_id), "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+        {"_id": ObjectId(domain_id), "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
         {"$set": {
             "infrastructure.subdomains.$[].scanned": False
         }}
@@ -3886,7 +3999,7 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
             }}
         )
         await domains_col.update_one(
-            {"_id": d_id, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+            {"_id": d_id, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
             {"$set": {
                 "infrastructure.subdomains.$[].scanned": False
             }}
@@ -3947,7 +4060,7 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
         }}
     )
     await domains_col.update_many(
-        {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
+        {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
         {"$set": {
             "infrastructure.subdomains.$[].scanned": False
         }}

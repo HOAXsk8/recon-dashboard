@@ -54,12 +54,15 @@ class ContinuousLoopAgent(BaseAgent):
                 "last_cycle_completed": domain.get("last_scanned")
             }}
         )
-        await self.domains_col.update_one(
-            {"_id": domain["_id"], "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
-            {"$set": {
-                "infrastructure.subdomains.$[].scanned": False
-            }}
-        )
+        try:
+            await self.domains_col.update_one(
+                {"_id": domain["_id"], "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
+                {"$set": {
+                    "infrastructure.subdomains.$[].scanned": False
+                }}
+            )
+        except Exception as se:
+            logger.warning(f"Could not reset subdomains scanned flag for {root_domain}: {se}")
 
         # Clear any stale or orphan tasks for this domain before re-queuing
         await self.tasks_col.delete_many({"root_domain": root_domain})

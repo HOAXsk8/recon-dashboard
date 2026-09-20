@@ -527,12 +527,15 @@ class BaseAgent:
                     "last_scanned": now_iso
                 }}
             )
-            await self.domains_col.update_one(
-                {"domain": root_domain, "infrastructure.subdomains": {"$exists": True, "$type": "array"}},
-                {"$set": {
-                    "infrastructure.subdomains.$[].scanned": True
-                }}
-            )
+            try:
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
+                    {"$set": {
+                        "infrastructure.subdomains.$[].scanned": True
+                    }}
+                )
+            except Exception as se:
+                logger.warning(f"Could not update subdomains.scanned for {root_domain}: {se}")
             logger.info(f"Root domain {root_domain} fully scanned.")
 
     async def run_command(self, cmd, timeout=300):

@@ -9,9 +9,16 @@
 <style>
     html, body {
         overflow: hidden !important;
-        background: #0f172a !important;
         padding: 0 !important;
         margin: 0 !important;
+        height: 100vh !important;
+        width: 100vw !important;
+    }
+    .dark html, .dark body {
+        background: #0f172a !important;
+    }
+    html:not(.dark) body {
+        background: #f8fafc !important;
     }
     .dashboard-non-modal, #sidebar, footer {
         display: none !important;
@@ -21,17 +28,25 @@
         inset: 0 !important;
         padding: 0 !important;
         margin: 0 !important;
-        background: #0f172a !important;
-        backdrop-filter: none !important;
         z-index: 50 !important;
         max-height: 100vh !important;
         height: 100vh !important;
+        width: 100vw !important;
+        overflow: hidden !important;
+        backdrop-filter: none !important;
+    }
+    .dark #detail-modal {
+        background: #0f172a !important;
+    }
+    html:not(.dark) #detail-modal {
+        background: #f8fafc !important;
     }
     #detail-modal > .min-h-screen {
         min-height: 100vh !important;
         height: 100vh !important;
         padding: 0 !important;
         margin: 0 !important;
+        overflow: hidden !important;
     }
     #detail-modal > .min-h-screen > div {
         max-width: 100% !important;
@@ -41,9 +56,26 @@
         border-radius: 0 !important;
         border: none !important;
         box-shadow: none !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
     }
-    #detail-modal .sticky.top-0 {
+    #detail-modal .modal-header-bar {
         border-radius: 0 !important;
+        flex-shrink: 0 !important;
+        padding-top: 0.85rem !important;
+        padding-bottom: 0.85rem !important;
+    }
+    #detail-modal .modal-tab-bar-container {
+        flex-shrink: 0 !important;
+        position: static !important;
+        top: auto !important;
+    }
+    #detail-modal #modal-content {
+        flex: 1 1 0% !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
     }
 </style>
 {% endif %}
@@ -109,7 +141,7 @@
                 </div>
 
                 <!-- Row 2: Recon Intelligence & Findings -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-10 gap-2.5">
                     <select id="filter-alive-apps" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Web Apps (All)</option>
                         <option value="true">🌐 Alive Web Apps Only</option>
@@ -148,6 +180,13 @@
                     <select id="filter-api-spec" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">API Specs (All)</option>
                         <option value="true">📑 OpenAPI/GraphQL</option>
+                    </select>
+                    <select id="filter-drift" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">Drift / Timeline (All)</option>
+                        <option value="recent">⏱️ New Drift (24h)</option>
+                        <option value="7d">📅 Recent Drift (7d)</option>
+                        <option value="true">📈 Has Subdomain Drift</option>
+                        <option value="false">No Subdomain Drift</option>
                     </select>
                     <select id="filter-hide-parked" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Noise Filter (Off)</option>
@@ -253,42 +292,52 @@
 <!-- Modal for Detailed View -->
 <div id="detail-modal" class="fixed inset-0 z-[100] hidden overflow-y-auto bg-slate-900/40 backdrop-blur-xl">
     <div class="min-h-screen p-3 sm:p-4 md:p-[4vh]">
-        <div class="w-full mx-auto bg-tech-panel rounded-3xl border border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
+        <div class="w-full mx-auto bg-white dark:bg-tech-panel rounded-3xl border border-slate-200 dark:border-slate-800 shadow-3xl flex flex-col h-full min-h-[80vh]">
             <!-- Modal Header -->
-            <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-tech-panel/90 backdrop-blur z-20 rounded-t-3xl">
-                <div class="flex items-center space-x-6">
-                    <div>
-                        <h2 id="modal-title" class="text-2xl font-bold text-tech-accent">Target Domain</h2>
-                        <p id="modal-subtitle" class="text-xs font-mono text-slate-500"></p>
+            <div class="modal-header-bar px-6 sm:px-8 py-4 sm:py-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center sticky top-0 bg-white/95 dark:bg-tech-panel/95 backdrop-blur z-20 rounded-t-3xl">
+                <div class="flex items-center space-x-4 sm:space-x-6 truncate">
+                    <div class="truncate">
+                        <h2 id="modal-title" class="text-xl sm:text-2xl font-bold text-tech-accent truncate">Target Domain</h2>
+                        <p id="modal-subtitle" class="text-xs font-mono text-slate-500 truncate"></p>
                     </div>
-                    <div id="modal-header-actions" class="hidden flex items-center space-x-2 border-l border-slate-800 pl-6">
+                    <div id="modal-header-actions" class="hidden flex items-center space-x-2 border-l border-slate-200 dark:border-slate-800 pl-4 sm:pl-6">
                         <!-- Buttons will be injected here -->
                     </div>
                 </div>
-                <button onclick="closeModal()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                <button onclick="closeModal()" class="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-slate-800 dark:hover:text-white flex-shrink-0" title="Close Modal">
+                    <svg class="w-7 h-7 sm:w-8 sm:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
 
-            <!-- Tab Navigation -->
-            <div class="px-8 flex space-x-2 border-b border-slate-800 overflow-x-auto bg-tech-panel/50 sticky top-[88px] z-10">
-                <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-tech-accent text-tech-accent">Overview</button>
-                <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Analysis Summary</button>
-                <button onclick="switchTab('exploitation')" id="tab-exploitation" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Exploitation Suggestions</button>
-                <button onclick="switchTab('infrastructure')" id="tab-infrastructure" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Infrastructure</button>
-                <button onclick="switchTab('dns_intel')" id="tab-dns_intel" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">DNS & ASN Intel</button>
-                <button onclick="switchTab('apis')" id="tab-apis" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">APIs & Schemas</button>
-                <button onclick="switchTab('timeline')" id="tab-timeline" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Drift & Timeline</button>
-                <button onclick="switchTab('topology')" id="tab-topology" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Topology Graph</button>
-                <button onclick="switchTab('systems')" id="tab-systems" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Systems & Network</button>
-                <button onclick="switchTab('webapps')" id="tab-webapps" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Web Applications</button>
-                <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">OSINT</button>
-                <button onclick="switchTab('whois')" id="tab-whois" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">WHOIS</button>
-                <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn px-6 py-4 font-bold text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-300">Raw Data</button>
+            <!-- Tab Navigation Container with visible Left/Right Scroll Arrows & Smooth Scrolling -->
+            <div class="modal-tab-bar-container relative border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-tech-panel/90 backdrop-blur sticky top-[80px] z-10 flex items-center px-2 sm:px-4">
+                <button id="modal-tab-scroll-left" onclick="scrollModalTabs(-240)" class="p-2 text-slate-400 hover:text-tech-accent hover:bg-slate-200 dark:hover:bg-slate-800/80 rounded-lg transition-colors flex-shrink-0" title="Scroll Tabs Left">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+
+                <div id="modal-tab-strip" class="flex-1 flex space-x-1 sm:space-x-2 overflow-x-auto scroll-smooth py-1 px-1">
+                    <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-tech-accent text-tech-accent">Overview</button>
+                    <button onclick="switchTab('summary')" id="tab-summary" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Analysis Summary</button>
+                    <button onclick="switchTab('exploitation')" id="tab-exploitation" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Exploitation Suggestions</button>
+                    <button onclick="switchTab('infrastructure')" id="tab-infrastructure" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Infrastructure</button>
+                    <button onclick="switchTab('dns_intel')" id="tab-dns_intel" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">DNS & ASN Intel</button>
+                    <button onclick="switchTab('apis')" id="tab-apis" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">APIs & Schemas</button>
+                    <button onclick="switchTab('timeline')" id="tab-timeline" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Drift & Timeline</button>
+                    <button onclick="switchTab('topology')" id="tab-topology" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Topology Graph</button>
+                    <button onclick="switchTab('systems')" id="tab-systems" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Systems & Network</button>
+                    <button onclick="switchTab('webapps')" id="tab-webapps" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Web Applications</button>
+                    <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">OSINT</button>
+                    <button onclick="switchTab('whois')" id="tab-whois" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">WHOIS</button>
+                    <button onclick="switchTab('raw')" id="tab-raw" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Raw Data</button>
+                </div>
+
+                <button id="modal-tab-scroll-right" onclick="scrollModalTabs(240)" class="p-2 text-slate-400 hover:text-tech-accent hover:bg-slate-200 dark:hover:bg-slate-800/80 rounded-lg transition-colors flex-shrink-0" title="Scroll Tabs Right">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
             </div>
 
             <!-- Modal Body Content -->
-            <div id="modal-content" class="p-8 flex-grow">
+            <div id="modal-content" class="p-4 sm:p-8 flex-grow">
                 <!-- Content will be injected here -->
                 <div class="animate-pulse space-y-8">
                     <div class="h-20 bg-slate-800 rounded-2xl"></div>
@@ -363,6 +412,32 @@
     .animate-fade-in {
         animation: fadeIn 0.5s ease-out forwards;
     }
+    #modal-tab-strip::-webkit-scrollbar {
+        height: 4px;
+    }
+    #modal-tab-strip::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    #modal-tab-strip::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.25);
+        border-radius: 4px;
+    }
+    #modal-tab-strip::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.45);
+    }
+    #modal-content::-webkit-scrollbar {
+        width: 6px;
+    }
+    #modal-content::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    #modal-content::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.25);
+        border-radius: 4px;
+    }
+    #modal-content::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.45);
+    }
 </style>
 
 <script>
@@ -423,11 +498,12 @@
         const takeover = document.getElementById('filter-takeover') ? document.getElementById('filter-takeover').value : '';
         const hideParked = document.getElementById('filter-hide-parked') ? document.getElementById('filter-hide-parked').value : '';
         const apiSpec = document.getElementById('filter-api-spec') ? document.getElementById('filter-api-spec').value : '';
+        const drift = document.getElementById('filter-drift') ? document.getElementById('filter-drift').value : '';
         const limit = document.getElementById('limit-select').value;
         const tbody = document.getElementById('inventory-table-body');
 
         // Update active filters counter pill
-        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, mutator, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, currentPortFilter].filter(Boolean).length;
+        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, mutator, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, currentPortFilter].filter(Boolean).length;
         const pill = document.getElementById('active-filters-pill');
         if (pill) {
             if (activeCount > 0) {
@@ -465,6 +541,7 @@
             if (takeover) params.append('takeover', takeover);
             if (hideParked) params.append('hide_parked', hideParked);
             if (apiSpec) params.append('api_spec', apiSpec);
+            if (drift) params.append('drift', drift);
             
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
@@ -487,7 +564,15 @@
                     const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.method || 'Detected'}">⚖️ LB</span>` : '';
                     const infraBadges = [wafBadge, lbBadge].filter(Boolean).join(' ');
 
+                    const isRecentDrift = item.latest_subdomain_drift_time && (Date.now() - new Date(item.latest_subdomain_drift_time).getTime() < 86400000);
+                    const driftBadge = item.has_subdomain_drift ? (
+                        isRecentDrift
+                            ? `<span class="px-1.5 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold inline-flex items-center gap-1 animate-pulse" title="New Subdomain Drift (${item.subdomain_drift_count} event${item.subdomain_drift_count > 1 ? 's' : ''}, latest: ${new Date(item.latest_subdomain_drift_time).toLocaleTimeString()})">⏱️ New Drift (${item.subdomain_drift_count})</span>`
+                            : `<span class="px-1.5 py-0.5 bg-cyan-500/15 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 rounded-md text-[9px] font-bold inline-flex items-center gap-1" title="${item.subdomain_drift_count} Subdomain Drift Event${item.subdomain_drift_count > 1 ? 's' : ''}">📈 Drift (${item.subdomain_drift_count})</span>`
+                    ) : '';
+
                     const findingBadges = [
+                        driftBadge,
                         item.has_alive_web_app ? '<span class="px-1.5 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold" title="Alive Web Application Identified">🌐 App</span>' : '',
                         item.has_api_routes ? '<span class="px-1.5 py-0.5 bg-indigo-500/15 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold" title="Discovered API Routes">⚡ API</span>' : '',
                         item.has_api_specs ? '<span class="px-1.5 py-0.5 bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 rounded-md text-[9px] font-bold" title="OpenAPI / Swagger Spec Discovered">📑 OpenAPI</span>' : '',
@@ -577,11 +662,12 @@
                     let targetDomain = null;
                     if (data.subdomains && data.subdomains.length > 0) {
                         const match = data.subdomains.find(d => d.domain.toLowerCase() === autoOpenDomain.toLowerCase())
-                                   || data.subdomains.find(d => autoOpenDomain.toLowerCase().endsWith(d.domain.toLowerCase()))
-                                   || data.subdomains[0];
+                                   || data.subdomains.find(d => autoOpenDomain.toLowerCase().endsWith(d.domain.toLowerCase()));
                         if (match) targetDomain = match.domain;
                     }
-                    openDetails(targetDomain || autoOpenDomain);
+                    if (targetDomain) {
+                        openDetails(targetDomain);
+                    }
                     autoOpenDomain = null;
                 }
                 
@@ -658,6 +744,7 @@
         const jwt = document.getElementById('filter-jwt') ? document.getElementById('filter-jwt').value : '';
         const base64 = document.getElementById('filter-base64') ? document.getElementById('filter-base64').value : '';
         const historical = document.getElementById('filter-historical') ? document.getElementById('filter-historical').value : '';
+        const drift = document.getElementById('filter-drift') ? document.getElementById('filter-drift').value : '';
 
         const params = new URLSearchParams({
             q: q,
@@ -679,6 +766,7 @@
         if (jwt) params.append('jwt', jwt);
         if (base64) params.append('base64', base64);
         if (historical) params.append('historical', historical);
+        if (drift) params.append('drift', drift);
         
         window.location.href = `/api/subdomains/export?${params.toString()}`;
     }
@@ -717,6 +805,8 @@
         if (hideParkedSelect) hideParkedSelect.value = '';
         const apiSpecSelect = document.getElementById('filter-api-spec');
         if (apiSpecSelect) apiSpecSelect.value = '';
+        const driftSelect = document.getElementById('filter-drift');
+        if (driftSelect) driftSelect.value = '';
         currentPortFilter = null;
         resetAndFetch();
     }
@@ -809,6 +899,21 @@
         resetAndFetch();
     }
 
+    function scrollModalTabs(offset) {
+        const strip = document.getElementById('modal-tab-strip');
+        if (strip) {
+            strip.scrollBy({ left: offset, behavior: 'smooth' });
+        }
+    }
+
+    window.currentTimelineMode = 'subdomain';
+    window.setTimelineMode = function(mode) {
+        window.currentTimelineMode = mode;
+        if (typeof renderTabContent === 'function') {
+            renderTabContent('timeline');
+        }
+    };
+
     function switchTab(tabId) {
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('border-tech-accent', 'text-tech-accent');
@@ -818,6 +923,7 @@
         if (activeBtn) {
             activeBtn.classList.add('border-tech-accent', 'text-tech-accent');
             activeBtn.classList.remove('border-transparent', 'text-slate-500');
+            activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         }
 
         // Proactively fetch recovered source maps for this domain when on webapps tab
@@ -836,7 +942,24 @@
                 .catch(err => console.warn('Could not load source maps for domain:', err));
         }
 
-        renderTabContent(tabId);
+        try {
+            renderTabContent(tabId);
+        } catch (tabErr) {
+            console.error(`Error rendering tab ${tabId}:`, tabErr);
+            const content = document.getElementById('modal-content');
+            if (content) {
+                content.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-20 space-y-4">
+                        <div class="p-6 rounded-2xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-center max-w-md space-y-3">
+                            <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-500 mx-auto flex items-center justify-center text-xl font-bold">⚠️</div>
+                            <p class="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Tab Display Error</p>
+                            <p class="text-xs text-slate-500 font-mono">Unable to render "${tabId}" view with current record structure: ${tabErr.message || 'Data structure mismatch'}</p>
+                            <button onclick="switchTab('overview')" class="px-4 py-2 bg-tech-accent text-tech-bg rounded-xl text-xs font-bold font-mono transition-all">Return to Overview</button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
     }
 
     function safeMarked(text) {
@@ -971,10 +1094,11 @@
             }
             return rootDomain;
         };
+        const viewingTarget = getViewingTarget();
+        const isRootView = (!viewingTarget || viewingTarget === rootDomain);
 
         switch(tabId) {
             case 'overview':
-                const viewingTarget = getViewingTarget();
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
                 const reconDate = data.recon_date ? new Date(data.recon_date).toLocaleString() : 'N/A';
                 content.innerHTML = `
@@ -1058,7 +1182,8 @@
                                         const seenUrls = new Set();
                                         let count = 0;
                                         for (const b of rawBuckets) {
-                                            if (!isRootView && b.source_app && viewingTarget && b.source_app.toLowerCase() !== viewingTarget) continue;
+                                            const src = (b.source_app || rootDomain).toLowerCase().trim();
+                                            if (!isRootView && src !== viewingTarget) continue;
                                             const url = (b.url || b.raw || b.name || '').toLowerCase().replace(/\/+$/, '');
                                             if (url && !seenUrls.has(url)) {
                                                 seenUrls.add(url);
@@ -1103,7 +1228,8 @@
                         const seenUrls = new Set();
                         const allBuckets = [];
                         for (const b of rawBuckets) {
-                            if (!isRootView && b.source_app && viewingTarget && b.source_app.toLowerCase() !== viewingTarget) continue;
+                            const src = (b.source_app || rootDomain).toLowerCase().trim();
+                            if (!isRootView && src !== viewingTarget) continue;
                             const raw = typeof b === 'string' ? b : (b.raw || b.name);
                             const url = typeof b === 'string' ? `https://${b}` : (b.url || `https://${b.raw || b.name}`);
                             const normUrl = url.toLowerCase().replace(/\/+$/, '');
@@ -1328,7 +1454,8 @@
                                     const seenUrls = new Set();
                                     const allBuckets = [];
                                     for (const b of rawBuckets) {
-                                        if (!isRootView && b.source_app && viewingTarget && b.source_app.toLowerCase() !== viewingTarget) {
+                                        const src = (b.source_app || rootDomain).toLowerCase().trim();
+                                        if (!isRootView && src !== viewingTarget) {
                                             continue;
                                         }
                                         const raw = typeof b === 'string' ? b : (b.raw || b.name);
@@ -1733,20 +1860,77 @@
                 `;
                 break;
             case 'timeline':
-                const historyList = Array.isArray(data.history) ? data.history : [];
+                // Subdomain vs Perimeter Timeline scoping
+                const rawHistory = Array.isArray(data.history) ? data.history : [];
+                const perimeterHistory = Array.isArray(data.perimeter_history) ? data.perimeter_history : rawHistory;
+
+                // Helper to match subdomain target (handles hostnames, URLs, and associated IPs)
+                const isSubTargetMatch = (ev) => {
+                    if (!ev || !viewingTarget) return false;
+                    const evT = (ev.target || '').toLowerCase().trim();
+                    const cleanEv = evT.replace(/^https?:\/\//, '').split('/')[0].split(':')[0].trim();
+                    if (cleanEv === viewingTarget || evT === viewingTarget) return true;
+                    const subObj = (data.infrastructure?.subdomains || []).find(s => (s.name || '').toLowerCase().trim() === viewingTarget);
+                    if (subObj) {
+                        const subIps = Array.isArray(subObj.ips) ? subObj.ips : (subObj.ip ? [subObj.ip] : []);
+                        if (subIps.map(ip => String(ip).toLowerCase().trim()).includes(cleanEv)) return true;
+                    }
+                    return false;
+                };
+
+                const subHistory = data.is_subdomain_view ? rawHistory : rawHistory.filter(isSubTargetMatch);
+                const currentMode = isRootView ? 'all' : (window.currentTimelineMode || 'subdomain');
+                const historyList = (currentMode === 'subdomain') ? subHistory : perimeterHistory;
+
                 content.innerHTML = `
                     <div class="space-y-6">
-                        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 gap-4">
                             <div>
-                                <h4 class="text-xl font-bold text-slate-900 dark:text-white">Perimeter Drift & Event Timeline</h4>
-                                <p class="text-xs text-slate-500 mt-0.5">Historical tracking of DNS resolutions, open/closed ports, and asset additions over time.</p>
+                                <h4 class="text-xl font-bold text-slate-900 dark:text-white">
+                                    ${!isRootView && currentMode === 'subdomain' ? 'Subdomain Drift & Event Timeline' : 'Perimeter Drift & Event Timeline'}
+                                </h4>
+                                <p class="text-xs text-slate-500 mt-0.5">
+                                    ${!isRootView && currentMode === 'subdomain'
+                                        ? `Historical drift events specifically recorded for <span class="font-mono text-tech-accent font-bold">${viewingTarget}</span>.`
+                                        : `Historical tracking of DNS resolutions, open/closed ports, and asset discoveries across <span class="font-mono text-slate-700 dark:text-slate-300 font-bold">${rootDomain}</span>.`
+                                    }
+                                </p>
                             </div>
-                            <span class="px-3 py-1 rounded-full text-xs font-bold bg-tech-accent/10 text-tech-accent border border-tech-accent/20">
-                                ${historyList.length} Drift Events
-                            </span>
+                            <div class="flex items-center gap-3">
+                                ${!isRootView ? `
+                                    <div class="inline-flex p-1 bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono">
+                                        <button onclick="window.setTimelineMode('subdomain')" class="px-3 py-1.5 rounded-lg font-bold transition-all ${currentMode === 'subdomain' ? 'bg-tech-accent text-tech-bg shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}">
+                                            This Subdomain (${subHistory.length})
+                                        </button>
+                                        <button onclick="window.setTimelineMode('all')" class="px-3 py-1.5 rounded-lg font-bold transition-all ${currentMode === 'all' ? 'bg-tech-accent text-tech-bg shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}">
+                                            All Perimeter (${perimeterHistory.length})
+                                        </button>
+                                    </div>
+                                ` : `
+                                    <span class="px-3 py-1 rounded-full text-xs font-bold bg-tech-accent/10 text-tech-accent border border-tech-accent/20 font-mono">
+                                        ${historyList.length} Drift Events
+                                    </span>
+                                `}
+                            </div>
                         </div>
 
-                        ${historyList.length === 0 ? '<p class="text-xs text-slate-500 italic py-10 text-center">No drift events recorded yet. Events are logged automatically as scans execute.</p>' : `
+                        ${historyList.length === 0 ? `
+                            <div class="py-14 text-center space-y-3">
+                                <p class="text-xs text-slate-500 italic">
+                                    ${!isRootView && currentMode === 'subdomain'
+                                        ? `No drift events recorded specifically for <span class="font-mono font-bold text-slate-700 dark:text-slate-300">${viewingTarget}</span> yet. Events are logged automatically as scans execute.`
+                                        : 'No drift events recorded yet. Events are logged automatically as scans execute.'
+                                    }
+                                </p>
+                                ${!isRootView && currentMode === 'subdomain' && perimeterHistory.length > 0 ? `
+                                    <div>
+                                        <button onclick="window.setTimelineMode('all')" class="px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-tech-accent hover:border-tech-accent/50 transition-all">
+                                            View All Perimeter Events (${perimeterHistory.length})
+                                        </button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : `
                             <div class="relative pl-6 space-y-6 before:content-[\'\'] before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-800">
                                 ${historyList.map(ev => {
                                     const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : 'Recent';
@@ -1763,16 +1947,18 @@
                                         badgeColor = 'bg-slate-800 text-slate-400 border-slate-700';
                                     }
 
+                                    const isCurrentSub = !isRootView && (ev.target || '').toLowerCase().trim() === viewingTarget;
+
                                     return `
                                         <div class="relative flex items-start gap-4">
                                             <div class="absolute -left-6 top-1.5 w-3.5 h-3.5 rounded-full ${dotColor} shadow-md border-2 border-tech-bg"></div>
-                                            <div class="p-4 rounded-2xl bg-white dark:bg-tech-bg border border-slate-200 dark:border-slate-800 shadow-xs flex-grow space-y-1">
+                                            <div class="p-4 rounded-2xl bg-white dark:bg-tech-bg border ${isCurrentSub ? 'border-tech-accent/40 bg-tech-accent/[0.02]' : 'border-slate-200 dark:border-slate-800'} shadow-xs flex-grow space-y-1">
                                                 <div class="flex items-center justify-between flex-wrap gap-2">
                                                     <div class="flex items-center gap-2">
                                                         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border font-mono ${badgeColor}">
                                                             ${(ev.event_type || 'Event').replace(/_/g, ' ')}
                                                         </span>
-                                                        <span class="font-bold text-slate-800 dark:text-slate-200 text-xs font-mono">${ev.target || data.domain}</span>
+                                                        <span class="font-bold ${isCurrentSub ? 'text-tech-accent' : 'text-slate-800 dark:text-slate-200'} text-xs font-mono">${ev.target || data.domain}</span>
                                                     </div>
                                                     <span class="text-[11px] font-mono text-slate-500">${ts}</span>
                                                 </div>
@@ -3046,6 +3232,9 @@
                 const allCloudBuckets = [];
 
                 for (const c of osintCloud) {
+                    if (!c) continue;
+                    const src = (c.source_app || rootDomain).toLowerCase().trim();
+                    if (!isRootView && src !== viewingTarget) continue;
                     const fullUrl = c.url || (c.name && c.name.startsWith('http') ? c.name : (c.name ? `https://${c.name}` : ''));
                     if (fullUrl && !seenCloudUrls.has(fullUrl)) {
                         seenCloudUrls.add(fullUrl);
@@ -3060,6 +3249,9 @@
                 }
 
                 for (const b of infraCloud) {
+                    if (!b) continue;
+                    const src = (typeof b === 'object' && b.source_app ? b.source_app : rootDomain).toLowerCase().trim();
+                    if (!isRootView && src !== viewingTarget) continue;
                     const raw = typeof b === 'string' ? b : (b.raw || b.name);
                     const fullUrl = typeof b === 'string'
                         ? (b.startsWith('http') ? b : `https://${b}`)
@@ -3447,11 +3639,14 @@
     }
 
     async function openDetails(domain) {
-        window.currentInspectedDomain = domain;
+        if (!domain) return;
+        const target = String(domain).replace(/^https?:\/\//i, '').replace(/:\d+$/, '').replace(/\/.*$/, '').trim();
+        window.currentInspectedDomain = target || domain;
         window.selectedArchiveSubdomain = null;
         window.currentDomainSourceMapsLoaded = false;
         window.currentDomainSourceMaps = [];
         if (window.currentFindingsMap) window.currentFindingsMap.clear();
+        window.currentTimelineMode = 'subdomain';
         const modal = document.getElementById('detail-modal');
         const content = document.getElementById('modal-content');
         const title = document.getElementById('modal-title');
@@ -3460,29 +3655,61 @@
 
         modal.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
-        title.innerHTML = `Target Domain: <span class="text-white cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${domain}')">${domain}</span>`;
+        title.innerHTML = `Target Domain: <span class="text-white cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${target || domain}')">${target || domain}</span>`;
         subtitle.textContent = "Loading tactical data from field agents...";
         actions.classList.add('hidden');
 
-        // Show loading state
+        // Display smooth animated loading state while data is retrieved
         content.innerHTML = `
             <div class="flex flex-col items-center justify-center py-32 space-y-6">
                 <div class="w-16 h-16 border-4 border-tech-accent border-t-transparent rounded-full animate-spin"></div>
-                <p class="text-slate-500 font-mono text-xs uppercase tracking-[0.2em] animate-pulse">Retrieving Operational Recon Packets...</p>
+                <div class="text-center space-y-2">
+                    <p class="text-slate-300 font-mono text-sm uppercase tracking-[0.2em] animate-pulse">Retrieving Operational Recon Packets...</p>
+                    <p class="text-slate-500 font-mono text-xs">Querying domain intelligence for ${target || domain}</p>
+                </div>
             </div>
         `;
 
         try {
-            const resp = await fetch(`/search?q=${encodeURIComponent(domain)}`);
+            const resp = await fetch(`/search?q=${encodeURIComponent(target || domain)}`);
+            
+            if (!resp.ok) {
+                if (resp.status === 401) {
+                    content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold uppercase tracking-wider">SESSION EXPIRED: Please refresh the page to log in again.</div>`;
+                    return;
+                }
+                throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+            }
+
             const data = await resp.json();
 
             if (data.error) {
-                content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold uppercase tracking-widest">DATA ACCESS DENIED: ${data.error}</div>`;
+                content.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-24 space-y-4">
+                        <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center max-w-md space-y-3">
+                            <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-500 mx-auto flex items-center justify-center text-xl font-bold">⚠️</div>
+                            <p class="text-sm font-bold text-slate-200 uppercase tracking-wider">Asset Not Yet Cataloged</p>
+                            <p class="text-xs text-slate-400 font-mono">${data.error}. The domain may be queued for enumeration or pending initial scan.</p>
+                            <button onclick="openDetails('${target || domain}')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-mono transition-colors">Check Again</button>
+                        </div>
+                    </div>
+                `;
                 return;
             }
 
             currentDetailData = data;
-            subtitle.textContent = `Asset ID: ${data._id} • Recorded: ${new Date(data.recon_date).toISOString()}`;
+            
+            // Format recorded date safely without throwing RangeError on null, undefined, or invalid date values
+            let recordedText = 'Pending Scan';
+            if (data.recon_date) {
+                const parsedDate = new Date(data.recon_date);
+                if (!isNaN(parsedDate.getTime())) {
+                    recordedText = parsedDate.toISOString();
+                }
+            } else if (data.last_scanned) {
+                recordedText = formatLastScan(data.last_scanned);
+            }
+            subtitle.textContent = `Asset ID: ${data._id || 'N/A'} • Recorded: ${recordedText}`;
 
             // Inject Actions
             actions.innerHTML = `
@@ -3496,9 +3723,24 @@
             actions.classList.remove('hidden');
             actions.classList.add('flex');
 
-            switchTab('overview');
+            try {
+                switchTab('overview');
+            } catch (renderErr) {
+                console.error('Error rendering overview tab:', renderErr);
+                content.innerHTML = `<div class="p-12 text-center text-slate-400 font-mono text-xs">Overview loaded with display warnings. You can switch to other tabs above.</div>`;
+            }
         } catch (e) {
-            content.innerHTML = `<div class="p-20 text-center text-tech-danger font-bold">SYSTEM ERROR: Failed to retrieve intelligence feed.</div>`;
+            console.error('Error opening details for asset:', e);
+            content.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-24 space-y-4">
+                    <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 text-center max-w-md space-y-3">
+                        <div class="w-12 h-12 rounded-xl bg-red-500/10 text-red-500 mx-auto flex items-center justify-center text-xl font-bold">✕</div>
+                        <p class="text-sm font-bold text-slate-200 uppercase tracking-wider">Failed to retrieve intelligence feed</p>
+                        <p class="text-xs text-slate-400 font-mono">${e.message || 'Network request failed'}</p>
+                        <button onclick="openDetails('${target || domain}')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-xl text-xs font-mono hover:opacity-90 transition-all">Retry Retrieval</button>
+                    </div>
+                </div>
+            `;
         }
     }
 
@@ -3600,7 +3842,6 @@
 
         if (inspect) {
             document.getElementById('main-search').value = inspect;
-            autoOpenDomain = inspect;
             openDetails(inspect);
         } else if (query) {
             document.getElementById('main-search').value = query;

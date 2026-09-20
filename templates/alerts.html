@@ -999,8 +999,35 @@
         marked.use({ renderer });
 
         const detailsStr = typeof lead.details === 'string' ? lead.details : (lead.details ? '```json\n' + JSON.stringify(lead.details, null, 2) + '\n```' : 'No technical details provided.');
-        document.getElementById('modal-details').innerHTML = marked.parse(detailsStr);
-        document.getElementById('modal-exploitation').innerHTML = marked.parse(lead.exploitation_suggestions || 'No suggestions available.');
+        
+        let exploitStr = 'No suggestions available.';
+        if (Array.isArray(lead.exploitation_suggestions)) {
+            exploitStr = lead.exploitation_suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n\n');
+        } else if (typeof lead.exploitation_suggestions === 'string' && lead.exploitation_suggestions.trim()) {
+            exploitStr = lead.exploitation_suggestions;
+        } else if (lead.exploitation_suggestions) {
+            try {
+                exploitStr = typeof lead.exploitation_suggestions === 'object'
+                    ? '```json\n' + JSON.stringify(lead.exploitation_suggestions, null, 2) + '\n```'
+                    : String(lead.exploitation_suggestions);
+            } catch (e) {
+                exploitStr = String(lead.exploitation_suggestions);
+            }
+        }
+
+        try {
+            document.getElementById('modal-details').innerHTML = marked.parse(detailsStr);
+        } catch (mErr) {
+            console.warn('Error parsing modal details with marked:', mErr);
+            document.getElementById('modal-details').innerHTML = `<pre class="text-xs font-mono p-4 bg-slate-900 rounded-xl overflow-x-auto text-slate-300">${detailsStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`;
+        }
+
+        try {
+            document.getElementById('modal-exploitation').innerHTML = marked.parse(exploitStr);
+        } catch (mErr) {
+            console.warn('Error parsing modal exploitation with marked:', mErr);
+            document.getElementById('modal-exploitation').innerHTML = `<div class="text-sm font-sans text-slate-300 leading-relaxed whitespace-pre-wrap">${exploitStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`;
+        }
         
         document.getElementById('modal-status-select').value = lead.status;
         updateModalStatusBadge(lead.status);
@@ -1081,7 +1108,9 @@
     function openDomainOverviewForCurrentLead() {
         const lead = currentLeads.find(l => l._id === activeLeadId);
         if (lead && lead.target) {
-            openDomainOverviewModal(lead.target);
+            const targetDomain = lead.target;
+            closeLeadModal();
+            openDomainOverviewModal(targetDomain);
         }
     }
 

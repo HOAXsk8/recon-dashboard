@@ -1789,7 +1789,7 @@
                 <div class="w-10 h-10 bg-tech-accent rounded-xl flex items-center justify-center text-tech-bg font-black text-xl flex-shrink-0 shadow-lg shadow-tech-accent/20">R</div>
                 <div class="flex flex-col sidebar-logo-text overflow-hidden whitespace-nowrap transition-opacity duration-200">
                     <span class="text-base font-black tracking-tighter text-tech-accent leading-none">RDASH</span>
-                    <span class="text-[8px] font-bold text-slate-400 tracking-tight mt-1 whitespace-nowrap">PENTESTERS THREAT HUNTER</span>
+                    <span class="text-[8px] font-bold text-slate-400 tracking-tight mt-1 whitespace-nowrap">Recon and on...</span>
                 </div>
             </div>
             <button id="sidebar-toggle-btn" onclick="toggleSidebar()" class="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-all flex-shrink-0" title="Collapse / Expand Sidebar">
@@ -1893,7 +1893,7 @@
         
         {% if not embedded %}
         <footer class="border-t border-slate-800 py-6 text-center text-[10px] font-mono uppercase tracking-[0.3em] text-slate-600">
-            &copy; 2026 RDASH - PENTESTERS THREAT HUNTER
+            &copy; 2026 RDASH - Recon and on...
         </footer>
         {% endif %}
     </main>
@@ -2052,11 +2052,16 @@
                 const iframe = document.getElementById('domain-overview-iframe');
                 if (iframe) iframe.src = 'about:blank';
                 
+                // Hide lead modal if active so the alerts table is immediately shown
+                const leadModal = document.getElementById('lead-modal');
+                if (leadModal) {
+                    leadModal.classList.add('hidden');
+                    if (typeof activeLeadId !== 'undefined') activeLeadId = null;
+                }
+                
                 // Check if another modal is currently active on the page
                 const investigationModal = document.getElementById('investigation-modal');
-                const leadModal = document.getElementById('lead-modal');
-                const hasOtherModal = (investigationModal && !investigationModal.classList.contains('hidden')) ||
-                                      (leadModal && !leadModal.classList.contains('hidden'));
+                const hasOtherModal = (investigationModal && !investigationModal.classList.contains('hidden'));
                 if (!hasOtherModal) {
                     document.body.style.overflow = 'auto';
                 }
@@ -2067,6 +2072,16 @@
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'CLOSE_DOMAIN_OVERVIEW') {
                 closeDomainOverviewModal();
+            }
+        });
+
+        // Global Escape listener for domain overview modal
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('domain-overview-modal');
+                if (modal && !modal.classList.contains('hidden')) {
+                    closeDomainOverviewModal();
+                }
             }
         });
     </script>
