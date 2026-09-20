@@ -199,6 +199,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - RESCAN_INTERVAL_HOURS=168.0
     command: ["python", "tools/loop_orchestrator.py"]
     volumes:
       - ./tools:/app/tools

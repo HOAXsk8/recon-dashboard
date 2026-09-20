@@ -173,7 +173,7 @@ def get_flattened_pipeline(
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
                 "single_domain_only": {"$ifNull": ["$single_domain_only", False]},
-                "scan_interval": {"$ifNull": ["$scan_interval", 24]},
+                "scan_interval": {"$ifNull": ["$scan_interval", 168]},
                 "subdomain_count": 1,
                 "recon_date": {"$ifNull": ["$targets.added_at", "$added_at"]},
                 "asn": {"$ifNull": ["$targets.asn", "$infrastructure.asn_data.primary_asn"]},
@@ -3345,7 +3345,7 @@ async def get_domains(
             "last_scanned": last_scanned,
             "is_root": d.get("is_root", False),
             "single_domain_only": d.get("single_domain_only", False),
-            "scan_interval": d.get("scan_interval", 24),
+            "scan_interval": d.get("scan_interval", 168),
             "source": d.get("source"),
             "is_permutated": is_permutated,
             "asn": d.get("asn"),
@@ -3451,6 +3451,7 @@ async def add_domain(
         "scanned": False,
         "blacklisted": False,
         "single_domain_only": is_single,
+        "scan_interval": 168,
         "notes": "",
         "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     })
@@ -3562,6 +3563,7 @@ async def bulk_add_domains(
             "on_hold": on_hold_val,
             "blacklisted": False,
             "single_domain_only": is_single,
+            "scan_interval": 168,
             "notes": "",
             "added_at": now_str
         })

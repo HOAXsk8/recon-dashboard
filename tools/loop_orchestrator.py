@@ -33,8 +33,8 @@ class ContinuousLoopAgent(BaseAgent):
         super().__init__("loop_orchestrator", "Continuous Loop Orchestrator")
         # Check loop interval in seconds
         self.check_interval = int(os.getenv("CHECK_INTERVAL", "15"))
-        # Default rescan interval for completed domains (hours)
-        self.rescan_interval = float(os.getenv("RESCAN_INTERVAL_HOURS", "1.0"))
+        # Default rescan interval for completed domains (hours) - 1 week (168 hours)
+        self.rescan_interval = float(os.getenv("RESCAN_INTERVAL_HOURS", "168.0"))
         # Idle cooldown before restarting a completed domain in continuous mode (minutes)
         self.completion_cooldown_minutes = float(os.getenv("RESCAN_COOLDOWN_MINUTES", "2.0"))
 
@@ -215,8 +215,8 @@ class ContinuousLoopAgent(BaseAgent):
                     # User specified an explicit schedule interval (hours)
                     restart_threshold_seconds = float(custom_interval) * 3600
                 else:
-                    # Continuous loop mode: restart after short cooldown (e.g. 2 minutes)
-                    restart_threshold_seconds = self.completion_cooldown_minutes * 60
+                    # Default rescan interval: 1 week (168 hours)
+                    restart_threshold_seconds = self.rescan_interval * 3600
 
                 if not last_scanned_str:
                     should_restart = True

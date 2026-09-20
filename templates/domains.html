@@ -141,7 +141,7 @@
         <div class="flex flex-col">
             <span class="text-[10px] uppercase font-bold text-slate-500 mb-1">Set Interval (hrs)</span>
             <div class="flex space-x-2">
-                <input type="number" id="bulk-interval-input" value="24" min="0" placeholder="0=continuous" class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent" title="Set interval in hours. Use 0 for continuous scanning (2m cooldown).">
+                <input type="number" id="bulk-interval-input" value="168" min="0" placeholder="168=1 week" class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent" title="Set interval in hours. Default is 168 (1 week). Use 0 for continuous scanning.">
                 <button onclick="bulkUpdateInterval()" class="px-3 py-1 bg-tech-accent text-tech-bg text-[10px] font-bold rounded hover:opacity-90 transition-all">SET</button>
             </div>
         </div>
