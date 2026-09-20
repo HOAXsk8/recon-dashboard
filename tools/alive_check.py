@@ -140,13 +140,20 @@ class AliveCheckAgent(BaseAgent):
                 })
 
             if takeover_res:
-                history_events.append({
-                    "timestamp": now_iso,
-                    "event_type": "dangling_takeover_detected",
-                    "target": target,
-                    "details": f"Dangling CNAME takeover identified on {target} -> {takeover_res.get('cname')}",
-                    "severity": "critical"
-                })
+                # Deduplicate: only log timeline event if this takeover was not already detected on this target
+                already_detected = False
+                if existing_sub and existing_sub.get("dangling_takeover"):
+                    if existing_sub.get("cname") == takeover_res.get("cname"):
+                        already_detected = True
+
+                if not already_detected:
+                    history_events.append({
+                        "timestamp": now_iso,
+                        "event_type": "dangling_takeover_detected",
+                        "target": target,
+                        "details": f"Dangling CNAME takeover identified on {target} -> {takeover_res.get('cname')}",
+                        "severity": "critical"
+                    })
 
             if history_events:
                 await self.domains_col.update_one(
@@ -158,6 +165,9 @@ class AliveCheckAgent(BaseAgent):
                 "infrastructure.subdomains.$.alive": alive,
                 "infrastructure.subdomains.$.last_scanned": now_iso
             }
+            if not alive:
+                sub_update_fields["infrastructure.subdomains.$.scanned"] = True
+
             if target_ip:
                 sub_update_fields["infrastructure.subdomains.$.ip"] = target_ip
             if asn_info.get("asn"):
@@ -182,6 +192,8 @@ class AliveCheckAgent(BaseAgent):
                         "added_at": now_iso,
                         "last_scanned": now_iso
                     }
+                    if not alive:
+                        new_sub_doc["scanned"] = True
                     if target_ip:
                         new_sub_doc["ip"] = target_ip
                     if asn_info.get("asn"):

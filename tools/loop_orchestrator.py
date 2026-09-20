@@ -54,16 +54,6 @@ class ContinuousLoopAgent(BaseAgent):
                 "last_cycle_completed": domain.get("last_scanned")
             }}
         )
-        try:
-            await self.domains_col.update_one(
-                {"_id": domain["_id"], "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
-                {"$set": {
-                    "infrastructure.subdomains.$[].scanned": False
-                }}
-            )
-        except Exception as se:
-            logger.warning(f"Could not reset subdomains scanned flag for {root_domain}: {se}")
-
         # Clear any stale or orphan tasks for this domain before re-queuing
         await self.tasks_col.delete_many({"root_domain": root_domain})
 
@@ -79,11 +69,17 @@ class ContinuousLoopAgent(BaseAgent):
         else:
             cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.datetime.utcnow()})
 
-        # Queue verification for all existing subdomains so they are actively scanned during each cycle
+        # Only queue verification for new/unscanned subdomains so each subdomain is scanned once
         subs = (domain.get("infrastructure") or {}).get("subdomains", [])
+        unscanned_subs_queued = 0
         for sub in subs:
-            sub_name = sub.get("name") if isinstance(sub, dict) else sub
-            if sub_name and sub_name != root_domain:
+            if isinstance(sub, dict):
+                sub_name = sub.get("name")
+                is_scanned = sub.get("scanned", False) or bool(sub.get("last_scanned"))
+            else:
+                sub_name = sub
+                is_scanned = False
+            if sub_name and sub_name != root_domain and not is_scanned:
                 cycle_tasks.append({
                     "root_domain": root_domain,
                     "target": sub_name,
@@ -91,9 +87,10 @@ class ContinuousLoopAgent(BaseAgent):
                     "status": "pending",
                     "created_at": datetime.datetime.utcnow()
                 })
+                unscanned_subs_queued += 1
 
         await self.tasks_col.insert_many(cycle_tasks)
-        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain} (including {len(subs)} subdomains).")
+        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain} (including {unscanned_subs_queued} unscanned subdomains).")
 
     async def recover_stale_tasks(self):
         """

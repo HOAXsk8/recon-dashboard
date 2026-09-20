@@ -201,7 +201,20 @@ class SubdomainDiscoveryAgent(BaseAgent):
             except Exception as mut_err:
                 logger.warning(f"Subdomain Discovery: Domain permutation step skipped due to error: {mut_err}")
 
+            # Fetch already scanned subdomains so each subdomain is strictly scanned once
+            d_curr = await self.domains_col.find_one({"domain": root_domain}, {"infrastructure.subdomains": 1})
+            already_scanned_set = set()
+            if d_curr and d_curr.get("infrastructure", {}).get("subdomains"):
+                for s in d_curr["infrastructure"]["subdomains"]:
+                    if isinstance(s, dict):
+                        if s.get("scanned", False) or bool(s.get("last_scanned")):
+                            already_scanned_set.add(s.get("name", "").strip().lower())
+
             for sub in all_found:
+                clean_target = sub.strip().lower()
+                if clean_target in already_scanned_set:
+                    continue
+
                 # Add to verification queue
                 exists = await self.tasks_col.find_one({
                     "root_domain": root_domain,
