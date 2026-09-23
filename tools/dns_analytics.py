@@ -753,3 +753,173 @@ class AsnNetworkResolver:
             if r:
                 found.append(r)
         return found
+
+
+# =====================================================================
+# 4. DNSSEC Auditor & NSEC Zone Walker
+# =====================================================================
+
+class DnssecAuditor:
+    """
+    Audits a domain's DNSSEC configuration and attempts NSEC zone enumeration.
+
+    Checks:
+      - Whether DNSKEY records are published (DNSSEC enabled)
+      - The signing algorithm (RSA-SHA256, ECDSA-P256, Ed25519, etc.)
+      - Whether NSEC or NSEC3 is used for authenticated denial-of-existence
+      - If NSEC (not NSEC3) is in use, attempts to walk the chain to enumerate
+        all zone names by following the 'Next Domain' pointer in each NSEC record.
+
+    NSEC zone walking is a read-only passive enumeration technique that only
+    works against misconfigured zones that use plain NSEC instead of NSEC3.
+    It is performed only against the root domain to avoid excessive DNS traffic.
+    """
+
+    # IANA DNSSEC algorithm numbers -> human-readable names
+    # https://www.iana.org/assignments/dns-sec-alg-numbers/
+    ALGORITHM_NAMES = {
+        1:  "RSA-MD5 (Insecure)",
+        3:  "DSA-SHA1 (Deprecated)",
+        5:  "RSA-SHA1 (Deprecated)",
+        6:  "DSA-NSEC3-SHA1 (Deprecated)",
+        7:  "RSA-SHA1-NSEC3 (Deprecated)",
+        8:  "RSA-SHA256",
+        10: "RSA-SHA512",
+        12: "ECC-GOST",
+        13: "ECDSA-P256-SHA256",
+        14: "ECDSA-P384-SHA384",
+        15: "Ed25519",
+        16: "Ed448",
+    }
+
+    def __init__(self, timeout: float = 5.0, max_walk_steps: int = 200):
+        self.timeout = timeout
+        self.max_walk_steps = max_walk_steps
+
+    def _make_resolver(self):
+        resolver = dns.asyncresolver.Resolver()
+        resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
+        resolver.timeout = self.timeout
+        resolver.lifetime = self.timeout
+        return resolver
+
+    async def check_dnssec(self, domain: str) -> Dict[str, Any]:
+        """
+        Query DNSKEY records to determine DNSSEC status and signing algorithm.
+        Also checks for NSEC vs NSEC3 to assess zone walk susceptibility.
+
+        Returns a dict:
+        {
+            "enabled": bool,
+            "algorithm": str | None,
+            "algorithm_id": int | None,
+            "key_tag": int | None,
+            "key_flags": int | None,
+            "nsec_type": "NSEC" | "NSEC3" | None,
+            "zone_walkable": bool,
+            "keys_count": int
+        }
+        """
+        clean = domain.strip().rstrip(".")
+        result: Dict[str, Any] = {
+            "enabled": False,
+            "algorithm": None,
+            "algorithm_id": None,
+            "key_tag": None,
+            "key_flags": None,
+            "nsec_type": None,
+            "zone_walkable": False,
+            "keys_count": 0
+        }
+
+        resolver = self._make_resolver()
+
+        # 1. Check for DNSKEY records
+        try:
+            answers = await resolver.resolve(clean, "DNSKEY")
+            result["enabled"] = True
+            result["keys_count"] = len(answers)
+            for rdata in answers:
+                alg_id = rdata.algorithm
+                result["algorithm_id"] = alg_id
+                result["algorithm"] = self.ALGORITHM_NAMES.get(alg_id, f"Algorithm {alg_id}")
+                result["key_flags"] = rdata.flags
+                # key_tag calculation (per RFC 4034 appendix B)
+                try:
+                    wire = rdata.to_wire()
+                    ac = 0
+                    for i, byte in enumerate(wire):
+                        ac += byte if i % 2 == 0 else byte << 8
+                    ac += (ac >> 16) & 0xFFFF
+                    result["key_tag"] = ac & 0xFFFF
+                except Exception:
+                    pass
+                break  # use the first KSK/ZSK
+        except Exception:
+            # No DNSKEY — DNSSEC not deployed
+            return result
+
+        # 2. Check whether NSEC or NSEC3 is used
+        try:
+            await resolver.resolve(clean, "NSEC3PARAM")
+            result["nsec_type"] = "NSEC3"
+            result["zone_walkable"] = False
+            logger.info(f"[DNSSEC] {clean}: DNSSEC enabled, NSEC3 (zone walk not possible)")
+        except Exception:
+            # NSEC3PARAM missing — check for plain NSEC
+            try:
+                nsec_ans = await resolver.resolve(clean, "NSEC")
+                if nsec_ans:
+                    result["nsec_type"] = "NSEC"
+                    result["zone_walkable"] = True
+                    logger.warning(f"[DNSSEC] {clean}: Plain NSEC detected — zone walk may be possible!")
+            except Exception:
+                pass
+
+        return result
+
+    async def attempt_nsec_walk(self, domain: str) -> List[str]:
+        """
+        Attempt to enumerate all DNS zone names for a domain that uses plain NSEC records
+        by following the 'Next Domain' pointer chain from NSEC record to NSEC record.
+
+        This is a fully passive, read-only enumeration technique that works ONLY when
+        the zone uses NSEC (not NSEC3). Returns an empty list for NSEC3-protected zones.
+
+        Returns a list of discovered zone names (sorted), or an empty list on failure.
+        """
+        clean = domain.strip().rstrip(".")
+        resolver = self._make_resolver()
+        discovered = set()
+        to_query = {clean}
+        steps = 0
+
+        logger.info(f"[DNSSEC Walk] Starting NSEC walk for {clean} (max {self.max_walk_steps} steps)")
+
+        while to_query and steps < self.max_walk_steps:
+            current = to_query.pop()
+            steps += 1
+            try:
+                answers = await resolver.resolve(current, "NSEC")
+                for rdata in answers:
+                    # The NSEC 'next' field is the next name in canonical zone order
+                    next_name = str(rdata.next).rstrip(".").lower()
+                    if next_name and next_name not in discovered:
+                        discovered.add(next_name)
+                        # If the next name is still within the zone, keep walking
+                        if next_name.endswith(f".{clean}") or next_name == clean:
+                            to_query.add(next_name)
+            except Exception:
+                pass
+
+        zone_names = sorted(discovered)
+        if zone_names:
+            logger.warning(
+                f"[DNSSEC Walk] {clean}: Enumerated {len(zone_names)} zone names "
+                f"in {steps} steps via NSEC walk — zone enumeration is possible!"
+            )
+        else:
+            logger.info(f"[DNSSEC Walk] {clean}: No NSEC names discovered (NSEC3 or walk unsuccessful)")
+
+        return zone_names
+

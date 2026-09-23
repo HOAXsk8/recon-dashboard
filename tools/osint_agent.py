@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dns.resolver
 import httpx
 from base_agent import BaseAgent, logger
-from dns_analytics import DnsRecordHarvester, AsnNetworkResolver
+from dns_analytics import DnsRecordHarvester, AsnNetworkResolver, DnssecAuditor
 
 class OsintAgent(BaseAgent):
     def __init__(self):
@@ -491,6 +491,58 @@ class OsintAgent(BaseAgent):
         except Exception as ae:
             logger.error(f"[{domain}] Error resolving ASNs: {ae}")
 
+        # 6. DNSSEC Audit & NSEC Zone Walk
+        logger.info(f"[{domain}] Auditing DNSSEC configuration and checking for NSEC zone walk...")
+        dnssec_auditor = DnssecAuditor()
+        dnssec_info = {}
+        nsec_zone_names = []
+        try:
+            dnssec_info = await dnssec_auditor.check_dnssec(domain)
+            if dnssec_info.get("zone_walkable"):
+                logger.warning(f"[{domain}] DNSSEC NSEC zone walk possible — attempting enumeration")
+                nsec_zone_names = await dnssec_auditor.attempt_nsec_walk(domain)
+                if nsec_zone_names:
+                    await self.create_alert(
+                        title=f"DNSSEC NSEC Zone Enumeration: {domain}",
+                        description=(
+                            f"The zone {domain} uses plain NSEC records (not NSEC3), allowing an attacker to enumerate "
+                            f"all DNS names in the zone without brute-forcing. "
+                            f"{len(nsec_zone_names)} zone names were discovered via NSEC chain walking."
+                        ),
+                        target=domain,
+                        risk_level="medium",
+                        details={
+                            "dnssec_algorithm": dnssec_info.get("algorithm"),
+                            "nsec_type": "NSEC",
+                            "zone_names_count": len(nsec_zone_names),
+                            "zone_names_sample": nsec_zone_names[:20]
+                        },
+                        exploitation_suggestions=[
+                            f"Migrate the zone to NSEC3 with opt-out to prevent zone enumeration.",
+                            f"Review the {len(nsec_zone_names)} enumerated zone names for internal or sensitive hostnames."
+                        ],
+                        alert_type="dnssec_nsec_zone_walk"
+                    )
+                    # Feed discovered zone names into verification queue
+                    for zone_name in nsec_zone_names:
+                        if self.is_in_scope(zone_name, domain):
+                            exists = await self.tasks_col.find_one({
+                                "root_domain": domain,
+                                "target": zone_name,
+                                "task_type": "verification"
+                            })
+                            if not exists:
+                                await self.tasks_col.insert_one({
+                                    "root_domain": domain,
+                                    "target": zone_name,
+                                    "task_type": "verification",
+                                    "status": "pending",
+                                    "source": "dnssec_nsec_walk",
+                                    "created_at": datetime.datetime.utcnow()
+                                })
+        except Exception as dnse:
+            logger.error(f"[{domain}] DNSSEC audit error: {dnse}")
+
         # Retain existing leaked credentials or empty list
         existing_osint = domain_doc.get("osint", {})
         leaked_creds = existing_osint.get("leaked_credentials", [])
@@ -511,6 +563,11 @@ class OsintAgent(BaseAgent):
             },
             "leaked_credentials": leaked_creds,
             "cloud_assets": cloud_assets,
+            "dnssec": {
+                **dnssec_info,
+                "zone_names": nsec_zone_names,
+                "zone_names_count": len(nsec_zone_names)
+            },
             "summary": {
                 "emails_count": len(corp_id["discovered_emails"]),
                 "social_count": len(corp_id["social_links"]),
@@ -521,6 +578,8 @@ class OsintAgent(BaseAgent):
                 "authorized_senders_count": len(dns_records.get("authorized_senders", [])),
                 "srv_services_count": len(dns_records.get("srv", [])),
                 "caa_authorities_count": len(dns_records.get("ssl_authorities", [])),
+                "dnssec_enabled": dnssec_info.get("enabled", False),
+                "dnssec_zone_walkable": dnssec_info.get("zone_walkable", False),
                 "spoofing_risk": mail_sec["spoofing_risk"]
             }
         }

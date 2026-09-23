@@ -2,11 +2,14 @@ import asyncio
 import datetime
 import logging
 import os
+import ssl
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from base_agent import BaseAgent, logger
 from dns_analytics import TakeoverDetector, AsnNetworkResolver
+
+VIEWDNS_API_KEY = os.environ.get("VIEWDNS_API_KEY", "")
 
 class AliveCheckAgent(BaseAgent):
     def __init__(self):
@@ -15,7 +18,7 @@ class AliveCheckAgent(BaseAgent):
         self.asn_resolver = AsnNetworkResolver()
 
     async def get_ip(self, target):
-        """Resolve target to IP address with fallback to async DNS resolvers."""
+        """Resolve target to IPv4 address with fallback to async DNS resolvers."""
         if not target:
             return None
         target = target.strip().rstrip(".")
@@ -24,7 +27,7 @@ class AliveCheckAgent(BaseAgent):
         try:
             import socket
             loop = asyncio.get_event_loop()
-            res = await asyncio.wait_for(loop.getaddrinfo(target, None), timeout=3.0)
+            res = await asyncio.wait_for(loop.getaddrinfo(target, None, family=socket.AF_INET), timeout=3.0)
             if res:
                 return res[0][4][0]
         except Exception:
@@ -44,6 +47,148 @@ class AliveCheckAgent(BaseAgent):
             pass
 
         return None
+
+    async def get_ipv6(self, target):
+        """
+        Resolve target to IPv6 address (AAAA record).
+        Returns the first resolved IPv6 address, or None if not found.
+        """
+        if not target:
+            return None
+        target = target.strip().rstrip(".")
+
+        try:
+            import dns.asyncresolver
+            resolver = dns.asyncresolver.Resolver()
+            resolver.nameservers = ["8.8.8.8", "2001:4860:4860::8888"]  # Google IPv4 + IPv6 DNS
+            resolver.timeout = 2.5
+            resolver.lifetime = 3.0
+            ans = await resolver.resolve(target, "AAAA")
+            for rdata in ans:
+                return str(rdata).strip()
+        except Exception:
+            pass
+        return None
+
+    async def probe_ipv6_tls(self, ipv6_addr: str, hostname: str) -> bool:
+        """
+        Probe common TLS ports on an IPv6 address to confirm it is responsive.
+        Returns True if any TLS port accepts a connection.
+        """
+        tls_ports = [443, 8443, 80, 8080]
+        for port in tls_ports:
+            try:
+                conn = asyncio.open_connection(ipv6_addr, port)
+                _, writer = await asyncio.wait_for(conn, timeout=3.0)
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                return True
+            except Exception:
+                continue
+        return False
+
+    # ------------------------------------------------------------------
+    # NEW: Historical DNS / Origin IP Uncloaking
+    # ------------------------------------------------------------------
+    async def fetch_historical_ips(self, target: str, current_ip: str) -> list:
+        """
+        Query HackerTarget (free) and optionally ViewDNS (API key env var) for
+        historical IP associations. For each historical IP that differs from the
+        current resolved IP, attempt a direct HTTP connection with the correct Host
+        header to test whether the origin web server is directly accessible.
+        Returns a list of dicts with: { ip, source, responds_directly }
+        """
+        import httpx
+        historical = []
+        seen = {current_ip} if current_ip else set()
+
+        # --- Source 1: HackerTarget (no API key needed) ---
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://api.hackertarget.com/hostsearch/?q={target}",
+                    headers={"User-Agent": "Mozilla/5.0"}
+                )
+                if resp.status_code == 200 and "error" not in resp.text.lower()[:50]:
+                    for line in resp.text.splitlines():
+                        parts = line.strip().split(",")
+                        if len(parts) == 2:
+                            ip = parts[1].strip()
+                            if ip and ip not in seen and self._is_valid_public_ip(ip):
+                                seen.add(ip)
+                                historical.append({"ip": ip, "source": "HackerTarget"})
+        except Exception as e:
+            logger.debug(f"[HistoricalIPs] HackerTarget query failed for {target}: {e}")
+
+        # --- Source 2: ViewDNS (optional, requires API key) ---
+        if VIEWDNS_API_KEY:
+            try:
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    resp = await client.get(
+                        f"https://api.viewdns.info/iphistory/?domain={target}&apikey={VIEWDNS_API_KEY}&output=json",
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        for entry in data.get("response", {}).get("records", []):
+                            ip = entry.get("ip", "").strip()
+                            if ip and ip not in seen and self._is_valid_public_ip(ip):
+                                seen.add(ip)
+                                historical.append({"ip": ip, "source": "ViewDNS"})
+            except Exception as e:
+                logger.debug(f"[HistoricalIPs] ViewDNS query failed for {target}: {e}")
+
+        # Test each historical IP for direct origin access
+        for entry in historical:
+            entry["responds_directly"] = await self._probe_direct_origin(entry["ip"], target)
+
+        exposed = [e for e in historical if e["responds_directly"]]
+        if exposed:
+            logger.warning(f"[HistoricalIPs] {target}: {len(exposed)} historical IPs respond directly (potential origin exposure)")
+        else:
+            logger.debug(f"[HistoricalIPs] {target}: Found {len(historical)} historical IPs, none respond directly")
+
+        return historical
+
+    def _is_valid_public_ip(self, ip: str) -> bool:
+        """Return True if ip looks like a routable public IPv4 address."""
+        import re
+        if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip):
+            return False
+        parts = list(map(int, ip.split(".")))
+        if parts[0] in (10, 127):
+            return False
+        if parts[0] == 172 and 16 <= parts[1] <= 31:
+            return False
+        if parts[0] == 192 and parts[1] == 168:
+            return False
+        if parts[0] in (0, 255):
+            return False
+        return True
+
+    async def _probe_direct_origin(self, ip: str, hostname: str) -> bool:
+        """
+        Send a direct HTTP/HTTPS request to the IP with a Host header matching
+        the original hostname. Returns True if the server responds with HTTP content,
+        indicating the origin is accessible directly (bypassing CDN/WAF).
+        """
+        import httpx
+        for scheme in ("https", "http"):
+            url = f"{scheme}://{ip}"
+            try:
+                async with httpx.AsyncClient(
+                    timeout=4.0, verify=False, follow_redirects=False,
+                    headers={"Host": hostname, "User-Agent": "Mozilla/5.0"}
+                ) as client:
+                    resp = await client.get(url)
+                    if resp.status_code < 600:
+                        return True
+            except Exception:
+                continue
+        return False
 
     async def is_wildcard(self, domain):
         """Check if a domain has wildcard DNS."""
@@ -100,7 +245,12 @@ class AliveCheckAgent(BaseAgent):
             # 1. Check for wildcard on the parent domain
             parent_domain = ".".join(target.split(".")[1:]) if "." in target else ""
             wildcard_ip = await self.is_wildcard(parent_domain) if parent_domain else None
-            target_ip = await self.get_ip(target)
+
+            # Resolve IPv4 and IPv6 concurrently
+            target_ip, target_ipv6 = await asyncio.gather(
+                self.get_ip(target),
+                self.get_ipv6(target)
+            )
 
             is_potential_fp = False
             if wildcard_ip and target_ip == wildcard_ip:
@@ -115,7 +265,16 @@ class AliveCheckAgent(BaseAgent):
                 logger.info(f"Target {target} is a Wildcard FP (No ports open).")
                 alive = False
 
-            # 3. Autonomous Subdomain Takeover & Dangling DNS check
+            # 3. NEW: IPv6 dual-stack probe and bypass detection
+            ipv6_responds = False
+            if target_ipv6:
+                try:
+                    ipv6_responds = await self.probe_ipv6_tls(target_ipv6, target)
+                    logger.info(f"[IPv6] {target} -> {target_ipv6} (responsive={ipv6_responds})")
+                except Exception as ie:
+                    logger.debug(f"[IPv6] Probe failed for {target}: {ie}")
+
+            # 4. Autonomous Subdomain Takeover & Dangling DNS check
             takeover_res = None
             try:
                 takeover_res = await self.takeover_detector.audit_subdomain_takeover(target)
@@ -141,7 +300,7 @@ class AliveCheckAgent(BaseAgent):
             except Exception as te:
                 logger.error(f"Error auditing takeover for {target}: {te}")
 
-            # 4. Resolve ASN, Org, and Reverse PTR for discovered IP
+            # 5. Resolve ASN, Org, and Reverse PTR for discovered IP
             asn_info = {}
             if target_ip:
                 try:
@@ -149,13 +308,78 @@ class AliveCheckAgent(BaseAgent):
                 except Exception as ae:
                     logger.debug(f"Error resolving ASN for {target_ip}: {ae}")
 
-            # 5. Asset Validation:
+            # 6. NEW: Detect dual-stack CDN bypass — IPv6 resolves to different ASN than IPv4
+            if target_ip and target_ipv6 and ipv6_responds:
+                try:
+                    ipv6_asn_info = await self.asn_resolver.resolve_ip(target_ipv6)
+                    ipv4_asn = asn_info.get("asn")
+                    ipv6_asn = ipv6_asn_info.get("asn")
+                    # Alert if both IPs are live but on different ASNs — likely CDN bypass
+                    if ipv4_asn and ipv6_asn and ipv4_asn != ipv6_asn:
+                        await self.create_alert(
+                            title=f"Dual-Stack Origin Exposure: {target}",
+                            description=(
+                                f"{target} uses IPv4 ({target_ip}, ASN {ipv4_asn} — {asn_info.get('org', 'Unknown')}) and "
+                                f"IPv6 ({target_ipv6}, ASN {ipv6_asn} — {ipv6_asn_info.get('org', 'Unknown')}). "
+                                f"The IPv6 address resolves to a different network and may bypass CDN/WAF filtering entirely."
+                            ),
+                            target=target,
+                            risk_level="high",
+                            details={
+                                "ipv4": target_ip,
+                                "ipv4_asn": ipv4_asn,
+                                "ipv4_org": asn_info.get("org"),
+                                "ipv6": target_ipv6,
+                                "ipv6_asn": ipv6_asn,
+                                "ipv6_org": ipv6_asn_info.get("org"),
+                            },
+                            exploitation_suggestions=[
+                                f"Test direct access to https://[{target_ipv6}]/ with Host: {target} header.",
+                                "Compare HTTP response headers between IPv4 and IPv6 paths for WAF/CDN differences.",
+                                "Check if IPv6 origin exposes internal server version banners or debug endpoints."
+                            ],
+                            alert_type="dual_stack_origin_exposure"
+                        )
+                except Exception as da:
+                    logger.debug(f"[IPv6 Bypass] ASN comparison failed for {target}: {da}")
+
+            # 7. NEW: Historical IP uncloaking — only for alive targets with a current IP
+            historical_ips = []
+            if alive and target_ip:
+                try:
+                    historical_ips = await self.fetch_historical_ips(target, target_ip)
+                    exposed_origins = [h for h in historical_ips if h.get("responds_directly")]
+                    if exposed_origins:
+                        await self.create_alert(
+                            title=f"Historical Origin IP Exposed: {target}",
+                            description=(
+                                f"{len(exposed_origins)} historical IP address(es) for {target} respond directly to "
+                                f"HTTP requests with the correct Host header, suggesting the origin server may be "
+                                f"reachable without passing through the CDN or WAF."
+                            ),
+                            target=target,
+                            risk_level="high",
+                            details={
+                                "current_ip": target_ip,
+                                "exposed_origin_ips": [h["ip"] for h in exposed_origins],
+                                "all_historical_ips": [h["ip"] for h in historical_ips],
+                            },
+                            exploitation_suggestions=[
+                                f"Test direct HTTP access to {h['ip']} with Host: {target} header." 
+                                for h in exposed_origins
+                            ],
+                            alert_type="origin_ip_exposed"
+                        )
+                except Exception as he:
+                    logger.debug(f"[HistoricalIPs] Error for {target}: {he}")
+
+            # 8. Asset Validation:
             # - Dangling takeover detected: Valid asset
             # - Responded on an open port: Valid asset (alive=True)
             # - Resolves to a valid IP and is NOT a wildcard catch-all: Valid asset in DNS (eliminates false negatives)
             is_valid_asset = bool(takeover_res) or alive or (bool(target_ip) and not is_potential_fp)
 
-            # 6. Build Subdomain Metadata & Track Infrastructure Drift History
+            # 9. Build Subdomain Metadata & Track Infrastructure Drift History
             domain_doc = await self.domains_col.find_one(
                 {"domain": root_domain, "infrastructure.subdomains.name": target},
                 {"infrastructure.subdomains.$": 1}
@@ -215,6 +439,11 @@ class AliveCheckAgent(BaseAgent):
 
             if target_ip:
                 sub_update_fields["infrastructure.subdomains.$.ip"] = target_ip
+            if target_ipv6:
+                sub_update_fields["infrastructure.subdomains.$.ipv6"] = target_ipv6
+                sub_update_fields["infrastructure.subdomains.$.ipv6_responds"] = ipv6_responds
+            if historical_ips:
+                sub_update_fields["infrastructure.subdomains.$.historical_ips"] = historical_ips
             if asn_info.get("asn"):
                 sub_update_fields["infrastructure.subdomains.$.asn"] = asn_info.get("asn")
                 sub_update_fields["infrastructure.subdomains.$.as_org"] = asn_info.get("org")
@@ -239,6 +468,11 @@ class AliveCheckAgent(BaseAgent):
                     }
                     if target_ip:
                         new_sub_doc["ip"] = target_ip
+                    if target_ipv6:
+                        new_sub_doc["ipv6"] = target_ipv6
+                        new_sub_doc["ipv6_responds"] = ipv6_responds
+                    if historical_ips:
+                        new_sub_doc["historical_ips"] = historical_ips
                     if asn_info.get("asn"):
                         new_sub_doc["asn"] = asn_info.get("asn")
                         new_sub_doc["as_org"] = asn_info.get("org")
@@ -304,7 +538,7 @@ class AliveCheckAgent(BaseAgent):
                         {"$set": sub_update_fields}
                     )
 
-                logger.info(f"Target {target} processed (alive={alive}, valid_asset=True, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
+                logger.info(f"Target {target} processed (alive={alive}, ipv6={target_ipv6}, valid_asset=True, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
             else:
                 logger.info(f"Target {target} is DEAD or Wildcard FP.")
                 if target != root_domain:
