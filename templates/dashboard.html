@@ -919,6 +919,11 @@
             activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         }
 
+        if (tabId !== 'topology' && typeof topoState !== 'undefined' && topoState.animId) {
+            cancelAnimationFrame(topoState.animId);
+            topoState.animId = null;
+        }
+
         // Proactively fetch recovered source maps for this domain when on webapps tab
         if (tabId === 'webapps' && !window.currentDomainSourceMapsLoaded && currentDetailData) {
             fetch(`/api/source-maps?target=${encodeURIComponent(currentDetailData.domain || '')}`)
@@ -1966,32 +1971,81 @@
                 `;
                 break;
             case 'topology':
+                const curViewingTarget = getViewingTarget();
                 content.innerHTML = `
                     <div class="space-y-4">
-                        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-3">
                             <div>
-                                <h4 class="text-lg font-bold text-slate-900 dark:text-white">Infrastructure Relationship Topology</h4>
-                                <p class="text-xs text-slate-500">Interactive visual map of root domain, subdomains, network IPs, and cloud assets.</p>
+                                <div class="flex items-center gap-2">
+                                    <h4 class="text-lg font-bold text-slate-900 dark:text-white">Infrastructure Relationship Topology</h4>
+                                    <span id="topology-scope-badge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">Root Overview</span>
+                                </div>
+                                <p class="text-xs text-slate-500">Interactive visual map. Click any subdomain or IP to isolate its direct links and co-hosted domains. Use filters to toggle asset tiers.</p>
                             </div>
-                            <div class="flex items-center gap-3 text-xs font-mono flex-wrap">
-                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-tech-accent inline-block"></span> Root Domain</span>
-                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Alive Subdomain</span>
-                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> Takeover / Alert</span>
-                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span> IP / ASN</span>
-                                <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Cloud Storage</span>
+                            
+                            <!-- Interactive Scope Bar & Reset -->
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <button onclick="window.topologySetScope(null)" id="topo-scope-root-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all">All Assets (Root)</button>
+                                <span id="topo-scope-sub-pill" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                                    <span id="topo-scope-sub-label"></span>
+                                    <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Root Overview">×</button>
+                                </span>
                             </div>
                         </div>
-                        <div id="topology-container" class="w-full h-[580px] bg-slate-950 rounded-3xl border border-slate-800 relative overflow-hidden flex items-center justify-center">
-                            <canvas id="topology-canvas" class="w-full h-full cursor-grab"></canvas>
-                            <div class="absolute bottom-4 right-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-xs font-mono z-10">
-                                <button onclick="window.topologyZoom(1.2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors">+</button>
-                                <button onclick="window.topologyZoom(0.8)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors">-</button>
-                                <button onclick="window.topologyReset()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white transition-colors">Reset</button>
+
+                        <!-- Interactive Node Filter Toggles -->
+                        <div class="flex items-center gap-2 text-xs font-mono flex-wrap bg-slate-900/60 p-2.5 rounded-2xl border border-slate-800">
+                            <span class="text-slate-500 text-[11px] uppercase tracking-wider font-bold mr-1">Filter Nodes:</span>
+                            <button id="topo-filter-root" onclick="window.topologyToggleFilter('root')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Root Domain
+                            </button>
+                            <button id="topo-filter-subdomain" onclick="window.topologyToggleFilter('subdomain')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block"></span> Alive Subdomains
+                            </button>
+                            <button id="topo-filter-unresponsive" onclick="window.topologyToggleFilter('unresponsive')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block"></span> Unresponsive
+                            </button>
+                            <button id="topo-filter-takeover" onclick="window.topologyToggleFilter('takeover')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> Takeovers / Risk
+                            </button>
+                            <button id="topo-filter-ip" onclick="window.topologyToggleFilter('ip')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span> Shared Host IPs
+                            </button>
+                            <button id="topo-filter-asn" onclick="window.topologyToggleFilter('asn')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> ASN Networks
+                            </button>
+                            <button id="topo-filter-cloud" onclick="window.topologyToggleFilter('cloud')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Cloud Storage
+                            </button>
+                            <button id="topo-filter-waf" onclick="window.topologyToggleFilter('waf')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Web Application Firewalls">
+                                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span> WAFs
+                            </button>
+                            <button id="topo-filter-load_balancer" onclick="window.topologyToggleFilter('load_balancer')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Load Balancers & Proxies">
+                                <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span> Load Balancers
+                            </button>
+                        </div>
+
+                        <!-- Canvas Container (Default 720px, Expandable to Fullscreen) -->
+                        <div id="topology-container" class="w-full h-[720px] bg-slate-950 rounded-3xl border border-slate-800 relative overflow-hidden select-none block transition-all" style="min-height: 720px;">
+                            <canvas id="topology-canvas" class="block cursor-grab" style="width: 100%; height: 100%; display: block;"></canvas>
+                            
+                            <!-- Floating Status Badge -->
+                            <div id="topology-stats-badge" class="absolute top-4 left-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 z-10 shadow-lg pointer-events-none">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span id="topology-stats-text">Initializing topology graph...</span>
+                            </div>
+
+                            <!-- Floating Action Controls -->
+                            <div class="absolute bottom-4 right-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-xs font-mono z-10 shadow-lg">
+                                <button id="topology-expand-btn" onclick="window.topologyToggleExpand()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Toggle Expanded / Fullscreen View">⛶ Expand</button>
+                                <button onclick="window.topologyZoom(1.2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom In">+</button>
+                                <button onclick="window.topologyZoom(0.8)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom Out">-</button>
+                                <button onclick="window.topologyReset()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white transition-colors" title="Reset View">Reset</button>
                             </div>
                         </div>
                     </div>
                 `;
-                setTimeout(() => initTopologyGraph(data), 50);
+                setTimeout(() => initTopologyGraph(data, curViewingTarget), 50);
                 break;
             case 'systems':
                 const systems = data.systems || [];
@@ -4103,6 +4157,11 @@
         animId: null,
         canvas: null,
         ctx: null,
+        data: null,
+        rootDomain: '',
+        viewingTarget: null,
+        focusedSubdomain: null,
+        isFullscreen: false,
         nodes: [],
         edges: [],
         scale: 1,
@@ -4111,15 +4170,89 @@
         isPanning: false,
         draggedNode: null,
         hoveredNode: null,
+        dragStartX: 0,
+        dragStartY: 0,
         startX: 0,
-        startY: 0
+        startY: 0,
+        pulseVal: 0,
+        filters: {
+            root: true,
+            subdomain: true,
+            unresponsive: true,
+            takeover: true,
+            ip: true,
+            asn: true,
+            cloud: true,
+            waf: true,
+            load_balancer: true
+        }
+    };
+
+    window.topologyToggleExpand = function() {
+        const container = document.getElementById('topology-container');
+        const btn = document.getElementById('topology-expand-btn');
+        if (!container) return;
+
+        topoState.isFullscreen = !topoState.isFullscreen;
+        if (topoState.isFullscreen) {
+            container.classList.remove('w-full', 'h-[720px]', 'relative');
+            container.classList.add('fixed', 'inset-3', 'z-[100]', 'h-[calc(100vh-24px)]', 'shadow-2xl');
+            if (btn) btn.innerHTML = '⛶ Minimize';
+        } else {
+            container.classList.remove('fixed', 'inset-3', 'z-[100]', 'h-[calc(100vh-24px)]', 'shadow-2xl');
+            container.classList.add('w-full', 'h-[720px]', 'relative');
+            if (btn) btn.innerHTML = '⛶ Expand';
+        }
+
+        const dpr = window.devicePixelRatio || 1;
+        const width = Math.max(container.clientWidth || 1000, 400);
+        const height = Math.max(container.clientHeight || 720, 400);
+        const canvas = topoState.canvas;
+        if (canvas) {
+            canvas.width = Math.round(width * dpr);
+            canvas.height = Math.round(height * dpr);
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            topoState.panX = width / 2;
+            topoState.panY = height / 2;
+            topoTriggerDraw();
+        }
+    };
+
+    window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && topoState.isFullscreen) {
+            window.topologyToggleExpand();
+        }
+    });
+
+    window.topologyToggleFilter = function(filterKey) {
+        if (!topoState.filters) return;
+        topoState.filters[filterKey] = !topoState.filters[filterKey];
+        
+        const btn = document.getElementById(`topo-filter-${filterKey}`);
+        if (btn) {
+            if (topoState.filters[filterKey]) {
+                btn.classList.remove('opacity-40', 'line-through');
+                btn.classList.add('opacity-100');
+            } else {
+                btn.classList.remove('opacity-100');
+                btn.classList.add('opacity-40', 'line-through');
+            }
+        }
+        
+        topoBuildAndLayoutGraph();
+    };
+
+    window.topologySetScope = function(subName) {
+        topoState.focusedSubdomain = subName ? subName.trim().toLowerCase() : null;
+        topoBuildAndLayoutGraph();
     };
 
     window.topologyZoom = function(factor) {
         if (!topoState.canvas) return;
-        const newScale = Math.min(Math.max(topoState.scale * factor, 0.3), 3.5);
-        const cx = topoState.canvas.clientWidth / 2;
-        const cy = topoState.canvas.clientHeight / 2;
+        const newScale = Math.min(Math.max(topoState.scale * factor, 0.2), 4.0);
+        const cx = (topoState.canvas.clientWidth || 800) / 2;
+        const cy = (topoState.canvas.clientHeight || 720) / 2;
         topoState.panX = cx - (cx - topoState.panX) * (newScale / topoState.scale);
         topoState.panY = cy - (cy - topoState.panY) * (newScale / topoState.scale);
         topoState.scale = newScale;
@@ -4129,19 +4262,945 @@
     window.topologyReset = function() {
         if (!topoState.canvas) return;
         topoState.scale = 1;
-        topoState.panX = topoState.canvas.clientWidth / 2;
-        topoState.panY = topoState.canvas.clientHeight / 2;
+        topoState.panX = (topoState.canvas.clientWidth || 800) / 2;
+        topoState.panY = (topoState.canvas.clientHeight || 720) / 2;
         topoTriggerDraw();
     };
 
     function topoTriggerDraw() {
-        if (!topoState.animRunning) {
-            topoState.animRunning = true;
-            requestAnimationFrame(topoSimulateAndDraw);
+        if (!topoState.animId) {
+            topoState.animId = requestAnimationFrame(topoSimulateAndDraw);
         }
     }
 
-    function initTopologyGraph(data) {
+    function getTargetWaf(targetName, subObj, data) {
+        if (!data) return null;
+        if (subObj && subObj.waf && (subObj.waf.detected || subObj.waf.firewall)) {
+            return subObj.waf;
+        }
+        const cleanTarget = String(targetName || '').trim().toLowerCase();
+        const rootDom = String(data.domain || '').trim().toLowerCase();
+        const isRootTarget = cleanTarget === rootDom || cleanTarget === 'root';
+        const isTargetQuery = data.target_query && String(data.target_query).trim().toLowerCase() === cleanTarget;
+        const isTargetSubdomain = Boolean(data.target_query && String(data.target_query).trim().toLowerCase() !== rootDom);
+
+        // 1. If this target matches the searched target_query, data.infrastructure.waf is scoped to it
+        if (isTargetQuery) {
+            const qWaf = data.infrastructure?.waf || data.waf;
+            if (qWaf && (qWaf.detected || qWaf.firewall)) return qWaf;
+        }
+
+        // 2. If target is the root domain:
+        if (isRootTarget) {
+            if (isTargetSubdomain) {
+                const rWaf = data.infrastructure?.root_waf || data.root_waf;
+                if (rWaf && (rWaf.detected || rWaf.firewall)) return rWaf;
+                return null;
+            } else {
+                const rWaf = data.infrastructure?.waf || data.waf;
+                if (rWaf && (rWaf.detected || rWaf.firewall)) return rWaf;
+            }
+        }
+
+        // 3. Check web_applications
+        const app = (data.web_applications || []).find(w => String(w.target || '').trim().toLowerCase() === cleanTarget);
+        if (app && app.waf && (app.waf.detected || app.waf.firewall)) {
+            return app.waf;
+        }
+
+        // 4. Check infrastructure.subdomains
+        const sub = (data.infrastructure?.subdomains || []).find(s => String(s.name || '').trim().toLowerCase() === cleanTarget);
+        if (sub && sub.waf && (sub.waf.detected || sub.waf.firewall)) {
+            return sub.waf;
+        }
+
+        return null;
+    }
+
+    function getTargetLb(targetName, subObj, data) {
+        if (!data) return null;
+        if (subObj && subObj.load_balancer && (subObj.load_balancer.detected || subObj.load_balancer.method)) {
+            return subObj.load_balancer;
+        }
+        const cleanTarget = String(targetName || '').trim().toLowerCase();
+        const rootDom = String(data.domain || '').trim().toLowerCase();
+        const isRootTarget = cleanTarget === rootDom || cleanTarget === 'root';
+        const isTargetQuery = data.target_query && String(data.target_query).trim().toLowerCase() === cleanTarget;
+        const isTargetSubdomain = Boolean(data.target_query && String(data.target_query).trim().toLowerCase() !== rootDom);
+
+        // 1. If this target matches the searched target_query, data.infrastructure.load_balancer is scoped to it
+        if (isTargetQuery) {
+            const qLb = data.infrastructure?.load_balancer || data.load_balancer;
+            if (qLb && (qLb.detected || qLb.method)) return qLb;
+        }
+
+        // 2. If target is the root domain:
+        if (isRootTarget) {
+            if (isTargetSubdomain) {
+                const rLb = data.infrastructure?.root_load_balancer || data.root_load_balancer;
+                if (rLb && (rLb.detected || rLb.method)) return rLb;
+                return null;
+            } else {
+                const rLb = data.infrastructure?.load_balancer || data.load_balancer;
+                if (rLb && (rLb.detected || rLb.method)) return rLb;
+            }
+        }
+
+        // 3. Check web_applications
+        const app = (data.web_applications || []).find(w => String(w.target || '').trim().toLowerCase() === cleanTarget);
+        if (app && app.load_balancer && (app.load_balancer.detected || app.load_balancer.method)) {
+            return app.load_balancer;
+        }
+
+        // 4. Check infrastructure.subdomains
+        const sub = (data.infrastructure?.subdomains || []).find(s => String(s.name || '').trim().toLowerCase() === cleanTarget);
+        if (sub && sub.load_balancer && (sub.load_balancer.detected || sub.load_balancer.method)) {
+            return sub.load_balancer;
+        }
+
+        return null;
+    }
+
+    function topoBuildAndLayoutGraph() {
+        const data = topoState.data;
+        if (!data) return;
+
+        const container = document.getElementById('topology-container');
+        const canvas = topoState.canvas;
+        const width = Math.max(canvas ? canvas.clientWidth : (container ? container.clientWidth : 800), 400);
+        const height = Math.max(canvas ? canvas.clientHeight : (container ? container.clientHeight : 720), 400);
+
+        const rootDomain = topoState.rootDomain;
+        const focused = topoState.focusedSubdomain;
+
+        const nodesMap = new Map();
+        const rawEdges = [];
+
+        // 1. ROOT DOMAIN NODE
+        const rootWaf = getTargetWaf(rootDomain, null, data);
+        const rootLb = getTargetLb(rootDomain, null, data);
+
+        const rootNode = {
+            id: 'root',
+            label: rootDomain,
+            type: 'root',
+            color: '#10b981',
+            strokeColor: '#34d399',
+            radius: 24,
+            x: focused ? -220 : 0,
+            y: 0,
+            fixed: true,
+            info: {
+                domain: rootDomain,
+                ip: data.system?.ip || (data.target_ips && data.target_ips[0]) || 'Unknown',
+                subdomainsCount: 0,
+                scanned: Boolean(data.scanned),
+                waf: rootWaf ? (rootWaf.firewall || 'WAF Detected') : null,
+                load_balancer: rootLb ? (rootLb.method || 'LB Detected') : null
+            }
+        };
+        nodesMap.set('root', rootNode);
+
+        // Attach Root WAF Node if detected
+        if (rootWaf) {
+            const rootWafId = 'waf_root';
+            const wafNode = {
+                id: rootWafId,
+                label: `🛡️ ${rootWaf.firewall || 'WAF'}`,
+                type: 'waf',
+                color: '#06b6d4',
+                strokeColor: '#67e8f9',
+                radius: 14,
+                x: rootNode.x + (focused ? -35 : -70),
+                y: rootNode.y - 75,
+                info: {
+                    firewall: rootWaf.firewall || 'Generic WAF',
+                    manufacturer: rootWaf.manufacturer,
+                    confidence: rootWaf.confidence,
+                    target: rootDomain
+                }
+            };
+            nodesMap.set(rootWafId, wafNode);
+            rawEdges.push({ source: 'root', target: rootWafId, type: 'waf' });
+        }
+
+        // Attach Root Load Balancer Node if detected
+        if (rootLb) {
+            const rootLbId = 'lb_root';
+            const lbMethod = String(rootLb.method || (rootLb.methods && rootLb.methods[0]) || 'Load Balancer');
+            const lbNode = {
+                id: rootLbId,
+                label: `⚖️ ${lbMethod.length > 20 ? lbMethod.slice(0, 18) + '...' : lbMethod}`,
+                type: 'load_balancer',
+                color: '#a855f7',
+                strokeColor: '#d8b4fe',
+                radius: 14,
+                x: rootNode.x + (focused ? -35 : -70),
+                y: rootNode.y + 75,
+                info: {
+                    method: lbMethod,
+                    ips: rootLb.ips,
+                    all_fqdns: rootLb.all_fqdns,
+                    target: rootDomain
+                }
+            };
+            nodesMap.set(rootLbId, lbNode);
+            rawEdges.push({ source: 'root', target: rootLbId, type: 'load_balancer' });
+        }
+
+        const rawSubs = data.infrastructure?.subdomains || data.subdomains || [];
+        const subs = Array.isArray(rawSubs) ? rawSubs : [];
+        rootNode.info.subdomainsCount = subs.length;
+
+        // CF Cloud buckets
+        const cf = (data.infrastructure && data.infrastructure.cloud_footprint) || data.cloud_footprint || data.cloud || {};
+        const rawBuckets = [
+            ...(cf.s3_buckets || []).map(b => ({ ...(typeof b === 'object' ? b : { name: b }), provider: (typeof b === 'object' && b.provider) || 'AWS S3' })),
+            ...(cf.azure_blobs || []).map(b => ({ ...(typeof b === 'object' ? b : { name: b }), provider: (typeof b === 'object' && b.provider) || 'Azure Blob' })),
+            ...(cf.gcp_buckets || []).map(b => ({ ...(typeof b === 'object' ? b : { name: b }), provider: (typeof b === 'object' && b.provider) || 'Google Cloud' })),
+            ...(cf.other_buckets || []).map(b => ({ ...(typeof b === 'object' ? b : { name: b }), provider: (typeof b === 'object' && b.provider) || 'Cloud CDN/Storage' })),
+            ...(data.osint?.cloud_assets || []).map(b => ({ ...(typeof b === 'object' ? b : { name: b }), provider: (typeof b === 'object' && b.provider) || 'Cloud Asset' }))
+        ];
+
+        const seenBuckets = new Set();
+        const validBuckets = [];
+        rawBuckets.forEach(b => {
+            const bName = b.name || b.raw || b.url;
+            if (!bName) return;
+            const bKey = String(bName).toLowerCase().trim();
+            if (!seenBuckets.has(bKey)) {
+                seenBuckets.add(bKey);
+                validBuckets.push(b);
+            }
+        });
+
+        // =========================================================================
+        // CASE A: SUBDOMAIN / IP FOCUSED VIEW (DIRECT LINKS & MULTI-HOST SHARING)
+        // =========================================================================
+        if (focused && focused !== rootDomain) {
+            const isIpScope = /^(\d{1,3}\.){3}\d{1,3}$/.test(focused);
+            let targetSub = null;
+            let directIp = null;
+
+            if (isIpScope) {
+                directIp = focused;
+            } else {
+                targetSub = subs.find(s => {
+                    const sName = (typeof s === 'string' ? s : (s.name || s.subdomain || '')).trim().toLowerCase();
+                    return sName === focused;
+                });
+                directIp = (targetSub && typeof targetSub === 'object' && targetSub.ip && targetSub.ip !== 'N/A' && targetSub.ip !== 'Unknown') ? String(targetSub.ip).trim() : null;
+            }
+
+            // Check if root domain itself shares this IP
+            const rootIp = String(data.system?.ip || (data.target_ips && data.target_ips[0]) || '').trim();
+            const rootSharesIp = Boolean(rootIp && directIp && rootIp === directIp);
+
+            // Collect ALL subdomains that share this directIp
+            const coHostedSubs = [];
+            const seenHosted = new Set();
+            if (!isIpScope && targetSub) {
+                seenHosted.add(focused);
+            }
+
+            subs.forEach((s, idx) => {
+                if (!s) return;
+                const sName = (typeof s === 'string' ? s : (s.name || s.subdomain || `sub-${idx}`)).trim().toLowerCase();
+                if (!sName || seenHosted.has(sName) || sName === rootDomain) return;
+                const sIp = (typeof s === 'object' && s.ip && s.ip !== 'N/A' && s.ip !== 'Unknown') ? String(s.ip).trim() : null;
+                if (sIp && directIp && sIp === directIp) {
+                    seenHosted.add(sName);
+                    coHostedSubs.push({ sub: s, name: sName });
+                }
+            });
+
+            // Assemble all subdomains to display on this IP
+            const subdomainsToRender = [];
+            if (!isIpScope && targetSub) {
+                subdomainsToRender.push({
+                    sub: targetSub,
+                    name: focused,
+                    isPrimary: true
+                });
+            }
+            coHostedSubs.forEach(item => {
+                subdomainsToRender.push({
+                    sub: item.sub,
+                    name: item.name,
+                    isPrimary: false
+                });
+            });
+
+            // Hosted names list on this IP
+            const allHostedNames = [
+                ...(rootSharesIp ? [rootDomain] : []),
+                ...subdomainsToRender.map(item => item.name)
+            ];
+            const totalHosted = allHostedNames.length;
+            const isSharedIp = totalHosted > 1;
+
+            // Positioning geometry
+            const M = subdomainsToRender.length;
+            subdomainsToRender.forEach((item, idx) => {
+                const sName = item.name;
+                const sSub = item.sub;
+                const isPrimary = item.isPrimary;
+
+                const isAlive = (sSub && typeof sSub === 'object') ? Boolean(sSub.alive) : true;
+                const isTakeover = Boolean(sSub && (sSub.dangling_takeover || (sSub.takeover_provider && String(sSub.takeover_provider).length > 0)));
+                const sWaf = getTargetWaf(sName, sSub, data);
+                const sLb = getTargetLb(sName, sSub, data);
+
+                let subType = 'subdomain';
+                let color = isPrimary ? '#38bdf8' : '#0284c7';
+                let strokeColor = isPrimary ? '#bae6fd' : '#7dd3fc';
+                let radius = isPrimary ? 16 : 13;
+
+                if (isTakeover) {
+                    subType = 'takeover';
+                    color = '#ef4444';
+                    strokeColor = isPrimary ? '#fca5a5' : '#f87171';
+                    radius = isPrimary ? 18 : 15;
+                } else if (!isAlive) {
+                    subType = 'unresponsive';
+                    color = '#64748b';
+                    strokeColor = isPrimary ? '#cbd5e1' : '#94a3b8';
+                    radius = isPrimary ? 14 : 11;
+                }
+
+                let subX = 0;
+                let subY = 0;
+                if (M > 1) {
+                    if (M <= 6) {
+                        subX = isPrimary ? -10 : 10;
+                        subY = (idx - (M - 1) / 2) * 60;
+                    } else {
+                        const col = idx % 2 === 0 ? -40 : 40;
+                        const row = Math.floor(idx / 2) - Math.floor(M / 4);
+                        subX = col;
+                        subY = row * 52;
+                    }
+                }
+
+                const subId = `sub_${sName}`;
+                const subNode = {
+                    id: subId,
+                    label: sName,
+                    type: subType,
+                    color: color,
+                    strokeColor: strokeColor,
+                    radius: radius,
+                    x: subX,
+                    y: subY,
+                    isPrimary: isPrimary,
+                    info: {
+                        name: sName,
+                        ip: directIp || ((sSub && typeof sSub === 'object' && sSub.ip) ? sSub.ip : 'N/A'),
+                        asn: (sSub && typeof sSub === 'object' && sSub.asn) ? `${sSub.asn}${sSub.as_org ? ' (' + sSub.as_org + ')' : ''}` : null,
+                        takeover: isTakeover ? (sSub.takeover_provider || 'Dangling CNAME') : null,
+                        cname: (sSub && typeof sSub === 'object' && sSub.cname) ? sSub.cname : null,
+                        alive: isAlive,
+                        isSharedHost: isSharedIp,
+                        hostedCount: totalHosted,
+                        waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
+                        load_balancer: sLb ? (sLb.method || 'LB Detected') : null
+                    }
+                };
+                nodesMap.set(subId, subNode);
+                rawEdges.push({ source: 'root', target: subId, type: isTakeover ? 'takeover' : 'sub' });
+
+                if (directIp) {
+                    rawEdges.push({ source: subId, target: `ip_${directIp}`, type: 'ip' });
+                }
+
+                // Attach Subdomain WAF Node if detected
+                if (sWaf) {
+                    const wafId = `waf_${sName}`;
+                    const wafFirewall = sWaf.firewall || 'WAF';
+                    const wafNode = {
+                        id: wafId,
+                        label: `🛡️ ${wafFirewall}`,
+                        type: 'waf',
+                        color: '#06b6d4',
+                        strokeColor: '#67e8f9',
+                        radius: 13,
+                        x: subX + (directIp ? 90 : 120),
+                        y: subY - 32,
+                        info: {
+                            firewall: wafFirewall,
+                            manufacturer: sWaf.manufacturer,
+                            confidence: sWaf.confidence,
+                            target: sName
+                        }
+                    };
+                    nodesMap.set(wafId, wafNode);
+                    rawEdges.push({ source: subId, target: wafId, type: 'waf' });
+                }
+
+                // Attach Subdomain Load Balancer Node if detected
+                if (sLb) {
+                    const lbId = `lb_${sName}`;
+                    const lbMethod = String(sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbNode = {
+                        id: lbId,
+                        label: `⚖️ ${lbMethod.length > 18 ? lbMethod.slice(0, 16) + '...' : lbMethod}`,
+                        type: 'load_balancer',
+                        color: '#a855f7',
+                        strokeColor: '#d8b4fe',
+                        radius: 13,
+                        x: subX + (directIp ? 90 : 120),
+                        y: subY + 32,
+                        info: {
+                            method: lbMethod,
+                            ips: sLb.ips,
+                            all_fqdns: sLb.all_fqdns,
+                            target: sName
+                        }
+                    };
+                    nodesMap.set(lbId, lbNode);
+                    rawEdges.push({ source: subId, target: lbId, type: 'load_balancer' });
+                }
+
+                // Dangling Takeover target
+                if (isTakeover && sSub.cname) {
+                    const cnameId = `cname_${sSub.cname}`;
+                    if (!nodesMap.has(cnameId)) {
+                        const cnameNode = {
+                            id: cnameId,
+                            label: `Dangling: ${sSub.cname}`,
+                            type: 'takeover_target',
+                            color: '#dc2626',
+                            strokeColor: '#fca5a5',
+                            radius: 13,
+                            x: subX + (idx % 2 === 0 ? -50 : 50),
+                            y: subY + 70,
+                            info: {
+                                cname: sSub.cname,
+                                provider: sSub.takeover_provider || 'Unclaimed Service',
+                                risk: sSub.takeover_risk || 'High'
+                            }
+                        };
+                        nodesMap.set(cnameId, cnameNode);
+                    }
+                    rawEdges.push({ source: subId, target: cnameId, type: 'takeover' });
+                }
+            });
+
+            // Direct IP Link Node
+            if (directIp) {
+                const ipId = `ip_${directIp}`;
+                const refSub = targetSub || (coHostedSubs[0]?.sub);
+                const ipNode = {
+                    id: ipId,
+                    label: isSharedIp ? `${directIp} (${totalHosted} hosts)` : directIp,
+                    type: 'ip',
+                    color: isSharedIp ? '#6366f1' : '#4f46e5',
+                    strokeColor: isSharedIp ? '#a5b4fc' : '#818cf8',
+                    radius: isSharedIp ? 17 : 14,
+                    x: 270,
+                    y: 0,
+                    info: {
+                        ip: directIp,
+                        hostedCount: totalHosted,
+                        hostedDomains: allHostedNames,
+                        cidr: refSub?.cidr || null,
+                        asn: refSub?.asn ? String(refSub.asn) : null,
+                        as_org: refSub?.as_org || null
+                    }
+                };
+                nodesMap.set(ipId, ipNode);
+
+                if (rootSharesIp) {
+                    rawEdges.push({ source: 'root', target: ipId, type: 'ip' });
+                }
+
+                // Direct ASN Link
+                const resolvedAsn = refSub?.asn || data.asn;
+                const resolvedAsOrg = refSub?.as_org || data.as_org;
+                const resolvedCidr = refSub?.cidr || data.cidr;
+                if (resolvedAsn) {
+                    const cleanAsn = String(resolvedAsn).replace(/[^0-9]/g, '');
+                    if (cleanAsn) {
+                        const asnKey = `asn_${cleanAsn}`;
+                        const orgStr = resolvedAsOrg ? ` - ${String(resolvedAsOrg).slice(0, 16)}` : '';
+                        const asnNode = {
+                            id: asnKey,
+                            label: `AS${cleanAsn}${orgStr}`,
+                            type: 'asn',
+                            color: '#8b5cf6',
+                            strokeColor: '#c4b5fd',
+                            radius: 15,
+                            x: 440,
+                            y: 0,
+                            info: {
+                                asn: cleanAsn,
+                                org: resolvedAsOrg,
+                                cidr: resolvedCidr
+                            }
+                        };
+                        nodesMap.set(asnKey, asnNode);
+                        rawEdges.push({ source: ipId, target: asnKey, type: 'asn' });
+                    }
+                }
+            }
+
+            // Direct Cloud Storage Bucket Link (discovered on any of the hosted subdomains)
+            const hostedSet = new Set(allHostedNames);
+            const directBuckets = validBuckets.filter(b => {
+                const src = (b.source_app || '').trim().toLowerCase();
+                return hostedSet.has(src);
+            });
+            directBuckets.slice(0, 6).forEach((b, bIdx) => {
+                const bName = b.name || b.raw || b.url;
+                const bId = `bucket_${bName}`;
+                const srcApp = (b.source_app || '').trim().toLowerCase();
+                const parentSubNode = nodesMap.get(`sub_${srcApp}`);
+                const isVuln = b.status === 'vulnerable_write' || b.status === 'vulnerable_takeover' || b.status === 'open';
+                const bX = parentSubNode ? parentSubNode.x : ((bIdx - (directBuckets.length - 1) / 2) * 110);
+                const bY = parentSubNode ? (parentSubNode.y - 80) : (-140 - (bIdx * 40));
+                const bNode = {
+                    id: bId,
+                    label: bName.length > 22 ? bName.slice(0, 20) + '...' : bName,
+                    type: 'cloud',
+                    color: isVuln ? '#f97316' : '#f59e0b',
+                    strokeColor: isVuln ? '#fdba74' : '#fbbf24',
+                    radius: 13,
+                    x: bX,
+                    y: bY,
+                    info: {
+                        name: bName,
+                        provider: b.provider || 'Cloud Storage',
+                        status: b.status || 'Discovered',
+                        url: b.url || b.raw || bName,
+                        source_app: srcApp || focused
+                    }
+                };
+                nodesMap.set(bId, bNode);
+                rawEdges.push({ source: parentSubNode ? parentSubNode.id : 'root', target: bId, type: 'cloud' });
+            });
+        }
+
+        // =========================================================================
+        // CASE B: ROOT DOMAIN VIEW (FULL WEB OF CONNECTIONS)
+        // =========================================================================
+        else {
+            const ipToDomainsMap = new Map();
+
+            // Pre-scan all subdomains to ensure any multi-host IP has all its domains included
+            const fullIpMap = new Map();
+            const unassignedSubs = [];
+            subs.forEach((sub, idx) => {
+                const subName = (typeof sub === 'string' ? sub : (sub.name || sub.subdomain || `sub-${idx}`)).trim();
+                if (!subName || subName.toLowerCase() === rootDomain) return;
+                const ip = (typeof sub === 'object' && sub.ip && sub.ip !== 'N/A' && sub.ip !== 'Unknown') ? String(sub.ip).trim() : null;
+                if (ip) {
+                    if (!fullIpMap.has(ip)) fullIpMap.set(ip, []);
+                    fullIpMap.get(ip).push({ sub, subName, idx });
+                } else {
+                    unassignedSubs.push({ sub, subName, idx });
+                }
+            });
+
+            // Prioritize: ALWAYS include all domains hosted on shared IPs (multiple domains per IP)
+            const orderedSubs = [];
+            const singleIpSubs = [];
+            fullIpMap.forEach((group, ip) => {
+                if (group.length > 1) {
+                    // Shared host IP: keep 100% of domains on it
+                    orderedSubs.push(...group);
+                    if (!ipToDomainsMap.has(ip)) {
+                        ipToDomainsMap.set(ip, { domains: [], asn: group[0].sub.asn, as_org: group[0].sub.as_org, cidr: group[0].sub.cidr });
+                    }
+                    group.forEach(item => ipToDomainsMap.get(ip).domains.push(item.subName));
+                } else {
+                    singleIpSubs.push({ ip, item: group[0] });
+                }
+            });
+
+            // For single-host IPs and unassigned, include up to 100 additional nodes
+            const remainingBudget = Math.max(100 - orderedSubs.length, 30);
+            singleIpSubs.slice(0, remainingBudget).forEach(({ ip, item }) => {
+                orderedSubs.push(item);
+                if (!ipToDomainsMap.has(ip)) {
+                    ipToDomainsMap.set(ip, { domains: [], asn: item.sub.asn, as_org: item.sub.as_org, cidr: item.sub.cidr });
+                }
+                ipToDomainsMap.get(ip).domains.push(item.subName);
+            });
+            orderedSubs.push(...unassignedSubs.slice(0, 20));
+
+            // Root IP
+            if (data.system?.ip && data.system.ip !== 'Unknown') {
+                const rootIp = String(data.system.ip).trim();
+                if (!ipToDomainsMap.has(rootIp)) {
+                    ipToDomainsMap.set(rootIp, { domains: [], asn: data.asn, as_org: data.as_org, cidr: data.cidr });
+                }
+                if (!ipToDomainsMap.get(rootIp).domains.includes(rootDomain)) {
+                    ipToDomainsMap.get(rootIp).domains.unshift(rootDomain);
+                }
+            }
+
+            const totalSubs = orderedSubs.length;
+            orderedSubs.forEach((item, idx) => {
+                const { sub, subName } = item;
+                const subId = `sub_${subName}`;
+                const isAlive = (typeof sub === 'object') ? Boolean(sub.alive) : true;
+                const isTakeover = Boolean(sub && (sub.dangling_takeover || (sub.takeover_provider && String(sub.takeover_provider).length > 0)));
+                const sWaf = getTargetWaf(subName, sub, data);
+                const sLb = getTargetLb(subName, sub, data);
+
+                let nodeType = 'subdomain';
+                let color = '#38bdf8';
+                let strokeColor = '#7dd3fc';
+                let radius = 12;
+
+                if (isTakeover) {
+                    nodeType = 'takeover';
+                    color = '#ef4444';
+                    strokeColor = '#f87171';
+                    radius = 15;
+                } else if (!isAlive) {
+                    nodeType = 'unresponsive';
+                    color = '#64748b';
+                    strokeColor = '#94a3b8';
+                    radius = 10;
+                }
+
+                const angle = (idx / Math.max(totalSubs, 1)) * Math.PI * 2;
+                const dist = (totalSubs > 30) ? (170 + (idx % 2) * 55) : 180;
+
+                const subNode = {
+                    id: subId,
+                    label: subName,
+                    type: nodeType,
+                    color: color,
+                    strokeColor: strokeColor,
+                    radius: radius,
+                    x: Math.cos(angle) * dist,
+                    y: Math.sin(angle) * dist,
+                    angle: angle,
+                    info: {
+                        name: subName,
+                        ip: (typeof sub === 'object' && sub.ip) ? sub.ip : 'N/A',
+                        asn: (typeof sub === 'object' && sub.asn) ? `${sub.asn}${sub.as_org ? ' (' + sub.as_org + ')' : ''}` : null,
+                        takeover: isTakeover ? (sub.takeover_provider || 'Dangling CNAME') : null,
+                        cname: (typeof sub === 'object' && sub.cname) ? sub.cname : null,
+                        alive: isAlive,
+                        waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
+                        load_balancer: sLb ? (sLb.method || 'LB Detected') : null
+                    }
+                };
+                nodesMap.set(subId, subNode);
+                rawEdges.push({ source: 'root', target: subId, type: isTakeover ? 'takeover' : 'sub' });
+
+                // Attach Subdomain WAF Node if detected in full view
+                if (sWaf) {
+                    const wafId = `waf_${subName}`;
+                    const wafFirewall = sWaf.firewall || 'WAF';
+                    const wafDist = dist + 42;
+                    const wafAngle = angle - 0.08;
+                    const wafNode = {
+                        id: wafId,
+                        label: `🛡️ ${wafFirewall}`,
+                        type: 'waf',
+                        color: '#06b6d4',
+                        strokeColor: '#67e8f9',
+                        radius: 12,
+                        x: Math.cos(wafAngle) * wafDist,
+                        y: Math.sin(wafAngle) * wafDist,
+                        info: {
+                            firewall: wafFirewall,
+                            manufacturer: sWaf.manufacturer,
+                            confidence: sWaf.confidence,
+                            target: subName
+                        }
+                    };
+                    nodesMap.set(wafId, wafNode);
+                    rawEdges.push({ source: subId, target: wafId, type: 'waf' });
+                }
+
+                // Attach Subdomain Load Balancer Node if detected in full view
+                if (sLb) {
+                    const lbId = `lb_${subName}`;
+                    const lbMethod = String(sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbDist = dist + 42;
+                    const lbAngle = angle + 0.08;
+                    const lbNode = {
+                        id: lbId,
+                        label: `⚖️ ${lbMethod.length > 18 ? lbMethod.slice(0, 16) + '...' : lbMethod}`,
+                        type: 'load_balancer',
+                        color: '#a855f7',
+                        strokeColor: '#d8b4fe',
+                        radius: 12,
+                        x: Math.cos(lbAngle) * lbDist,
+                        y: Math.sin(lbAngle) * lbDist,
+                        info: {
+                            method: lbMethod,
+                            ips: sLb.ips,
+                            all_fqdns: sLb.all_fqdns,
+                            target: subName
+                        }
+                    };
+                    nodesMap.set(lbId, lbNode);
+                    rawEdges.push({ source: subId, target: lbId, type: 'load_balancer' });
+                }
+
+                if (isTakeover && sub.cname) {
+                    const cnameId = `cname_${sub.cname}`;
+                    if (!nodesMap.has(cnameId)) {
+                        const cnameNode = {
+                            id: cnameId,
+                            label: `Dangling: ${sub.cname}`,
+                            type: 'takeover_target',
+                            color: '#dc2626',
+                            strokeColor: '#fca5a5',
+                            radius: 13,
+                            x: subNode.x * 1.35,
+                            y: subNode.y * 1.35,
+                            info: {
+                                cname: sub.cname,
+                                provider: sub.takeover_provider || 'Unclaimed Service',
+                                risk: sub.takeover_risk || 'High'
+                            }
+                        };
+                        nodesMap.set(cnameId, cnameNode);
+                    }
+                    rawEdges.push({ source: subId, target: cnameId, type: 'takeover' });
+                }
+            });
+
+            // IP Address Nodes
+            let ipIdx = 0;
+            const totalIps = ipToDomainsMap.size;
+            ipToDomainsMap.forEach((ipData, cleanIp) => {
+                const ipId = `ip_${cleanIp}`;
+                let sumSin = 0, sumCos = 0, count = 0;
+                ipData.domains.forEach(dName => {
+                    const n = nodesMap.get(`sub_${dName}`);
+                    if (n && typeof n.angle === 'number') {
+                        sumSin += Math.sin(n.angle);
+                        sumCos += Math.cos(n.angle);
+                        count++;
+                    }
+                });
+                const angle = count > 0 ? Math.atan2(sumSin, sumCos) : ((ipIdx / Math.max(totalIps, 1)) * Math.PI * 2 + 0.5);
+                const dist = 310 + (ipIdx % 3) * 35;
+                ipIdx++;
+
+                const hostedCount = ipData.domains.length;
+                const isShared = hostedCount > 1;
+
+                const ipNode = {
+                    id: ipId,
+                    label: isShared ? `${cleanIp} (${hostedCount} hosts)` : cleanIp,
+                    type: 'ip',
+                    color: isShared ? '#6366f1' : '#4f46e5',
+                    strokeColor: isShared ? '#a5b4fc' : '#818cf8',
+                    radius: isShared ? 16 : 12,
+                    x: Math.cos(angle) * dist,
+                    y: Math.sin(angle) * dist,
+                    angle: angle,
+                    info: {
+                        ip: cleanIp,
+                        hostedCount: hostedCount,
+                        hostedDomains: ipData.domains,
+                        cidr: ipData.cidr,
+                        asn: ipData.asn ? String(ipData.asn) : null,
+                        as_org: ipData.as_org
+                    }
+                };
+                nodesMap.set(ipId, ipNode);
+
+                ipData.domains.forEach(dName => {
+                    const srcId = dName === rootDomain ? 'root' : `sub_${dName}`;
+                    if (nodesMap.has(srcId)) {
+                        rawEdges.push({ source: srcId, target: ipId, type: 'ip' });
+                    }
+                });
+
+                if (ipData.asn) {
+                    const cleanAsn = String(ipData.asn).replace(/[^0-9]/g, '');
+                    if (cleanAsn) {
+                        const asnKey = `asn_${cleanAsn}`;
+                        if (!nodesMap.has(asnKey)) {
+                            const orgStr = ipData.as_org ? ` - ${String(ipData.as_org).slice(0, 16)}` : '';
+                            const asnDist = dist + 95;
+                            const asnNode = {
+                                id: asnKey,
+                                label: `AS${cleanAsn}${orgStr}`,
+                                type: 'asn',
+                                color: '#8b5cf6',
+                                strokeColor: '#c4b5fd',
+                                radius: 15,
+                                x: Math.cos(angle) * asnDist,
+                                y: Math.sin(angle) * asnDist,
+                                info: {
+                                    asn: cleanAsn,
+                                    org: ipData.as_org,
+                                    cidr: ipData.cidr
+                                }
+                            };
+                            nodesMap.set(asnKey, asnNode);
+                        }
+                        rawEdges.push({ source: ipId, target: asnKey, type: 'asn' });
+                    }
+                }
+            });
+
+            // Cloud Buckets
+            const maxBuckets = Math.min(validBuckets.length, 30);
+            validBuckets.slice(0, maxBuckets).forEach((b, idx) => {
+                const bName = b.name || b.raw || b.url;
+                const bId = `bucket_${bName}`;
+                const srcApp = b.source_app ? String(b.source_app).trim().toLowerCase() : null;
+                const subSourceId = srcApp ? `sub_${srcApp}` : null;
+                const subSourceNode = subSourceId ? nodesMap.get(subSourceId) : null;
+
+                let bX, bY;
+                if (subSourceNode) {
+                    bX = subSourceNode.x * 1.35;
+                    bY = subSourceNode.y * 1.35;
+                } else {
+                    const angle = (idx / Math.max(maxBuckets, 1)) * Math.PI * 2 + 1.2;
+                    const dist = 280 + (idx % 3) * 40;
+                    bX = Math.cos(angle) * dist;
+                    bY = Math.sin(angle) * dist;
+                }
+
+                const isVulnerable = b.status === 'vulnerable_write' || b.status === 'vulnerable_takeover' || b.status === 'open';
+
+                const bNode = {
+                    id: bId,
+                    label: bName.length > 22 ? bName.slice(0, 20) + '...' : bName,
+                    type: 'cloud',
+                    color: isVulnerable ? '#f97316' : '#f59e0b',
+                    strokeColor: isVulnerable ? '#fdba74' : '#fbbf24',
+                    radius: 13,
+                    x: bX,
+                    y: bY,
+                    info: {
+                        name: bName,
+                        provider: b.provider || 'Cloud Storage',
+                        status: b.status || 'Discovered',
+                        url: b.url || b.raw || bName,
+                        source_app: b.source_app || null
+                    }
+                };
+                nodesMap.set(bId, bNode);
+
+                if (subSourceId && subSourceNode) {
+                    rawEdges.push({ source: subSourceId, target: bId, type: 'cloud' });
+                } else {
+                    rawEdges.push({ source: 'root', target: bId, type: 'cloud' });
+                }
+            });
+        }
+
+        // =========================================================================
+        // DE-COLLISION & AUTO-SCALE (APPLIED GLOBALLY ACROSS ALL MODES)
+        // =========================================================================
+        const rawList = Array.from(nodesMap.values());
+        for (let iter = 0; iter < 30; iter++) {
+            for (let i = 0; i < rawList.length; i++) {
+                const n1 = rawList[i];
+                if (n1.fixed) continue;
+                for (let j = i + 1; j < rawList.length; j++) {
+                    const n2 = rawList[j];
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distSq = dx * dx + dy * dy;
+                    const minDist = n1.radius + n2.radius + 18;
+                    if (distSq < minDist * minDist && distSq > 0) {
+                        const dist = Math.sqrt(distSq);
+                        const push = ((minDist - dist) / dist) * 0.25;
+                        if (!n1.fixed) { n1.x -= dx * push; n1.y -= dy * push; }
+                        if (!n2.fixed) { n2.x += dx * push; n2.y += dy * push; }
+                    }
+                }
+            }
+        }
+
+        // Auto-scale to viewport
+        if (rawList.length > 1) {
+            let maxDist = 0;
+            rawList.forEach(n => {
+                const d = Math.sqrt(n.x * n.x + n.y * n.y);
+                if (d > maxDist) maxDist = d;
+            });
+            const availableRadius = Math.min(width, height) / 2 - 50;
+            topoState.scale = Math.max(0.25, Math.min(1.15, availableRadius / (maxDist || 1)));
+        }
+
+        // =========================================================================
+        // APPLY USER NODE FILTERS
+        // =========================================================================
+        const filteredNodesMap = new Map();
+        nodesMap.forEach((n, id) => {
+            const filterType = n.type === 'takeover_target' ? 'takeover' : n.type;
+            if (topoState.filters[filterType] !== false) {
+                filteredNodesMap.set(id, n);
+            }
+        });
+
+        // Filter edges to only those where both endpoints are active
+        const activeEdges = rawEdges.filter(e => filteredNodesMap.has(e.source) && filteredNodesMap.has(e.target));
+
+        topoState.nodes = Array.from(filteredNodesMap.values());
+        topoState.edges = activeEdges;
+
+        // Update Scope UI indicator
+        const scopeBadge = document.getElementById('topology-scope-badge');
+        const scopeRootBtn = document.getElementById('topo-scope-root-btn');
+        const scopeSubPill = document.getElementById('topo-scope-sub-pill');
+        const scopeSubLabel = document.getElementById('topo-scope-sub-label');
+
+        if (scopeBadge && scopeRootBtn && scopeSubPill && scopeSubLabel) {
+            if (focused && focused !== rootDomain) {
+                const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(focused);
+                if (isIp) {
+                    scopeBadge.textContent = 'IP Co-Hosted Group';
+                    scopeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+                } else {
+                    scopeBadge.textContent = 'Subdomain Direct Links';
+                    scopeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30';
+                }
+                scopeRootBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-slate-800 text-slate-400 hover:text-white transition-all';
+                scopeSubPill.classList.remove('hidden');
+                scopeSubPill.classList.add('flex');
+                scopeSubLabel.textContent = isIp ? `IP: ${focused}` : focused;
+            } else {
+                scopeBadge.textContent = 'Root Overview';
+                scopeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700';
+                scopeRootBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all';
+                scopeSubPill.classList.remove('flex');
+                scopeSubPill.classList.add('hidden');
+            }
+        }
+
+        // Update Floating Stats Badge
+        const badgeText = document.getElementById('topology-stats-text');
+        if (badgeText) {
+            const nSubs = Array.from(filteredNodesMap.values()).filter(n => n.type === 'subdomain' || n.type === 'takeover' || n.type === 'unresponsive').length;
+            const nIps = Array.from(filteredNodesMap.values()).filter(n => n.type === 'ip').length;
+            const nWafs = Array.from(filteredNodesMap.values()).filter(n => n.type === 'waf').length;
+            const nLbs = Array.from(filteredNodesMap.values()).filter(n => n.type === 'load_balancer').length;
+            const extraTags = `${nWafs > 0 ? `, ${nWafs} WAFs` : ''}${nLbs > 0 ? `, ${nLbs} LBs` : ''}`;
+
+            if (focused && focused !== rootDomain) {
+                badgeText.textContent = `${focused} (${topoState.nodes.length} Nodes • ${topoState.edges.length} Connections${extraTags})`;
+            } else if (topoState.nodes.length === 1) {
+                badgeText.textContent = `1 Root Node (Standalone Target • No Linked Assets)`;
+            } else {
+                badgeText.textContent = `${topoState.nodes.length} Nodes • ${topoState.edges.length} Connections (${nSubs} Subs, ${nIps} IPs${extraTags})`;
+            }
+        }
+
+        topoState.panX = width / 2;
+        topoState.panY = height / 2;
+        topoSimulateAndDraw();
+        topoTriggerDraw();
+    }
+
+    function initTopologyGraph(data, initialTarget) {
         const container = document.getElementById('topology-container');
         const canvas = document.getElementById('topology-canvas');
         if (!container || !canvas || !data) return;
@@ -4151,146 +5210,33 @@
             topoState.animId = null;
         }
 
-        topoState.canvas = canvas;
-        topoState.ctx = canvas.getContext('2d');
         const rect = container.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        topoState.panX = rect.width / 2;
-        topoState.panY = rect.height / 2;
-        topoState.scale = 1;
-        topoState.nodes = [];
-        topoState.edges = [];
-        topoState.animRunning = true;
+        const width = Math.max(Math.round(rect.width || container.clientWidth || 800), 400);
+        const height = Math.max(Math.round(rect.height || container.clientHeight || 720), 400);
 
-        // Build Graph Data
-        const nodesMap = new Map();
-        const edges = [];
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
 
-        // 1. Root Node
-        const rootDomain = data.domain || 'Root Domain';
-        const rootNode = {
-            id: 'root',
-            label: rootDomain,
-            type: 'root',
-            color: '#10b981',
-            strokeColor: '#34d399',
-            radius: 20,
-            x: 0,
-            y: 0,
-            vx: 0,
-            vy: 0,
-            fixed: true,
-            info: { domain: rootDomain, subdomainsCount: 0 }
-        };
-        nodesMap.set('root', rootNode);
+        topoState.canvas = canvas;
+        topoState.ctx = canvas.getContext('2d');
+        topoState.data = data;
+        topoState.rootDomain = (data.domain || data.target_query || 'Root Domain').trim().toLowerCase();
+        
+        // If opened for a specific subdomain, focus directly on it by default
+        if (initialTarget && initialTarget.toLowerCase() !== topoState.rootDomain) {
+            topoState.focusedSubdomain = initialTarget.trim().toLowerCase();
+        } else {
+            topoState.focusedSubdomain = null;
+        }
 
-        // 2. Subdomains
-        const rawSubs = data.infrastructure?.subdomains || data.subdomains || [];
-        const subs = Array.isArray(rawSubs) ? rawSubs : [];
-        rootNode.info.subdomainsCount = subs.length;
-
-        // Map ASN groups & buckets
-        const asnMap = new Map();
-        const maxSubs = Math.min(subs.length, 60); // Cap at 60 for optimal layout responsiveness
-
-        subs.slice(0, maxSubs).forEach((sub, idx) => {
-            const subName = typeof sub === 'string' ? sub : (sub.subdomain || sub.name || `sub-${idx}`);
-            const isTakeover = sub.dangling_takeover || (sub.takeover_provider && sub.takeover_provider.length > 0);
-            const subId = `sub_${subName}`;
-
-            const angle = (idx / Math.max(maxSubs, 1)) * Math.PI * 2;
-            const dist = 140 + Math.random() * 50;
-
-            const subNode = {
-                id: subId,
-                label: subName,
-                type: isTakeover ? 'takeover' : 'subdomain',
-                color: isTakeover ? '#ef4444' : '#38bdf8',
-                strokeColor: isTakeover ? '#f87171' : '#7dd3fc',
-                radius: isTakeover ? 15 : 11,
-                x: Math.cos(angle) * dist,
-                y: Math.sin(angle) * dist,
-                vx: 0,
-                vy: 0,
-                info: {
-                    name: subName,
-                    ip: sub.ip || 'Unknown',
-                    asn: sub.asn ? `${sub.asn} (${sub.as_org || ''})` : null,
-                    takeover: isTakeover ? (sub.takeover_provider || 'Dangling CNAME') : null,
-                    cname: sub.cname || null
-                }
-            };
-            nodesMap.set(subId, subNode);
-            edges.push({ source: 'root', target: subId, type: isTakeover ? 'takeover' : 'sub' });
-
-            // ASN / IP Node
-            if (sub.asn || sub.ip) {
-                const asnKey = sub.asn ? `asn_${sub.asn}` : `ip_${sub.ip}`;
-                if (!asnMap.has(asnKey) && asnMap.size < 12) {
-                    const asnLabel = sub.asn ? `AS${sub.asn.replace(/[^0-9]/g, '')}` : sub.ip;
-                    const asnNode = {
-                        id: asnKey,
-                        label: sub.as_org ? `${asnLabel} - ${sub.as_org.slice(0, 15)}` : asnLabel,
-                        type: 'asn',
-                        color: '#818cf8',
-                        strokeColor: '#a5b4fc',
-                        radius: 14,
-                        x: subNode.x * 1.5 + (Math.random() - 0.5) * 60,
-                        y: subNode.y * 1.5 + (Math.random() - 0.5) * 60,
-                        vx: 0,
-                        vy: 0,
-                        info: {
-                            asn: sub.asn,
-                            org: sub.as_org,
-                            cidr: sub.cidr,
-                            ip: sub.ip
-                        }
-                    };
-                    nodesMap.set(asnKey, asnNode);
-                    asnMap.set(asnKey, asnNode);
-                }
-                if (nodesMap.has(asnKey)) {
-                    edges.push({ source: subId, target: asnKey, type: 'asn' });
-                }
-            }
-        });
-
-        // 3. Cloud Buckets
-        const cloud = data.cloud || {};
-        const buckets = [
-            ...(cloud.s3_buckets || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'AWS S3' })),
-            ...(cloud.azure_blobs || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'Azure Blob' })),
-            ...(cloud.gcp_buckets || []).map(b => ({ name: typeof b === 'string' ? b : b.name, provider: 'GCP Bucket' }))
-        ];
-
-        buckets.slice(0, 15).forEach((b, idx) => {
-            if (!b.name) return;
-            const bId = `bucket_${b.name}`;
-            const angle = (idx / Math.max(buckets.length, 1)) * Math.PI * 2 + 0.3;
-            const bNode = {
-                id: bId,
-                label: b.name.length > 20 ? b.name.slice(0, 18) + '...' : b.name,
-                type: 'cloud',
-                color: '#f59e0b',
-                strokeColor: '#fbbf24',
-                radius: 12,
-                x: Math.cos(angle) * 230,
-                y: Math.sin(angle) * 230,
-                vx: 0,
-                vy: 0,
-                info: {
-                    name: b.name,
-                    provider: b.provider
-                }
-            };
-            nodesMap.set(bId, bNode);
-            edges.push({ source: 'root', target: bId, type: 'cloud' });
-        });
-
-        topoState.nodes = Array.from(nodesMap.values());
-        topoState.edges = edges;
+        topoState.panX = width / 2;
+        topoState.panY = height / 2;
+        topoState.isPanning = false;
+        topoState.draggedNode = null;
+        topoState.hoveredNode = null;
 
         // Mouse Event Listeners
         const getMousePos = (e) => {
@@ -4308,7 +5254,7 @@
                 const n = topoState.nodes[i];
                 const dx = n.x - wx;
                 const dy = n.y - wy;
-                if (Math.sqrt(dx * dx + dy * dy) <= n.radius + 4) {
+                if (Math.sqrt(dx * dx + dy * dy) <= n.radius + 6) {
                     return n;
                 }
             }
@@ -4320,6 +5266,8 @@
             const node = findNodeAt(pos.worldX, pos.worldY);
             if (node) {
                 topoState.draggedNode = node;
+                topoState.dragStartX = pos.x;
+                topoState.dragStartY = pos.y;
                 canvas.classList.remove('cursor-grab');
                 canvas.classList.add('cursor-grabbing');
             } else {
@@ -4333,14 +5281,12 @@
         };
 
         window.onmousemove = (e) => {
-            if (!topoState.canvas) return;
+            if (!topoState.canvas || !document.getElementById('topology-canvas')) return;
             const pos = getMousePos(e);
 
             if (topoState.draggedNode) {
                 topoState.draggedNode.x = pos.worldX;
                 topoState.draggedNode.y = pos.worldY;
-                topoState.draggedNode.vx = 0;
-                topoState.draggedNode.vy = 0;
                 topoTriggerDraw();
             } else if (topoState.isPanning) {
                 topoState.panX = pos.x - topoState.startX;
@@ -4350,22 +5296,48 @@
                 const node = findNodeAt(pos.worldX, pos.worldY);
                 if (node !== topoState.hoveredNode) {
                     topoState.hoveredNode = node;
-                    canvas.style.cursor = node ? 'pointer' : 'grab';
+                    topoState.canvas.style.cursor = node ? 'pointer' : 'grab';
                     topoTriggerDraw();
                 }
             }
         };
 
-        window.onmouseup = () => {
+        window.onmouseup = (e) => {
             if (topoState.draggedNode) {
+                const pos = getMousePos(e);
+                const distMoved = Math.hypot(pos.x - (topoState.dragStartX || pos.x), pos.y - (topoState.dragStartY || pos.y));
+                const clickedNode = topoState.draggedNode;
                 topoState.draggedNode = null;
-                canvas.classList.remove('cursor-grabbing');
-                canvas.classList.add('cursor-grab');
+                if (canvas) {
+                    canvas.classList.remove('cursor-grabbing');
+                    canvas.classList.add('cursor-grab');
+                }
+                
+                // If clicked a subdomain node without dragging, focus it to show direct links & co-hosted domains!
+                if (distMoved < 6 && (clickedNode.type === 'subdomain' || clickedNode.type === 'takeover' || clickedNode.type === 'unresponsive')) {
+                    const subName = clickedNode.info?.name || clickedNode.label;
+                    if (subName && subName.toLowerCase() !== topoState.rootDomain) {
+                        window.topologySetScope(subName);
+                        return;
+                    }
+                }
+                // If clicked an IP node without dragging, focus it to show all domains on that IP!
+                if (distMoved < 6 && clickedNode.type === 'ip') {
+                    const ipVal = clickedNode.info?.ip || String(clickedNode.label).split(' ')[0];
+                    if (ipVal) {
+                        window.topologySetScope(ipVal);
+                        return;
+                    }
+                }
+                topoTriggerDraw();
             }
             if (topoState.isPanning) {
                 topoState.isPanning = false;
-                canvas.classList.remove('cursor-move');
-                canvas.classList.add('cursor-grab');
+                if (canvas) {
+                    canvas.classList.remove('cursor-move');
+                    canvas.classList.add('cursor-grab');
+                }
+                topoTriggerDraw();
             }
         };
 
@@ -4373,115 +5345,84 @@
             e.preventDefault();
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
             const pos = getMousePos(e);
-            const newScale = Math.min(Math.max(topoState.scale * factor, 0.3), 3.5);
+            const newScale = Math.min(Math.max(topoState.scale * factor, 0.2), 4.0);
             topoState.panX = pos.x - (pos.x - topoState.panX) * (newScale / topoState.scale);
             topoState.panY = pos.y - (pos.y - topoState.panY) * (newScale / topoState.scale);
             topoState.scale = newScale;
             topoTriggerDraw();
         };
 
-        topoTriggerDraw();
+        // ResizeObserver to handle container resize cleanly
+        if (window.ResizeObserver && !container._topoResizeObs) {
+            const ro = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    const w = Math.round(entry.contentRect.width);
+                    const h = Math.round(entry.contentRect.height);
+                    if (w > 50 && h > 50) {
+                        const curW = parseInt(canvas.style.width) || 0;
+                        const curH = parseInt(canvas.style.height) || 0;
+                        if (Math.abs(curW - w) > 2 || Math.abs(curH - h) > 2) {
+                            canvas.style.width = w + 'px';
+                            canvas.style.height = h + 'px';
+                            canvas.width = Math.round(w * dpr);
+                            canvas.height = Math.round(h * dpr);
+                            if (topoState.panX === curW / 2 && topoState.panY === curH / 2) {
+                                topoState.panX = w / 2;
+                                topoState.panY = h / 2;
+                            }
+                            topoTriggerDraw();
+                        }
+                    }
+                }
+            });
+            ro.observe(container);
+            container._topoResizeObs = ro;
+        }
+
+        topoBuildAndLayoutGraph();
     }
 
     function topoSimulateAndDraw() {
+        topoState.animId = null;
         const { canvas, ctx, nodes, edges } = topoState;
-        if (!canvas || !ctx) {
-            topoState.animRunning = false;
+        if (!canvas || !ctx || !nodes || nodes.length === 0) {
             return;
         }
 
         const dpr = window.devicePixelRatio || 1;
-        const width = canvas.clientWidth;
-        const height = canvas.clientHeight;
+        const container = canvas.parentElement;
+        const width = Math.max(Math.round(canvas.clientWidth || (container && container.clientWidth) || 800), 400);
+        const height = Math.max(Math.round(canvas.clientHeight || (container && container.clientHeight) || 720), 400);
 
-        if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-            canvas.width = width * dpr;
-            canvas.height = height * dpr;
-        }
-
-        // Force Simulation Step
-        let maxMovement = 0;
-        const nodeMap = new Map();
-        nodes.forEach(n => nodeMap.set(n.id, n));
-
-        // 1. Coulomb Repulsion
-        for (let i = 0; i < nodes.length; i++) {
-            const n1 = nodes[i];
-            for (let j = i + 1; j < nodes.length; j++) {
-                const n2 = nodes[j];
-                const dx = n2.x - n1.x;
-                const dy = n2.y - n1.y;
-                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                if (dist < 320) {
-                    const force = 3000 / (dist * dist);
-                    const fx = (dx / dist) * force;
-                    const fy = (dy / dist) * force;
-                    if (!n1.fixed && n1 !== topoState.draggedNode) {
-                        n1.vx -= fx;
-                        n1.vy -= fy;
-                    }
-                    if (!n2.fixed && n2 !== topoState.draggedNode) {
-                        n2.vx += fx;
-                        n2.vy += fy;
-                    }
-                }
+        const neededW = Math.round(width * dpr);
+        const neededH = Math.round(height * dpr);
+        if (canvas.width !== neededW || canvas.height !== neededH) {
+            canvas.width = neededW;
+            canvas.height = neededH;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            if (topoState.panX === 0 && topoState.panY === 0) {
+                topoState.panX = width / 2;
+                topoState.panY = height / 2;
             }
         }
 
-        // 2. Spring Attraction along Edges
-        edges.forEach(e => {
-            const s = nodeMap.get(e.source);
-            const t = nodeMap.get(e.target);
-            if (!s || !t) return;
-            const dx = t.x - s.x;
-            const dy = t.y - s.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const targetDist = e.type === 'sub' ? 120 : (e.type === 'asn' ? 90 : 160);
-            const force = (dist - targetDist) * 0.035;
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
+        // Pulse timer for standalone single node animation
+        topoState.pulseVal = (topoState.pulseVal + 0.04) % (Math.PI * 2);
 
-            if (!s.fixed && s !== topoState.draggedNode) {
-                s.vx += fx;
-                s.vy += fy;
-            }
-            if (!t.fixed && t !== topoState.draggedNode) {
-                t.vx -= fx;
-                t.vy -= fy;
-            }
-        });
-
-        // 3. Central Gravity & Position Integration
-        nodes.forEach(n => {
-            if (n.fixed || n === topoState.draggedNode) return;
-            const distCenter = Math.sqrt(n.x * n.x + n.y * n.y) || 1;
-            n.vx -= (n.x / distCenter) * 0.4;
-            n.vy -= (n.y / distCenter) * 0.4;
-
-            n.vx *= 0.85; // Damping
-            n.vy *= 0.85;
-
-            const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
-            if (speed > maxMovement) maxMovement = speed;
-
-            n.x += n.vx;
-            n.y += n.vy;
-        });
-
-        // Render Canvas
+        // Render Canvas (STATIONARY - NO CHAOTIC LIVE FORCES)
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.scale(dpr, dpr);
 
-        // Background high-tech grid
+        // Tech Blueprint Background
         ctx.fillStyle = '#020617';
         ctx.fillRect(0, 0, width, height);
 
-        // Apply Pan & Zoom
         ctx.translate(topoState.panX, topoState.panY);
         ctx.scale(topoState.scale, topoState.scale);
 
-        // Draw Dot Grid in World Space
+        // Dot Matrix Background Grid in World Space
         ctx.fillStyle = 'rgba(51, 65, 85, 0.25)';
         const gridSize = 40;
         const startX = Math.floor((-topoState.panX / topoState.scale) / gridSize) * gridSize - 80;
@@ -4495,6 +5436,30 @@
             }
         }
 
+        // Single Node Standalone Pulse Animation
+        if (nodes.length === 1) {
+            const root = nodes[0];
+            const pulseRadius = root.radius + 18 + Math.sin(topoState.pulseVal) * 8;
+            ctx.beginPath();
+            ctx.arc(root.x, root.y, pulseRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 6]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Second ring
+            const pulseRadius2 = root.radius + 36 + Math.sin(topoState.pulseVal + 1) * 12;
+            ctx.beginPath();
+            ctx.arc(root.x, root.y, pulseRadius2, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        const nodeMap = new Map();
+        nodes.forEach(n => nodeMap.set(n.id, n));
+
         // Draw Edges
         edges.forEach(e => {
             const s = nodeMap.get(e.source);
@@ -4506,19 +5471,31 @@
             ctx.lineTo(t.x, t.y);
 
             if (e.type === 'takeover') {
-                ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
                 ctx.lineWidth = 2.2;
                 ctx.setLineDash([4, 4]);
             } else if (e.type === 'cloud') {
-                ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
-                ctx.lineWidth = 1.6;
+                ctx.strokeStyle = 'rgba(245, 158, 11, 0.55)';
+                ctx.lineWidth = 1.8;
                 ctx.setLineDash([5, 5]);
-            } else if (e.type === 'asn') {
-                ctx.strokeStyle = 'rgba(129, 140, 248, 0.4)';
-                ctx.lineWidth = 1.4;
+            } else if (e.type === 'ip') {
+                ctx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+                ctx.lineWidth = 1.6;
                 ctx.setLineDash([]);
+            } else if (e.type === 'asn') {
+                ctx.strokeStyle = 'rgba(139, 92, 246, 0.45)';
+                ctx.lineWidth = 1.4;
+                ctx.setLineDash([3, 3]);
+            } else if (e.type === 'waf') {
+                ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
+                ctx.lineWidth = 1.8;
+                ctx.setLineDash([3, 3]);
+            } else if (e.type === 'load_balancer') {
+                ctx.strokeStyle = 'rgba(168, 85, 247, 0.7)';
+                ctx.lineWidth = 1.8;
+                ctx.setLineDash([4, 2]);
             } else {
-                ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
                 ctx.lineWidth = 1.2;
                 ctx.setLineDash([]);
             }
@@ -4531,12 +5508,45 @@
             const isHovered = topoState.hoveredNode === n;
             const isDragged = topoState.draggedNode === n;
 
-            // Outer Glow if Hovered or Takeover
-            if (isHovered || isDragged || n.type === 'takeover') {
+            // Outer Glow if Hovered or Takeover or Root or Shared IP or WAF or LB
+            if (isHovered || isDragged || n.type === 'takeover' || n.type === 'root' || n.type === 'waf' || n.type === 'load_balancer' || (n.type === 'ip' && (n.info?.hostedCount || 1) > 1)) {
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, n.radius + (n.type === 'takeover' ? 8 : 6), 0, Math.PI * 2);
-                ctx.fillStyle = n.type === 'takeover' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.2)';
+                const glowPad = n.type === 'root' ? 10 : (n.type === 'takeover' ? 8 : (n.type === 'ip' ? 6 : (n.type === 'waf' || n.type === 'load_balancer' ? 6 : 6)));
+                ctx.arc(n.x, n.y, n.radius + glowPad, 0, Math.PI * 2);
+                if (n.type === 'root') {
+                    ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
+                } else if (n.type === 'takeover') {
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+                } else if (n.type === 'ip') {
+                    ctx.fillStyle = 'rgba(99, 102, 241, 0.25)';
+                } else if (n.type === 'waf') {
+                    ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
+                } else if (n.type === 'load_balancer') {
+                    ctx.fillStyle = 'rgba(168, 85, 247, 0.25)';
+                } else {
+                    ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+                }
                 ctx.fill();
+            }
+
+            // Primary Focused Subdomain Indicator Ring
+            if (n.isPrimary) {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.radius + 6, 0, Math.PI * 2);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Multi-Host IP Indicator Ring
+            if (n.type === 'ip' && (n.info?.hostedCount || 1) > 1) {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.radius + 4, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(165, 180, 252, 0.6)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
             }
 
             // Node Circle
@@ -4548,81 +5558,196 @@
             ctx.strokeStyle = isHovered ? '#ffffff' : n.strokeColor;
             ctx.stroke();
 
+            // Draw on-node WAF badge indicator if domain is protected
+            if (n.info?.waf && (n.type === 'subdomain' || n.type === 'root')) {
+                const badgeX = n.x + n.radius - 3;
+                const badgeY = n.y - n.radius + 3;
+                ctx.beginPath();
+                ctx.arc(badgeX, badgeY, 6, 0, Math.PI * 2);
+                ctx.fillStyle = '#0891b2';
+                ctx.fill();
+                ctx.strokeStyle = '#67e8f9';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.font = 'bold 7px sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('W', badgeX, badgeY);
+            }
+
+            // Draw on-node Load Balancer badge indicator if domain is balanced
+            if (n.info?.load_balancer && (n.type === 'subdomain' || n.type === 'root')) {
+                const badgeX = n.x - n.radius + 3;
+                const badgeY = n.y - n.radius + 3;
+                ctx.beginPath();
+                ctx.arc(badgeX, badgeY, 6, 0, Math.PI * 2);
+                ctx.fillStyle = '#9333ea';
+                ctx.fill();
+                ctx.strokeStyle = '#d8b4fe';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.font = 'bold 7px sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('L', badgeX, badgeY);
+            }
+
             // Node Label
             ctx.font = `${n.type === 'root' ? 'bold 12px' : '10px'} JetBrains Mono, monospace`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            // Background pill for label
-            const labelText = n.label;
+            const labelText = String(n.label || '');
             const metrics = ctx.measureText(labelText);
             const textWidth = metrics.width;
             const textY = n.y + n.radius + 12;
 
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(n.x - textWidth / 2 - 4, textY - 7, textWidth + 8, 14);
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            ctx.fillRect(n.x - textWidth / 2 - 5, textY - 7, textWidth + 10, 14);
 
-            ctx.fillStyle = isHovered ? '#38bdf8' : (n.type === 'takeover' ? '#fca5a5' : '#cbd5e1');
+            ctx.fillStyle = isHovered ? '#38bdf8' : (n.type === 'takeover' ? '#fca5a5' : (n.type === 'root' ? '#34d399' : (n.type === 'waf' ? '#67e8f9' : (n.type === 'load_balancer' ? '#d8b4fe' : '#cbd5e1'))));
             ctx.fillText(labelText, n.x, textY);
         });
 
-        // Draw Hover Details Overlay in Screen Coordinates
         ctx.restore();
 
+        // Single Node Standalone Centered Message HUD
+        if (nodes.length === 1) {
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+            ctx.font = '11px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('Standalone Target • 0 Connected Subdomains / Cloud Assets Discovered', width / 2, height - 25);
+            ctx.restore();
+        }
+
+        // Draw Hover Details Overlay in Screen Coordinates
         if (topoState.hoveredNode) {
             const n = topoState.hoveredNode;
             const sx = n.x * topoState.scale + topoState.panX;
             const sy = n.y * topoState.scale + topoState.panY;
+            const info = n.info || {};
 
             ctx.save();
             ctx.scale(dpr, dpr);
-            const cardWidth = 240;
-            const cardHeight = n.type === 'takeover' ? 110 : (n.type === 'asn' ? 95 : 75);
-            let cx = sx + 20;
+            const cardWidth = 265;
+            let cardHeight = 85;
+            if (n.type === 'ip') cardHeight = (info.hostedCount || 1) > 1 ? 125 : 95;
+            else if (n.type === 'takeover') cardHeight = 115;
+            else if (n.type === 'cloud') cardHeight = 100;
+            else if (n.type === 'asn') cardHeight = 95;
+            else if (n.type === 'root') cardHeight = (info.waf || info.load_balancer) ? 120 : 90;
+            else if (n.type === 'waf') cardHeight = 105;
+            else if (n.type === 'load_balancer') cardHeight = 105;
+            else if (info.waf || info.load_balancer || info.takeover) cardHeight = 125;
+
+            let cx = sx + 22;
             let cy = sy - cardHeight / 2;
 
-            if (cx + cardWidth > width - 20) cx = sx - cardWidth - 20;
+            if (cx + cardWidth > width - 20) cx = sx - cardWidth - 22;
             if (cy + cardHeight > height - 20) cy = height - cardHeight - 20;
             if (cy < 20) cy = 20;
 
-            // Card background
+            // Card background & border
             ctx.fillStyle = '#0f172a';
             ctx.strokeStyle = n.color;
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.roundRect(cx, cy, cardWidth, cardHeight, 12);
-            ctx.fill();
-            ctx.stroke();
+            if (ctx.roundRect) {
+                ctx.roundRect(cx, cy, cardWidth, cardHeight, 12);
+                ctx.fill();
+                ctx.stroke();
+            } else {
+                ctx.fillRect(cx, cy, cardWidth, cardHeight);
+                ctx.strokeRect(cx, cy, cardWidth, cardHeight);
+            }
 
-            // Card Content
+            // Card Header
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 12px JetBrains Mono, monospace';
             ctx.textAlign = 'left';
-            ctx.fillText(n.label.slice(0, 26), cx + 12, cy + 22);
+            ctx.fillText(String(n.label || '').slice(0, 28), cx + 12, cy + 22);
 
-            ctx.font = '11px JetBrains Mono, monospace';
+            ctx.font = '10px JetBrains Mono, monospace';
             ctx.fillStyle = '#94a3b8';
-            ctx.fillText(`Type: ${n.type.toUpperCase()}`, cx + 12, cy + 40);
+            ctx.fillText(`TYPE: ${String(n.type || '').toUpperCase()}`, cx + 12, cy + 38);
 
-            if (n.info.ip && n.info.ip !== 'Unknown') {
-                ctx.fillText(`IP: ${n.info.ip}`, cx + 12, cy + 56);
-            }
-            if (n.info.asn) {
-                ctx.fillText(`ASN: ${n.info.asn.slice(0, 24)}`, cx + 12, cy + 72);
-            }
-            if (n.info.takeover) {
-                ctx.fillStyle = '#ef4444';
-                ctx.font = 'bold 11px JetBrains Mono, monospace';
-                ctx.fillText(`⚠️ Takeover: ${n.info.takeover}`, cx + 12, cy + 88);
+            // Card Details per type
+            if (n.type === 'ip') {
+                ctx.fillText(`HOSTED ASSETS: ${info.hostedCount || 1} domain(s)`, cx + 12, cy + 54);
+                if (info.hostedDomains && info.hostedDomains.length > 0) {
+                    const previewList = info.hostedDomains.slice(0, 2).join(', ');
+                    const extra = info.hostedDomains.length > 2 ? ` (+${info.hostedDomains.length - 2} more)` : '';
+                    ctx.fillText(`DOMAINS: ${previewList}${extra}`.slice(0, 34), cx + 12, cy + 70);
+                }
+                if (info.asn) {
+                    ctx.fillText(`ASN: ${info.asn}${info.as_org ? ' (' + String(info.as_org).slice(0, 14) + ')' : ''}`, cx + 12, cy + 86);
+                }
+                if (info.cidr) {
+                    ctx.fillText(`CIDR: ${info.cidr}`, cx + 12, cy + 102);
+                }
+            } else if (n.type === 'cloud') {
+                ctx.fillText(`PROVIDER: ${info.provider || 'Cloud Storage'}`, cx + 12, cy + 54);
+                ctx.fillText(`STATUS: ${info.status || 'Discovered'}`, cx + 12, cy + 70);
+                if (info.url) {
+                    ctx.fillText(`URL: ${String(info.url).slice(0, 32)}`, cx + 12, cy + 86);
+                }
+            } else if (n.type === 'root') {
+                ctx.fillText(`SUBDOMAINS: ${info.subdomainsCount || 0} cataloged`, cx + 12, cy + 54);
+                ctx.fillText(`DEFAULT IP: ${info.ip || 'Unknown'}`, cx + 12, cy + 70);
+                if (info.waf) {
+                    ctx.fillStyle = '#06b6d4';
+                    ctx.fillText(`🛡️ WAF: ${info.waf}`.slice(0, 32), cx + 12, cy + 86);
+                }
+                if (info.load_balancer) {
+                    ctx.fillStyle = '#a855f7';
+                    ctx.fillText(`⚖️ LB: ${info.load_balancer}`.slice(0, 32), cx + 12, cy + 102);
+                }
+            } else if (n.type === 'waf') {
+                ctx.fillText(`FIREWALL: ${info.firewall || 'WAF'}`, cx + 12, cy + 54);
+                if (info.manufacturer) ctx.fillText(`VENDOR: ${String(info.manufacturer).slice(0, 24)}`, cx + 12, cy + 70);
+                if (info.confidence) ctx.fillText(`CONFIDENCE: ${String(info.confidence).toUpperCase()}`, cx + 12, cy + 86);
+                if (info.target) ctx.fillText(`PROTECTS: ${String(info.target).slice(0, 24)}`, cx + 12, cy + 102);
+            } else if (n.type === 'load_balancer') {
+                ctx.fillText(`METHOD: ${String(info.method || 'Load Balancer').slice(0, 26)}`, cx + 12, cy + 54);
+                if (info.ips && info.ips.length) ctx.fillText(`POOLED IPS: ${info.ips.slice(0, 3).join(', ')}`.slice(0, 32), cx + 12, cy + 70);
+                if (info.target) ctx.fillText(`BALANCES: ${String(info.target).slice(0, 24)}`, cx + 12, cy + 86);
+            } else if (n.type === 'asn') {
+                ctx.fillText(`ASN: AS${info.asn || ''}`, cx + 12, cy + 54);
+                if (info.org) ctx.fillText(`ORG: ${String(info.org).slice(0, 24)}`, cx + 12, cy + 70);
+                if (info.cidr) ctx.fillText(`CIDR: ${info.cidr}`, cx + 12, cy + 86);
+            } else {
+                if (info.ip && info.ip !== 'N/A') {
+                    ctx.fillText(`IP: ${info.ip}`, cx + 12, cy + 54);
+                }
+                if (info.asn) {
+                    ctx.fillText(`ASN: ${String(info.asn).slice(0, 24)}`, cx + 12, cy + 70);
+                }
+                if (info.waf) {
+                    ctx.fillStyle = '#06b6d4';
+                    ctx.fillText(`🛡️ WAF: ${info.waf}`.slice(0, 32), cx + 12, cy + 86);
+                }
+                if (info.load_balancer) {
+                    ctx.fillStyle = '#a855f7';
+                    ctx.fillText(`⚖️ LB: ${info.load_balancer}`.slice(0, 32), cx + 12, cy + (info.waf ? 102 : 86));
+                }
+                if (info.takeover) {
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = 'bold 11px JetBrains Mono, monospace';
+                    ctx.fillText(`⚠️ Takeover: ${info.takeover}`, cx + 12, cy + 116);
+                }
             }
             ctx.restore();
         }
 
-        // Keep loop running while settling or dragging/panning
-        if (maxMovement > 0.05 || topoState.draggedNode || topoState.isPanning) {
+        // Only keep animation loop running if actively dragging, panning, or single standalone target pulsing
+        if (topoState.draggedNode || topoState.isPanning || nodes.length === 1) {
             topoState.animId = requestAnimationFrame(topoSimulateAndDraw);
         } else {
-            topoState.animRunning = false;
+            topoState.animId = null;
         }
     }
 </script>

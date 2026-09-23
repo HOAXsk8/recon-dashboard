@@ -1144,6 +1144,13 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         matching_app = next((w for w in (domain_data.get("web_applications") or []) if w.get("target") == q), None)
 
         if "infrastructure" in domain_data:
+            orig_waf = domain_data["infrastructure"].get("waf")
+            orig_lb = domain_data["infrastructure"].get("load_balancer")
+            domain_data["infrastructure"]["root_waf"] = orig_waf
+            domain_data["infrastructure"]["root_load_balancer"] = orig_lb
+            domain_data["root_waf"] = orig_waf
+            domain_data["root_load_balancer"] = orig_lb
+
             domain_data["infrastructure"]["waf"] = (
                 (sub_obj and sub_obj.get("waf")) or
                 (matching_app and matching_app.get("waf")) or
@@ -1505,6 +1512,7 @@ async def get_subdomains(
         # If we have system info or subdomain_scanned flag, it's scanned. Fallback to root's scanned_flag.
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         is_permutated = False
+        sub_drift_count = int(d.get("subdomain_drift_count", 0))
         latest_drift_time = d.get("latest_subdomain_drift_time")
         
         results.append({
