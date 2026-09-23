@@ -2330,6 +2330,16 @@
                                         <div class="flex items-center space-x-2">
                                             <span class="text-[10px] text-slate-500">${app.sensitive_files?.length || 0} Files</span>
                                             ${(() => {
+                                                const rbc = (app.sensitive_files || []).filter(f => f.source === 'robots.txt').length;
+                                                const smc = (app.sensitive_files || []).filter(f => f.source === 'sitemap.xml').length;
+                                                const secc = (app.sensitive_files || []).filter(f => f.source === 'security.txt').length;
+                                                let badges = '';
+                                                if (rbc > 0) badges += `<span class="text-[10px] text-cyan-500 dark:text-cyan-400 font-bold" title="${rbc} paths from robots.txt">🤖 ${rbc}</span> `;
+                                                if (smc > 0) badges += `<span class="text-[10px] text-emerald-500 dark:text-emerald-400 font-bold" title="${smc} URLs from sitemap">🗺️ ${smc}</span> `;
+                                                if (secc > 0) badges += `<span class="text-[10px] text-purple-500 dark:text-purple-400 font-bold" title="${secc} entries from security.txt">🔒 ${secc}</span> `;
+                                                return badges;
+                                            })()}
+                                            ${(() => {
                                                 const appT = (app.target || '').toLowerCase().trim();
                                                 const sms = (window.currentDomainSourceMaps || []).filter(sm => {
                                                     const smT = (sm.target || '').toLowerCase().trim();
@@ -2374,9 +2384,13 @@
                 // Render Detailed Card View
                 const listHtml = `
                     <div class="space-y-8">
-                        ${apps.map(app => {
                             const appTarget = (app.target || '').toLowerCase().trim();
                             const appSubArchive = bySubdomain[appTarget] || app.archive_urls || { total_urls: 0, sensitive_files: [], api_endpoints: [], interesting_params: [], documents: [], other_endpoints: [] };
+                            const totalFiles = app.sensitive_files?.length || 0;
+                            const rbFiles = (app.sensitive_files || []).filter(f => f.source === 'robots.txt');
+                            const smFiles = (app.sensitive_files || []).filter(f => f.source === 'sitemap.xml');
+                            const secFiles = (app.sensitive_files || []).filter(f => f.source === 'security.txt');
+                            const wlFiles = (app.sensitive_files || []).filter(f => !f.source || f.source === 'dir_hunt');
                             const compStack = app.comprehensive_tech_stack;
                             let compStackHtml = '';
                             if (compStack) {
@@ -2457,6 +2471,21 @@
                                                 <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-mono font-bold">
                                                     HTTP ${app.status || '200'}
                                                 </span>
+                                                ${rbFiles.length > 0 ? `
+                                                    <span class="px-2 py-0.5 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="${rbFiles.length} paths extracted from robots.txt">
+                                                        <span>🤖 ${rbFiles.length} Robots</span>
+                                                    </span>
+                                                ` : ''}
+                                                ${smFiles.length > 0 ? `
+                                                    <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="${smFiles.length} URLs extracted from sitemap">
+                                                        <span>🗺️ ${smFiles.length} Sitemap</span>
+                                                    </span>
+                                                ` : ''}
+                                                ${secFiles.length > 0 ? `
+                                                    <span class="px-2 py-0.5 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="${secFiles.length} paths extracted from security.txt">
+                                                        <span>🔒 ${secFiles.length} Security</span>
+                                                    </span>
+                                                ` : ''}
                                                 ${appSubArchive.total_urls > 0 ? `
                                                     <span class="px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1 cursor-pointer hover:bg-amber-500/20 transition-colors" onclick="switchArchiveSubdomain('${app.target}'); setTimeout(() => document.getElementById('passive-archives-section')?.scrollIntoView({behavior: 'smooth'}), 50);" title="Click to view ${appSubArchive.total_urls} historical archive URLs for ${app.target}">
                                                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -2496,10 +2525,11 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <div class="flex flex-wrap items-center justify-between gap-2 mb-4 border-b border-slate-200 dark:border-slate-700 pb-2">
+                                        <div class="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-slate-200 dark:border-slate-700 pb-2">
                                             <h4 class="text-sm font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                                 <span>Discovered Files & Directories</span>
                                                 ${app.discovered_directories?.length ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700">${app.discovered_directories.length} Dirs Scanned</span>` : ''}
+                                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">${totalFiles} Total</span>
                                             </h4>
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <!-- Status Filter/Delete -->
@@ -2522,6 +2552,27 @@
                                                 </button>
                                             </div>
                                         </div>
+
+                                        <!-- Source Filters Bar -->
+                                        ${(rbFiles.length > 0 || smFiles.length > 0 || secFiles.length > 0) ? `
+                                            <div class="flex flex-wrap items-center gap-1.5 mb-3">
+                                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Filter Source:</span>
+                                                <button onclick="filterFindingsSource('${app.target}', 'all')" class="source-filter-btn-${app.target} active px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-tech-accent text-black shadow-sm" data-source="all">All (${totalFiles})</button>
+                                                ${rbFiles.length > 0 ? `
+                                                    <button onclick="filterFindingsSource('${app.target}', 'robots.txt')" class="source-filter-btn-${app.target} px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-cyan-600 dark:text-cyan-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-cyan-500/30" data-source="robots.txt">🤖 Robots.txt (${rbFiles.length})</button>
+                                                ` : ''}
+                                                ${smFiles.length > 0 ? `
+                                                    <button onclick="filterFindingsSource('${app.target}', 'sitemap.xml')" class="source-filter-btn-${app.target} px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-emerald-500/30" data-source="sitemap.xml">🗺️ Sitemap (${smFiles.length})</button>
+                                                ` : ''}
+                                                ${secFiles.length > 0 ? `
+                                                    <button onclick="filterFindingsSource('${app.target}', 'security.txt')" class="source-filter-btn-${app.target} px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-purple-600 dark:text-purple-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-purple-500/30" data-source="security.txt">🔒 Security.txt (${secFiles.length})</button>
+                                                ` : ''}
+                                                ${wlFiles.length > 0 ? `
+                                                    <button onclick="filterFindingsSource('${app.target}', 'dir_hunt')" class="source-filter-btn-${app.target} px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700" data-source="dir_hunt">📁 Wordlist (${wlFiles.length})</button>
+                                                ` : ''}
+                                            </div>
+                                        ` : ''}
+
                                         <div class="max-h-[300px] overflow-y-auto space-y-2 pr-2">
                                             ${app.sensitive_files?.map(f => {
                                                 const fid = 'sf_' + Math.random().toString(36).substr(2, 9);
@@ -2530,8 +2581,11 @@
                                                     ? (f.length > 1024 ? (f.length / 1024).toFixed(1) + ' KB' : f.length + ' B')
                                                     : '';
                                                 return `
-                                                <div class="flex justify-between p-3 recon-sub-item rounded-xl group finding-item-sensitive_files" data-fid="${fid}">
+                                                <div class="flex justify-between p-3 recon-sub-item rounded-xl group finding-item-sensitive_files" data-fid="${fid}" data-source="${f.source || 'dir_hunt'}" data-target="${app.target}">
                                                     <div class="flex items-center gap-2 overflow-hidden">
+                                                        ${f.source === 'robots.txt' ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 shrink-0 font-bold" title="Extracted from robots.txt">🤖 robots.txt</span>` : ''}
+                                                        ${f.source === 'sitemap.xml' ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0 font-bold" title="Extracted from sitemap">🗺️ sitemap</span>` : ''}
+                                                        ${f.source === 'security.txt' ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 shrink-0 font-bold" title="Security policy file / directive">🔒 security.txt</span>` : ''}
                                                         ${f.directory ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0" title="Discovered inside directory /${f.directory}/">📁 /${f.directory}/</span>` : ''}
                                                         <a href="${app.url}/${f.path}" target="_blank" rel="noopener noreferrer" class="text-xs font-mono text-slate-700 dark:text-slate-300 hover:text-tech-accent transition-colors truncate">${f.path}</a>
                                                     </div>
@@ -4104,6 +4158,28 @@
     function toggleAllCategory(category, checked) {
         document.querySelectorAll(`.bulk-select-${category}`).forEach(cb => cb.checked = checked);
     }
+
+    window.filterFindingsSource = function(target, source) {
+        document.querySelectorAll(`.source-filter-btn-${target}`).forEach(btn => {
+            if (btn.dataset.source === source) {
+                btn.className = `source-filter-btn-${target} active px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-tech-accent text-black shadow-sm`;
+            } else {
+                const isRb = btn.dataset.source === 'robots.txt';
+                const isSm = btn.dataset.source === 'sitemap.xml';
+                const isSec = btn.dataset.source === 'security.txt';
+                const colorClass = isRb ? 'text-cyan-600 dark:text-cyan-400 border-cyan-500/30' : (isSm ? 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : (isSec ? 'text-purple-600 dark:text-purple-400 border-purple-500/30' : 'text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'));
+                btn.className = `source-filter-btn-${target} px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 ${colorClass} hover:bg-slate-200 dark:hover:bg-slate-700 border`;
+            }
+        });
+        document.querySelectorAll(`.finding-item-sensitive_files[data-target="${target}"]`).forEach(row => {
+            const rowSource = row.dataset.source || 'dir_hunt';
+            if (source === 'all' || rowSource === source) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    };
 
     function openBypassContent(findingId) {
         const finding = window.currentFindingsMap.get(findingId);

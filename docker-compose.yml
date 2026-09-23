@@ -172,6 +172,7 @@ services:
       - ./app:/app/app
       - ./templates:/app/templates
       - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
     restart: always
     network_mode: "host"
     depends_on:

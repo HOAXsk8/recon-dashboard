@@ -41,7 +41,10 @@ RUN mkdir -p /app/wordlists /app/screenshots && \
     wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-directories-lowercase.txt \
     -O /app/wordlists/common-dirs.txt && \
     wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-files-lowercase.txt \
-    -O /app/wordlists/common-files.txt
+    -O /app/wordlists/common-files.txt && \
+    wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt \
+    -O /app/wordlists/DirBuster-2007_directory-list-2.3-small.txt && \
+    ln -sf /app/wordlists/DirBuster-2007_directory-list-2.3-small.txt /app/wordlists/directory-list-2.3-small.txt
 
 WORKDIR /app
 
