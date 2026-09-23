@@ -15,35 +15,76 @@ class AliveCheckAgent(BaseAgent):
         self.asn_resolver = AsnNetworkResolver()
 
     async def get_ip(self, target):
-        """Resolve target to IP address."""
+        """Resolve target to IP address with fallback to async DNS resolvers."""
+        if not target:
+            return None
+        target = target.strip().rstrip(".")
+
+        # 1. System resolver
         try:
             import socket
             loop = asyncio.get_event_loop()
-            res = await loop.getaddrinfo(target, None)
+            res = await asyncio.wait_for(loop.getaddrinfo(target, None), timeout=3.0)
             if res:
                 return res[0][4][0]
-        except:
+        except Exception:
             pass
+
+        # 2. Async DNS resolver fallback (Google & Cloudflare public DNS)
+        try:
+            import dns.asyncresolver
+            resolver = dns.asyncresolver.Resolver()
+            resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
+            resolver.timeout = 2.5
+            resolver.lifetime = 3.0
+            ans = await resolver.resolve(target, "A")
+            for rdata in ans:
+                return str(rdata).strip()
+        except Exception:
+            pass
+
         return None
 
     async def is_wildcard(self, domain):
         """Check if a domain has wildcard DNS."""
+        if not domain:
+            return None
         random_sub = f"check-{datetime.datetime.utcnow().timestamp()}.{domain}"
         ip = await self.get_ip(random_sub)
         return ip
 
+    async def _check_single_port(self, target, port, timeout=3.0):
+        try:
+            conn = asyncio.open_connection(target, port)
+            _, writer = await asyncio.wait_for(conn, timeout=timeout)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
     async def is_alive(self, target):
-        """Verify if a target is alive. STRICT: Only returns True if a port is actually OPEN."""
-        ports = [80, 443, 22, 8080, 8443]
-        for port in ports:
-            try:
-                conn = asyncio.open_connection(target, port)
-                _, writer = await asyncio.wait_for(conn, timeout=1.5)
-                writer.close()
-                await writer.wait_closed()
-                return True
-            except:
-                continue
+        """
+        Verify if a target is alive by checking 16 common ports in parallel.
+        Short-circuits immediately as soon as any single port completes a connection.
+        """
+        ports = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000, 8081, 22, 21, 25, 53, 3389, 8088]
+        tasks = [asyncio.create_task(self._check_single_port(target, p, timeout=3.0)) for p in ports]
+
+        try:
+            for coro in asyncio.as_completed(tasks):
+                res = await coro
+                if res:
+                    for t in tasks:
+                        if not t.done():
+                            t.cancel()
+                    return True
+        except Exception as e:
+            logger.debug(f"is_alive check exception for {target}: {e}")
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
         return False
 
     async def process_tasks(self):
@@ -57,8 +98,8 @@ class AliveCheckAgent(BaseAgent):
 
         try:
             # 1. Check for wildcard on the parent domain
-            parent_domain = ".".join(target.split(".")[1:])
-            wildcard_ip = await self.is_wildcard(parent_domain)
+            parent_domain = ".".join(target.split(".")[1:]) if "." in target else ""
+            wildcard_ip = await self.is_wildcard(parent_domain) if parent_domain else None
             target_ip = await self.get_ip(target)
 
             is_potential_fp = False
@@ -66,10 +107,10 @@ class AliveCheckAgent(BaseAgent):
                 is_potential_fp = True
                 logger.info(f"Target {target} matches wildcard IP {wildcard_ip}. Requiring open port.")
 
-            # 2. Strict alive check
+            # 2. Parallel alive check across common ports
             alive = await self.is_alive(target)
-            
-            # If it's a potential FP and no ports are open, mark as DEAD
+
+            # If it's a potential FP and no ports are open, mark as not alive
             if is_potential_fp and not alive:
                 logger.info(f"Target {target} is a Wildcard FP (No ports open).")
                 alive = False
@@ -108,7 +149,13 @@ class AliveCheckAgent(BaseAgent):
                 except Exception as ae:
                     logger.debug(f"Error resolving ASN for {target_ip}: {ae}")
 
-            # 5. Build Subdomain Metadata & Track Infrastructure Drift History
+            # 5. Asset Validation:
+            # - Dangling takeover detected: Valid asset
+            # - Responded on an open port: Valid asset (alive=True)
+            # - Resolves to a valid IP and is NOT a wildcard catch-all: Valid asset in DNS (eliminates false negatives)
+            is_valid_asset = bool(takeover_res) or alive or (bool(target_ip) and not is_potential_fp)
+
+            # 6. Build Subdomain Metadata & Track Infrastructure Drift History
             domain_doc = await self.domains_col.find_one(
                 {"domain": root_domain, "infrastructure.subdomains.name": target},
                 {"infrastructure.subdomains.$": 1}
@@ -130,7 +177,7 @@ class AliveCheckAgent(BaseAgent):
                         "details": f"DNS IP address changed from {old_ip} to {target_ip}",
                         "severity": "info"
                     })
-            elif target != root_domain and (alive or takeover_res):
+            elif target != root_domain and is_valid_asset:
                 history_events.append({
                     "timestamp": now_iso,
                     "event_type": "subdomain_discovered",
@@ -165,8 +212,6 @@ class AliveCheckAgent(BaseAgent):
                 "infrastructure.subdomains.$.alive": alive,
                 "infrastructure.subdomains.$.last_scanned": now_iso
             }
-            if not alive:
-                sub_update_fields["infrastructure.subdomains.$.scanned"] = True
 
             if target_ip:
                 sub_update_fields["infrastructure.subdomains.$.ip"] = target_ip
@@ -183,7 +228,7 @@ class AliveCheckAgent(BaseAgent):
                 sub_update_fields["infrastructure.subdomains.$.takeover_provider"] = takeover_res.get("provider")
                 sub_update_fields["infrastructure.subdomains.$.takeover_risk"] = takeover_res.get("risk")
 
-            if alive or takeover_res:
+            if is_valid_asset:
                 # Add to domains collection if it's a subdomain and not yet present
                 if target != root_domain:
                     new_sub_doc = {
@@ -192,8 +237,6 @@ class AliveCheckAgent(BaseAgent):
                         "added_at": now_iso,
                         "last_scanned": now_iso
                     }
-                    if not alive:
-                        new_sub_doc["scanned"] = True
                     if target_ip:
                         new_sub_doc["ip"] = target_ip
                     if asn_info.get("asn"):
@@ -220,7 +263,7 @@ class AliveCheckAgent(BaseAgent):
                         }
                     )
 
-                # Add discovery task for recursion (depth < 2)
+                # Add discovery task for recursion (depth < 2) only if responsive
                 depth = target.count(".") - root_domain.count(".")
                 if depth < 2 and alive:
                     exists_disc = await self.tasks_col.find_one({
@@ -237,8 +280,8 @@ class AliveCheckAgent(BaseAgent):
                             "created_at": datetime.datetime.utcnow()
                         })
 
-                # Add scan task if alive
-                if alive:
+                # Queue Nmap port scan task (top 1000 ports) for all verified IP assets
+                if target_ip or alive:
                     exists_scan = await self.tasks_col.find_one({
                         "root_domain": root_domain,
                         "target": target,
@@ -252,6 +295,7 @@ class AliveCheckAgent(BaseAgent):
                             "status": "pending",
                             "created_at": datetime.datetime.utcnow()
                         })
+                        logger.info(f"Queued Nmap port scan task for verified asset: {target}")
 
                 # Record full enriched status in infrastructure.subdomains
                 if target != root_domain:
@@ -260,7 +304,7 @@ class AliveCheckAgent(BaseAgent):
                         {"$set": sub_update_fields}
                     )
 
-                logger.info(f"Target {target} processed (alive={alive}, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
+                logger.info(f"Target {target} processed (alive={alive}, valid_asset=True, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
             else:
                 logger.info(f"Target {target} is DEAD or Wildcard FP.")
                 if target != root_domain:
