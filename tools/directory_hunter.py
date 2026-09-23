@@ -12,17 +12,14 @@ from collections import Counter
 import httpx
 from base_agent import BaseAgent, logger
 
-DIR_WORDLIST = "/app/wordlists/common-dirs.txt"
-DIRBUSTER_DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
-COMBINED_DIR_WORDLIST = "/app/wordlists/combined-dirs.txt"
-FILE_WORDLIST = "/app/wordlists/common-files.txt"
+DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
+FILE_WORDLIST = "/app/wordlists/raft-small-files-lowercase.txt"
 
-LOCAL_DIR_WORDLIST = "wordlists/common-dirs.txt"
-LOCAL_DIRBUSTER_DIR_WORDLIST = "wordlists/DirBuster-2007_directory-list-2.3-small.txt"
-LOCAL_COMBINED_DIR_WORDLIST = "wordlists/combined-dirs.txt"
-LOCAL_FILE_WORDLIST = "wordlists/common-files.txt"
+LOCAL_DIR_WORDLIST = "wordlists/DirBuster-2007_directory-list-2.3-small.txt"
+LOCAL_FILE_WORDLIST = "wordlists/raft-small-files-lowercase.txt"
 
 SECLISTS_DIRBUSTER_URL = "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt"
+SECLISTS_RAFT_FILES_URL = "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-files-lowercase.txt"
 
 # Curated high-impact sensitive files scanned across EVERY discovered directory
 CURATED_SENSITIVE_FILES = [
@@ -63,108 +60,72 @@ class DirectoryHunterAgent(BaseAgent):
 
     def get_directory_wordlist(self) -> str:
         """
-        Locates or builds the consolidated directory wordlist.
-        Combines common-dirs.txt (raft-small) and DirBuster-2007_directory-list-2.3-small.txt
-        into a deduplicated, clean list without comments or leading slashes.
-        Auto-downloads DirBuster list from SecLists if missing.
+        Locates the DirBuster-2007_directory-list-2.3-small.txt directory wordlist.
+        Auto-downloads from SecLists GitHub if missing.
         """
-        # 1. Check for DirBuster wordlist, download if completely absent
-        dirbuster_path = None
         for p in [
-            DIRBUSTER_DIR_WORDLIST,
+            DIR_WORDLIST,
             "/app/wordlists/directory-list-2.3-small.txt",
-            LOCAL_DIRBUSTER_DIR_WORDLIST,
-            "wordlists/directory-list-2.3-small.txt"
+            LOCAL_DIR_WORDLIST,
+            "wordlists/directory-list-2.3-small.txt",
         ]:
             if os.path.exists(p):
-                dirbuster_path = p
-                break
+                return p
 
-        if not dirbuster_path:
-            # Attempt to download into the wordlists directory
-            target_dest = DIRBUSTER_DIR_WORDLIST if os.path.exists("/app/wordlists") else LOCAL_DIRBUSTER_DIR_WORDLIST
-            try:
-                os.makedirs(os.path.dirname(target_dest), exist_ok=True)
-                logger.info(f"Downloading DirBuster-2007_directory-list-2.3-small.txt from SecLists to {target_dest}...")
-                import urllib.request
-                urllib.request.urlretrieve(SECLISTS_DIRBUSTER_URL, target_dest)
-                dirbuster_path = target_dest
-                logger.info(f"Successfully downloaded DirBuster list ({os.path.getsize(target_dest)} bytes)")
-            except Exception as e:
-                logger.warning(f"Failed to auto-download DirBuster list from SecLists: {e}")
-
-        # 2. Collect available directory sources
-        sources = []
-        for p in [DIR_WORDLIST, LOCAL_DIR_WORDLIST]:
-            if os.path.exists(p):
-                sources.append(p)
-                break
-
-        if dirbuster_path and os.path.exists(dirbuster_path) and dirbuster_path not in sources:
-            sources.append(dirbuster_path)
-
-        if not sources:
+        # Attempt to auto-download if not present
+        target_dest = DIR_WORDLIST if os.path.exists("/app/wordlists") else LOCAL_DIR_WORDLIST
+        try:
+            os.makedirs(os.path.dirname(target_dest), exist_ok=True)
+            logger.info(f"Downloading DirBuster-2007_directory-list-2.3-small.txt from SecLists to {target_dest}...")
+            import urllib.request
+            urllib.request.urlretrieve(SECLISTS_DIRBUSTER_URL, target_dest)
+            logger.info(f"Successfully downloaded DirBuster list ({os.path.getsize(target_dest)} bytes)")
+            return target_dest
+        except Exception as e:
+            logger.warning(f"Failed to auto-download DirBuster list from SecLists: {e}")
             return ""
 
-        if len(sources) == 1:
-            return sources[0]
-
-        # 3. Determine combined wordlist path
-        base_dir = os.path.dirname(sources[0])
-        combined_path = os.path.join(base_dir, "combined-dirs.txt")
-
-        try:
-            # If combined wordlist exists and is newer than all source files, reuse it
-            if os.path.exists(combined_path):
-                comb_mtime = os.path.getmtime(combined_path)
-                if all(comb_mtime >= os.path.getmtime(s) for s in sources):
-                    return combined_path
-
-            # Merge and deduplicate while preserving priority order
-            words = []
-            for src in sources:
-                with open(src, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip().lstrip("/")
-                        if line and not line.startswith("#"):
-                            words.append(line)
-
-            deduped = list(dict.fromkeys(words))
-            os.makedirs(os.path.dirname(combined_path), exist_ok=True)
-            with open(combined_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(deduped) + "\n")
-            logger.info(f"Generated consolidated directory wordlist at {combined_path} ({len(deduped)} paths from {', '.join(os.path.basename(s) for s in sources)})")
-            return combined_path
-        except Exception as e:
-            # Fallback to /tmp if wordlists dir is read-only
-            try:
-                tmp_path = "/tmp/combined-dirs.txt"
-                words = []
-                for src in sources:
-                    with open(src, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
-                            line = line.strip().lstrip("/")
-                            if line and not line.startswith("#"):
-                                words.append(line)
-                deduped = list(dict.fromkeys(words))
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(deduped) + "\n")
-                logger.info(f"Generated consolidated directory wordlist in /tmp: {tmp_path} ({len(deduped)} paths)")
-                return tmp_path
-            except Exception as ex:
-                logger.warning(f"Error creating combined wordlist: {ex}")
-                return sources[0]
-
-    def build_curated_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None) -> str:
+    def get_file_wordlist(self) -> str:
         """
-        Build a high-speed targeted file wordlist for a discovered directory.
-        Merges curated sensitive files, directory-contextual filenames, and technology-adaptive extensions.
-        Writes to a temporary file and returns the file path.
+        Locates the SecLists raft-small-files wordlist (raft-small-files-lowercase.txt).
+        Auto-downloads from SecLists GitHub if missing.
+        """
+        for p in [
+            FILE_WORDLIST,
+            "/app/wordlists/raft-small-files.txt",
+            "/app/wordlists/common-files.txt",
+            LOCAL_FILE_WORDLIST,
+            "wordlists/raft-small-files.txt",
+            "wordlists/common-files.txt",
+        ]:
+            if os.path.exists(p):
+                return p
+
+        # Attempt auto-download if missing
+        target_dest = FILE_WORDLIST if os.path.exists("/app/wordlists") else LOCAL_FILE_WORDLIST
+        try:
+            os.makedirs(os.path.dirname(target_dest), exist_ok=True)
+            logger.info(f"Downloading raft-small-files-lowercase.txt from SecLists to {target_dest}...")
+            import urllib.request
+            urllib.request.urlretrieve(SECLISTS_RAFT_FILES_URL, target_dest)
+            logger.info(f"Successfully downloaded raft small files list ({os.path.getsize(target_dest)} bytes)")
+            return target_dest
+        except Exception as e:
+            logger.warning(f"Failed to auto-download raft small files list from SecLists: {e}")
+            return ""
+
+    def build_file_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None, include_raft: bool = True) -> str:
+        """
+        Builds the file discovery wordlist for a directory combining:
+        1. Curated sensitive files (.env, .git/HEAD, secrets, backups, etc.)
+        2. Contextual directory-based filenames and technology-specific files
+        3. SecLists raft-small-files-lowercase.txt
+        Writes to a temporary file and returns the file path for ffuf.
         """
         words = list(CURATED_SENSITIVE_FILES)
         base_label = d_clean.split("/")[-1].lower() if d_clean else ""
 
-        # Contextual filenames matching the directory name
+        # Contextual filenames matching directory name
         if base_label:
             words.extend([
                 f"{base_label}.php", f"{base_label}.html", f"{base_label}.json",
@@ -193,16 +154,32 @@ class DirectoryHunterAgent(BaseAgent):
         if "python" in tech_str or "django" in tech_str or "flask" in tech_str:
             words.extend(["settings.py", "wsgi.py", "requirements.txt", ".env"])
 
-        # Deduplicate while preserving order
+        # Include SecLists raft small files list
+        if include_raft:
+            raft_wl = self.get_file_wordlist()
+            if raft_wl and os.path.exists(raft_wl):
+                try:
+                    with open(raft_wl, "r", encoding="utf-8", errors="ignore") as rf:
+                        for line in rf:
+                            line = line.strip().lstrip("/")
+                            if line and not line.startswith("#"):
+                                words.append(line)
+                except Exception as e:
+                    logger.debug(f"Error reading raft small files: {e}")
+
+        # Deduplicate preserving order
         deduped = list(dict.fromkeys(words))
-        wl_path = f"/tmp/curated_wl_{os.getpid()}_{base_label or 'root'}.txt"
+        wl_path = f"/tmp/raft_file_wl_{os.getpid()}_{base_label or 'root'}.txt"
         try:
-            with open(wl_path, "w") as f:
+            with open(wl_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(deduped) + "\n")
             return wl_path
         except Exception as e:
-            logger.debug(f"Error writing curated wordlist: {e}")
-            return FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else "wordlists/common-files.txt"
+            logger.debug(f"Error writing file wordlist: {e}")
+            return self.get_file_wordlist() or FILE_WORDLIST
+
+    def build_curated_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None) -> str:
+        return self.build_file_wordlist_for_dir(d_clean=d_clean, tech_stack=tech_stack, include_raft=True)
 
     async def fetch_robots_and_sitemaps(self, base_url: str, target: str):
         """
@@ -598,13 +575,12 @@ class DirectoryHunterAgent(BaseAgent):
             if not re.search(r'\.(html|htm|js|css|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|map)$', clean_d, re.I):
                 discovered_dirs.add(clean_d)
 
-        logger.info(f"Discovered {len(discovered_dirs)} total directories on {base_url}. Starting Phase 2: File search in each directory.")
+        logger.info(f"Discovered {len(discovered_dirs)} total directories on {base_url}. Starting Phase 2: File search using raft small files list.")
 
-        # Phase 2: Exhaustive File Search inside EVERY discovered directory
-        full_file_wl = FILE_WORDLIST if os.path.exists(FILE_WORDLIST) else (LOCAL_FILE_WORDLIST if os.path.exists(LOCAL_FILE_WORDLIST) else "wordlists/common-files.txt")
-        has_full_wl = os.path.exists(full_file_wl)
+        # Phase 2: File Search inside discovered directories using raft small files list
+        raft_file_wl = self.get_file_wordlist()
         
-        # Priority keywords that warrant the full dictionary
+        # Priority keywords that warrant earlier scanning order
         priority_keywords = [
             "admin", "api", "login", "auth", "config", "backup", "v1", "v2",
             "upload", "portal", "test", "dev", "private", "internal", "secret"
@@ -633,20 +609,14 @@ class DirectoryHunterAgent(BaseAgent):
                     pass
 
             target_url = f"{base_url}/{d_path}".rstrip("/")
-            logger.info(f"Phase 2: Searching files in directory: {target_url or '/'}")
+            logger.info(f"Phase 2: Searching files in directory: {target_url or '/'} using raft small files list")
 
             # Per-directory baseline soft-404 detection
             dir_baseline = await self.probe_soft_404_lengths(target_url)
 
-            # Determine whether to use full dictionary or curated targeted dictionary
-            is_priority = (not d_path) or any(kw in d_path.lower() for kw in priority_keywords)
-            temp_wl_to_cleanup = None
-
-            if is_priority and has_full_wl:
-                active_wl = full_file_wl
-            else:
-                active_wl = self.build_curated_wordlist_for_dir(d_path, tech_stack)
-                temp_wl_to_cleanup = active_wl
+            # Build file wordlist combining raft small files + curated sensitive files
+            active_wl = self.build_file_wordlist_for_dir(d_path, tech_stack, include_raft=True)
+            temp_wl_to_cleanup = active_wl
 
             cmd_file = [
                 "ffuf", "-w", active_wl, "-u", f"{target_url}/FUZZ",
@@ -656,7 +626,7 @@ class DirectoryHunterAgent(BaseAgent):
                 cmd_file.extend(["-fs", ",".join(str(l) for l in dir_baseline)])
 
             try:
-                stdout_f, _ = await self.run_command(cmd_file, timeout=60)
+                stdout_f, _ = await self.run_command(cmd_file, timeout=120)
                 if stdout_f:
                     for line in stdout_f.splitlines():
                         try:

@@ -314,7 +314,7 @@ RDash bundles a suite of 19 autonomous, multi-threaded reconnaissance engines an
 
 - **File Path**: `tools/directory_hunter.py`
 - **Role in Pipeline**: High-performance web content discovery engine that discovers unlinked directories, exposed configuration files, database backups, and source code repositories.
-- **Dependencies & Libraries**: `ffuf` (Fast Web Fuzzer binary), asynchronous `httpx`, SecLists wordlists (`raft-small-directories-lowercase.txt`, `common-files.txt`).
+- **Dependencies & Libraries**: `ffuf` (Fast Web Fuzzer binary), asynchronous `httpx`, SecLists wordlists (`DirBuster-2007_directory-list-2.3-small.txt`, `common-files.txt`).
 - **Underlying Mechanism & Methodology**:
   - **Phase 1: Directory Enumeration**: Fuzzes paths using `ffuf` to uncover valid application directories (e.g. `/admin`, `/api`, `/v1`, `/v2`, `/internal`, `/dev`, `/staging`, `/test`, `/backup`, `/private`, `/manage`, `/portal`, `/auth`).
   - **Phase 2: High-Value Sensitive File Probing**: For every discovered directory plus the web application root, executes targeted multi-threaded HTTP probes against high-impact files:
@@ -710,7 +710,7 @@ Download Wordlists:
 ```bash
 mkdir -p wordlists
 wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt -O wordlists/subdomains-top5000.txt
-wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-directories-lowercase.txt -O wordlists/common-dirs.txt
+wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt -O wordlists/DirBuster-2007_directory-list-2.3-small.txt
 wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-files-lowercase.txt -O wordlists/common-files.txt
 ```
 
