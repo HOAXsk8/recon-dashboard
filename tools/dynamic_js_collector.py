@@ -15,6 +15,206 @@ from playwright.async_api import async_playwright
 from api_schema_discovery import ApiSchemaDiscovery
 
 
+class CommentExtractor:
+    """
+    High-performance extractor and classifier for HTML and JavaScript comments.
+    Identifies sensitive secrets, developer notes/TODOs, API routes, and framework comments.
+    """
+    HIGH_INTEREST_PATTERNS = [
+        re.compile(r'\b(?:api[_-]?key|secret|token|password|passwd|auth[_-]?token|bearer|access[_-]?token|private[_-]?key)\b', re.IGNORECASE),
+        re.compile(r'\b(?:admin|root|internal|backdoor|credential|credentials|bypass|leak|database|db_pass|aws_key)\b', re.IGNORECASE),
+        re.compile(r'\b(?:staging|production|prod|dev|qa|test)\b.*\b(?:url|endpoint|pass|key|host|ip)\b', re.IGNORECASE),
+        re.compile(r'(?:username|user|login)\s*[:=]\s*["\']?[a-zA-Z0-9_\-\.]+["\']?', re.IGNORECASE),
+    ]
+
+    DEV_NOTE_PATTERNS = [
+        re.compile(r'\b(?:TODO|FIXME|BUG|HACK|NOTE|XXX|TEMP|TEMPORARY|DEBUG|DEPRECATED|OPTIMIZE|REFACTOR|WORKAROUND)\b', re.IGNORECASE),
+    ]
+
+    ROUTE_PATTERNS = [
+        re.compile(r'(?:https?://[a-zA-Z0-9_\-\.:]+|/api/v[0-9]+/|/api/|/graphql|/rest/|/v[0-9]+/|localhost|127\.0\.0\.1)', re.IGNORECASE),
+    ]
+
+    LICENSE_PATTERNS = [
+        re.compile(r'(?:@license|copyright\s+(?:\(c\)|©)?\s*[0-9]{4}|spdx-license-identifier|mit license|apache license|mozilla public license|gnu general public)', re.IGNORECASE),
+    ]
+
+    @classmethod
+    def classify_comment(cls, text: str) -> Tuple[str, bool]:
+        """
+        Classifies comment text into:
+        'High Interest', 'Developer Note', 'Route / Endpoint', 'License', or 'General'.
+        Returns (category, is_interesting).
+        """
+        clean_text = text.strip()
+        
+        # Check High Interest first
+        for pat in cls.HIGH_INTEREST_PATTERNS:
+            if pat.search(clean_text):
+                return "High Interest", True
+                
+        # Check Developer Notes
+        for pat in cls.DEV_NOTE_PATTERNS:
+            if pat.search(clean_text):
+                return "Developer Note", True
+                
+        # Check Routes / Endpoints
+        for pat in cls.ROUTE_PATTERNS:
+            if pat.search(clean_text):
+                return "Route / Endpoint", True
+
+        # Check License
+        for pat in cls.LICENSE_PATTERNS:
+            if pat.search(clean_text):
+                return "License", False
+
+        return "General", False
+
+    @classmethod
+    def extract_html_comments(cls, html: str, source_url: str) -> List[dict]:
+        """
+        Extracts all HTML comments (<!-- ... -->) along with line numbers and categories.
+        """
+        results = []
+        if not html:
+            return results
+
+        comment_regex = re.compile(r'<!--([\s\S]*?)-->')
+        for match in comment_regex.finditer(html):
+            raw_comment = match.group(1).strip()
+            if not raw_comment or len(raw_comment) < 2:
+                continue
+            
+            line_no = html[:match.start()].count('\n') + 1
+            category, is_interesting = cls.classify_comment(raw_comment)
+            
+            clean_source = source_url.split('?')[0].rstrip('/')
+            source_name = clean_source.split('/')[-1] if clean_source else "index.html"
+            if not source_name:
+                source_name = "index.html"
+            
+            results.append({
+                "type": "html",
+                "content": raw_comment,
+                "category": category,
+                "is_interesting": is_interesting,
+                "source_url": source_url,
+                "source_name": source_name,
+                "line_number": line_no,
+                "length": len(raw_comment)
+            })
+        return results
+
+    @classmethod
+    def extract_js_comments(cls, js_code: str, source_url: str) -> List[dict]:
+        """
+        Extracts single-line (//) and multi-line (/* ... */) comments from JavaScript.
+        Accurately skips string literals and template literals to avoid false positives.
+        """
+        results = []
+        if not js_code:
+            return results
+
+        clean_source = source_url.split('#inline-script-')[0].split('?')[0].rstrip('/')
+        source_name = clean_source.split('/')[-1] if clean_source else "script.js"
+        if '#inline-script-' in source_url:
+            idx = source_url.split('#inline-script-')[-1]
+            source_name = f"Inline Script #{idx}"
+
+        n = len(js_code)
+        i = 0
+        line = 1
+
+        while i < n:
+            c = js_code[i]
+
+            if c == '\n':
+                line += 1
+                i += 1
+                continue
+
+            # Check single-line comment: //
+            if c == '/' and i + 1 < n and js_code[i+1] == '/':
+                # Ignore :// in URLs
+                if i > 0 and js_code[i-1] == ':':
+                    i += 2
+                    continue
+                
+                comment_start_line = line
+                i += 2
+                start_idx = i
+                while i < n and js_code[i] != '\n':
+                    i += 1
+                raw_comment = js_code[start_idx:i].strip()
+                
+                if raw_comment and not raw_comment.startswith('# sourceMappingURL=') and not raw_comment.startswith('@ sourceMappingURL='):
+                    category, is_interesting = cls.classify_comment(raw_comment)
+                    results.append({
+                        "type": "js_single",
+                        "content": raw_comment,
+                        "category": category,
+                        "is_interesting": is_interesting,
+                        "source_url": source_url,
+                        "source_name": source_name,
+                        "line_number": comment_start_line,
+                        "length": len(raw_comment)
+                    })
+                continue
+
+            # Check multi-line comment: /* ... */
+            if c == '/' and i + 1 < n and js_code[i+1] == '*':
+                comment_start_line = line
+                i += 2
+                start_idx = i
+                while i + 1 < n and not (js_code[i] == '*' and js_code[i+1] == '/'):
+                    if js_code[i] == '\n':
+                        line += 1
+                    i += 1
+                
+                raw_comment = js_code[start_idx:i].strip()
+                if i + 1 < n:
+                    i += 2  # skip */
+                else:
+                    i = n
+
+                if raw_comment and not raw_comment.startswith('# sourceMappingURL=') and not raw_comment.startswith('@ sourceMappingURL='):
+                    category, is_interesting = cls.classify_comment(raw_comment)
+                    results.append({
+                        "type": "js_multi",
+                        "content": raw_comment,
+                        "category": category,
+                        "is_interesting": is_interesting,
+                        "source_url": source_url,
+                        "source_name": source_name,
+                        "line_number": comment_start_line,
+                        "length": len(raw_comment)
+                    })
+                continue
+
+            # Skip string literals and template literals
+            if c in ('"', "'", '`'):
+                quote = c
+                i += 1
+                while i < n:
+                    ch = js_code[i]
+                    if ch == '\n':
+                        line += 1
+                    if ch == '\\':
+                        if i + 1 < n and js_code[i+1] == '\n':
+                            line += 1
+                        i += 2
+                        continue
+                    if ch == quote:
+                        i += 1
+                        break
+                    i += 1
+                continue
+
+            i += 1
+
+        return results
+
+
 class DynamicJsCollectorAgent(BaseAgent):
     """
     Dynamic JavaScript Collector & Extractor Agent.
@@ -359,13 +559,15 @@ class DynamicJsCollectorAgent(BaseAgent):
 
         return result
 
-    async def capture_via_crawler(self, url: str) -> Dict[str, str]:
+    async def capture_via_crawler(self, url: str) -> Tuple[Dict[str, str], Dict[str, str]]:
         """
         Direct high-speed network crawler: fetches HTML with modern browser headers,
         extracts all external script sources, preloaded module scripts, and inline
         scripts, and recursively discovers dynamic JavaScript chunks.
+        Returns (captured_scripts, captured_html_pages).
         """
         captured: Dict[str, str] = {}
+        captured_html: Dict[str, str] = {}
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -376,10 +578,11 @@ class DynamicJsCollectorAgent(BaseAgent):
             async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15.0, headers=headers) as client:
                 res = await client.get(url)
                 if res.status_code != 200 and res.status_code != 304:
-                    return captured
+                    return captured, captured_html
                 
                 base_url = str(res.url)
                 html = res.text
+                captured_html[base_url] = html
                 
                 # 1. Extract inline scripts
                 inline_matches = re.findall(r'<script(?:\s+[^>]*)?>([\s\S]*?)</script>', html, re.IGNORECASE)
@@ -445,20 +648,23 @@ class DynamicJsCollectorAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"Crawler script extraction exception for {url}: {e}")
 
-        return captured
+        return captured, captured_html
 
-    async def capture_dynamic_scripts(self, url: str, timeout_ms: int = 15000) -> Dict[str, str]:
+    async def capture_dynamic_scripts(self, url: str, timeout_ms: int = 15000) -> Tuple[Dict[str, str], Dict[str, str]]:
         """
-        Capture all JavaScript files requested by target URL.
+        Capture all JavaScript files requested by target URL and page HTML.
         Executes hybrid interception: runs Playwright headless browser for runtime scripts,
         augmented with direct high-speed HTTP chunk & script crawling.
+        Returns (captured_scripts, captured_html_pages).
         """
         captured_scripts: Dict[str, str] = {}
+        captured_html: Dict[str, str] = {}
         
         # 1. Direct Network & Chunk Crawler (Fast & Resilient)
-        crawler_scripts = await self.capture_via_crawler(url)
+        crawler_scripts, crawler_html = await self.capture_via_crawler(url)
         captured_scripts.update(crawler_scripts)
-        logger.info(f"Direct crawler captured {len(crawler_scripts)} JavaScript sources from {url}")
+        captured_html.update(crawler_html)
+        logger.info(f"Direct crawler captured {len(crawler_scripts)} JavaScript sources and {len(crawler_html)} HTML pages from {url}")
 
         # 2. Attempt Headless Browser Interception (to catch deferred Webpack/Vite runtime requests)
         try:
@@ -518,6 +724,13 @@ class DynamicJsCollectorAgent(BaseAgent):
                     except Exception:
                         pass
                     await asyncio.sleep(2)
+                    
+                    try:
+                        dom_html = await page.content()
+                        if dom_html and len(dom_html.strip()) > 50:
+                            captured_html[page.url] = dom_html
+                    except Exception:
+                        pass
                 except Exception as e:
                     logger.debug(f"Browser navigation notice for {url}: {e}")
                 finally:
@@ -525,8 +738,8 @@ class DynamicJsCollectorAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"Headless browser notice for {url}: {e}")
 
-        logger.info(f"Total JavaScript files collected from {url}: {len(captured_scripts)}")
-        return captured_scripts
+        logger.info(f"Total JavaScript files collected from {url}: {len(captured_scripts)}, HTML documents: {len(captured_html)}")
+        return captured_scripts, captured_html
 
     def extract_from_script(self, script_url: str, content: str, root_domain: str, target_url: str = "") -> dict:
         """
@@ -794,16 +1007,86 @@ class DynamicJsCollectorAgent(BaseAgent):
         logger.info(f"Starting Dynamic JS Extraction on {target_url} (Root: {root_domain})")
 
         try:
-            # 1. Capture dynamic scripts via headless browser
-            scripts = await self.capture_dynamic_scripts(target_url)
+            # 1. Capture dynamic scripts and HTML via headless browser & direct crawler
+            scripts, html_pages = await self.capture_dynamic_scripts(target_url)
             
-            # If HTTPS fails with 0 scripts, attempt HTTP fallback
-            if not scripts and target_url.startswith("https://"):
+            # If HTTPS fails with 0 scripts and 0 html, attempt HTTP fallback
+            if not scripts and not html_pages and target_url.startswith("https://"):
                 fallback_url = f"http://{target}"
-                logger.info(f"No scripts captured on HTTPS, trying HTTP fallback: {fallback_url}")
-                scripts = await self.capture_dynamic_scripts(fallback_url)
-                if scripts:
+                logger.info(f"No scripts or HTML captured on HTTPS, trying HTTP fallback: {fallback_url}")
+                scripts, html_pages = await self.capture_dynamic_scripts(fallback_url)
+                if scripts or html_pages:
                     target_url = fallback_url
+
+            # 2. Extract HTML and JavaScript comments
+            all_comments: List[dict] = []
+            for page_url, html_content in html_pages.items():
+                try:
+                    html_comments = CommentExtractor.extract_html_comments(html_content, page_url)
+                    all_comments.extend(html_comments)
+                except Exception as ce:
+                    logger.debug(f"Error extracting HTML comments from {page_url}: {ce}")
+
+            for script_url, js_content in scripts.items():
+                try:
+                    js_comments = CommentExtractor.extract_js_comments(js_content, script_url)
+                    all_comments.extend(js_comments)
+                except Exception as ce:
+                    logger.debug(f"Error extracting JS comments from {script_url}: {ce}")
+
+            # Deduplicate comments
+            seen_comments = set()
+            unique_comments = []
+            for c in all_comments:
+                if c["category"] == "License":
+                    key = ("license", c["content"])
+                else:
+                    key = (c["type"], c["content"], c["source_url"])
+                if key in seen_comments:
+                    continue
+                seen_comments.add(key)
+                unique_comments.append(c)
+
+            category_priority = {
+                "High Interest": 0,
+                "Developer Note": 1,
+                "Route / Endpoint": 2,
+                "General": 3,
+                "License": 4
+            }
+            unique_comments.sort(key=lambda x: category_priority.get(x["category"], 99))
+            final_comments = unique_comments[:500]
+            high_interest_count = sum(1 for c in final_comments if c["category"] == "High Interest")
+            dev_notes_count = sum(1 for c in final_comments if c["category"] == "Developer Note")
+            interesting_count = sum(1 for c in final_comments if c.get("is_interesting"))
+            logger.info(f"Extracted {len(final_comments)} comments ({interesting_count} interesting, {high_interest_count} high-interest) from {target}")
+
+            # Alert on critical sensitive comments
+            critical_comment_secrets = [
+                c for c in final_comments
+                if c["category"] == "High Interest"
+                and any(k in c["content"].lower() for k in ["password", "passwd", "secret", "private_key", "bearer", "api_key", "apikey", "credential"])
+            ]
+            for hc in critical_comment_secrets[:5]:
+                await self.create_alert(
+                    title=f"Sensitive Comment in Client Source: {hc['source_name']}",
+                    description=f"Potential credential or sensitive note found in {hc['type'].upper()} comment on {target}.",
+                    target=target,
+                    risk_level="high",
+                    details=(
+                        f"**Target:** {target}\n"
+                        f"**Source File:** [{hc['source_url']}]({hc['source_url']})\n"
+                        f"**Line Number:** {hc['line_number']}\n"
+                        f"**Comment Type:** `{hc['type']}`\n\n"
+                        f"**Extracted Comment:**\n```\n{hc['content'][:400]}\n```"
+                    ),
+                    exploitation_suggestions=(
+                        "1. Review comment content for leaked credentials, private keys, or internal API routes.\n"
+                        "2. If passwords or tokens are exposed, rotate credentials immediately.\n"
+                        "3. Strip developer comments and debug notes in production build pipelines (e.g., using Terser or SWC)."
+                    ),
+                    alert_type="sensitive_comment_leak"
+                )
 
             all_subdomains: Set[str] = set()
             all_cloud_assets: Dict[str, dict] = {}
@@ -1237,6 +1520,11 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "extracted_base64": list(all_base64.values())[:100],
                 "base64_count": len(all_base64),
                 "sourcemaps": all_sourcemaps,
+                "comments": final_comments,
+                "comments_count": len(final_comments),
+                "interesting_comments_count": interesting_count,
+                "high_interest_comments_count": high_interest_count,
+                "dev_notes_comments_count": dev_notes_count,
                 "api_specifications": (api_res.get("openapi_specs") if api_res else []) or [],
                 "api_ui_endpoints": (api_res.get("api_ui_endpoints") if api_res else []) or [],
                 "graphql_endpoints": (api_res.get("graphql_endpoints") if api_res else []) or [],
@@ -1244,7 +1532,14 @@ class DynamicJsCollectorAgent(BaseAgent):
             }
 
             # Attach findings to the specific web application entry in web_applications
-            webapp_set = {"web_applications.$.dynamic_js": recon_summary}
+            webapp_set = {
+                "web_applications.$.dynamic_js": recon_summary,
+                "web_applications.$.comments": final_comments,
+                "web_applications.$.comments_count": len(final_comments),
+                "web_applications.$.interesting_comments_count": interesting_count,
+                "web_applications.$.high_interest_comments_count": high_interest_count,
+                "web_applications.$.dev_notes_comments_count": dev_notes_count,
+            }
             if probed_cloud_assets:
                 webapp_set["web_applications.$.cloud_assets"] = [
                     {
@@ -1273,7 +1568,12 @@ class DynamicJsCollectorAgent(BaseAgent):
                     new_app = {
                         "target": target,
                         "url": target_url,
-                        "dynamic_js": recon_summary
+                        "dynamic_js": recon_summary,
+                        "comments": final_comments,
+                        "comments_count": len(final_comments),
+                        "interesting_comments_count": interesting_count,
+                        "high_interest_comments_count": high_interest_count,
+                        "dev_notes_comments_count": dev_notes_count,
                     }
                     if probed_cloud_assets:
                         new_app["cloud_assets"] = webapp_set.get("web_applications.$.cloud_assets", [])
@@ -1288,7 +1588,10 @@ class DynamicJsCollectorAgent(BaseAgent):
                     {"domain": root_domain},
                     {"$set": {
                         "infrastructure.dynamic_js": recon_summary,
-                        "dynamic_js": recon_summary
+                        "dynamic_js": recon_summary,
+                        "comments": final_comments,
+                        "comments_count": len(final_comments),
+                        "interesting_comments_count": interesting_count,
                     }}
                 )
 
