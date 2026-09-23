@@ -18,10 +18,37 @@ class SubdomainDiscoveryAgent(BaseAgent):
 
     async def run_subfinder(self, domain):
         logger.info(f"Running Subfinder on {domain}")
-        stdout, stderr = await self.run_command(["subfinder", "-d", domain, "-silent"])
-        if stderr:
-            logger.warning(f"Subfinder stderr: {stderr}")
-        return [line.strip() for line in stdout.splitlines() if line.strip()]
+        try:
+            stdout, stderr = await self.run_command(["subfinder", "-d", domain, "-silent"], timeout=180)
+            if stderr:
+                logger.warning(f"Subfinder stderr: {stderr}")
+            return [line.strip() for line in stdout.splitlines() if line.strip()]
+        except Exception as e:
+            logger.warning(f"Subfinder failed for {domain}: {e}")
+            return []
+
+    async def run_amass(self, domain):
+        """Run OWASP Amass in passive mode for subdomain enumeration.
+        
+        Uses only public data sources (CT logs, DNS datasets, APIs) —
+        makes no direct connections to the target's infrastructure.
+        """
+        logger.info(f"[Amass] Running passive enumeration on {domain}")
+        cmd = [
+            "amass", "enum",
+            "-passive",       # passive only — no active probing
+            "-norecursive",   # stay focused on the root domain
+            "-d", domain,
+            "-timeout", "5"   # minutes; amass timeout flag
+        ]
+        try:
+            stdout, stderr = await self.run_command(cmd, timeout=360)
+            found = [line.strip() for line in stdout.splitlines() if line.strip()]
+            logger.info(f"[Amass] Found {len(found)} candidates for {domain}")
+            return found
+        except Exception as e:
+            logger.warning(f"[Amass] Passive enumeration failed or timed out for {domain}: {e}")
+            return []
 
     async def has_wildcard_dns(self, domain):
         """Check if a domain has wildcard DNS configured."""
@@ -99,14 +126,22 @@ class SubdomainDiscoveryAgent(BaseAgent):
             return
         
         try:
-            # Passive is fast and reliable
-            passive = await self.run_subfinder(target)
-            
+            # Passive: run Subfinder and Amass in parallel for maximum coverage
+            wildcard_check, subfinder_results, amass_results = await asyncio.gather(
+                self.has_wildcard_dns(target),
+                self.run_subfinder(target),
+                self.run_amass(target)
+            )
+            passive = subfinder_results + amass_results
+            logger.info(f"Passive discovery complete for {target}: "
+                        f"{len(subfinder_results)} from Subfinder, "
+                        f"{len(amass_results)} from Amass")
+
             # Active: Run bounded ffuf only if no wildcard is detected
             active = []
-            if not await self.has_wildcard_dns(target):
+            if not wildcard_check:
                 active = await self.run_ffuf(target)
-            
+
             raw_found = set(passive + active)
             raw_found.add(target)
             raw_found.add(root_domain)

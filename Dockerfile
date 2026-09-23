@@ -23,6 +23,17 @@ RUN ARCH=$(dpkg --print-architecture) && \
     mv httpx /usr/local/bin/pd-httpx && \
     rm httpx_1.6.0_linux_${ARCH}.zip
 
+# Install OWASP Amass for passive subdomain enumeration
+# Use find to locate the binary after unzip to avoid case-sensitivity issues
+# (release zip extracts to amass_Linux_<arch>/ with capital L on some versions)
+RUN ARCH=$(dpkg --print-architecture) && \
+    AMASS_VERSION="v4.2.0" && \
+    wget https://github.com/owasp-amass/amass/releases/download/${AMASS_VERSION}/amass_linux_${ARCH}.zip && \
+    unzip -o amass_linux_${ARCH}.zip && \
+    find . -maxdepth 2 -type f -name 'amass' -exec mv {} /usr/local/bin/amass \; && \
+    chmod +x /usr/local/bin/amass && \
+    rm -rf amass_linux_${ARCH}.zip amass_Linux_${ARCH} amass_linux_${ARCH}
+
 # Setup wordlists and screenshots dir
 RUN mkdir -p /app/wordlists /app/screenshots && \
     wget https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt \
