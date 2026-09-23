@@ -52,10 +52,7 @@
                         <option value="true">Blacklisted Only</option>
                         <option value="false">Not Blacklisted</option>
                     </select>
-                    <select id="filter-mutator" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
-                        <option value="">All Sources</option>
-                        <option value="true">🧬 Permutator Only</option>
-                    </select>
+
                     <select id="filter-takeover" onchange="resetAndFetch()" class="bg-slate-50 dark:bg-tech-bg border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-500 outline-none focus:ring-2 focus:ring-tech-accent">
                         <option value="">Takeover (All)</option>
                         <option value="true">⚠️ Dangling Takeover Only</option>
@@ -304,13 +301,13 @@ async function loadDomains() {
     const q = document.getElementById('domain-search').value;
     const statusVal = document.getElementById('filter-status').value;
     const blacklistedVal = document.getElementById('filter-blacklisted').value;
-    const mutatorVal = document.getElementById('filter-mutator') ? document.getElementById('filter-mutator').value : '';
+
     const takeoverVal = document.getElementById('filter-takeover') ? document.getElementById('filter-takeover').value : '';
     const hideParkedVal = document.getElementById('filter-hide-parked') ? document.getElementById('filter-hide-parked').value : '';
 
     try {
         let url = `/api/domains?page=${currentPage}&limit=${limit}&q=${encodeURIComponent(q)}&status_val=${statusVal}&blacklisted=${blacklistedVal}&_t=${Date.now()}`;
-        if (mutatorVal) url += `&mutator=${encodeURIComponent(mutatorVal)}`;
+
         if (takeoverVal) url += `&takeover=${encodeURIComponent(takeoverVal)}`;
         if (hideParkedVal) url += `&hide_parked=${encodeURIComponent(hideParkedVal)}`;
         const response = await fetch(url);
@@ -360,7 +357,6 @@ async function loadDomains() {
                         <span>${domain.domain}</span>
                         ${!domain.is_root ? '<span class="px-1 py-0.5 rounded bg-tech-accent/10 text-[8px] text-tech-accent font-bold uppercase">Sub</span>' : ''}
                         ${domain.single_domain_only ? '<span class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold uppercase tracking-wider" title="Single target only (subdomain discovery disabled)">Single Target</span>' : ''}
-                        ${(domain.is_permutated || domain.source === 'environment_mutator') ? '<span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30 text-[9px] font-bold uppercase tracking-wider font-mono inline-flex items-center gap-0.5 shadow-sm" title="Discovered via Subdomain Permutator">🧬 Permutator</span>' : ''}
                         ${takeoverBadge}
                         ${asnBadge}
                         ${apiBadge}

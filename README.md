@@ -26,8 +26,7 @@
 4. [Reconnaissance Engines & Tools Catalog](#reconnaissance-engines--tools-catalog)
    - [Complete Tools Matrix](#complete-tools-matrix)
    - [1. subdomain_discovery.py — Active & Passive Subdomain Enumeration](#1-subdomain_discoverypy--active--passive-subdomain-enumeration)
-   - [2. subdomain_mutator.py — Subdomain Alteration & Permutation Engine](#2-subdomain_mutatorpy--subdomain-alteration--permutation-engine)
-   - [3. alive_check.py — HTTP/HTTPS Probing & Web Asset Verification](#3-alive_checkpy--httphttps-probing--web-asset-verification)
+   - [2. alive_check.py — HTTP/HTTPS Probing & Web Asset Verification](#2-alive_checkpy--httphttps-probing--web-asset-verification)
    - [4. port_scanner.py — Port & Service Profiler with Delta Tracking](#4-port_scannerpy--port--service-profiler-with-delta-tracking)
    - [5. directory_hunter.py — Two-Phase Recursive Directory & Sensitive File Hunter](#5-directory_hunterpy--two-phase-recursive-directory--sensitive-file-hunter)
    - [6. dynamic_js_collector.py — Headless JavaScript Crawler & Endpoint Miner](#6-dynamic_js_collectorpy--headless-javascript-crawler--endpoint-miner)
@@ -233,8 +232,7 @@ RDash bundles a suite of 19 autonomous, multi-threaded reconnaissance engines an
 | # | Tool Engine | Binary / Library | Primary Function | Database Target | Alerts Generated |
 | :-: | :--- | :--- | :--- | :--- | :--- |
 | **1** | [`subdomain_discovery.py`](#1-subdomain_discoverypy--active--passive-subdomain-enumeration) | `subfinder`, `dnspython` | Active & passive subdomain enumeration across 40+ OSINT sources | `domains`, `tasks` | `new_subdomain_discovered` (Low) |
-| **2** | [`subdomain_mutator.py`](#2-subdomain_mutatorpy--subdomain-alteration--permutation-engine) | `aiodns`, `dnspython` | Taxonomy-based wordlist mutation & environment alteration engine | `domains`, `tasks` | Discovery pipeline ingestion |
-| **3** | [`alive_check.py`](#3-alive_checkpy--httphttps-probing--web-asset-verification) | `pd-httpx`, `httpx` | High-concurrency HTTP/HTTPS probing, status codes, and web verification | `domains` | Web surface verification |
+| **2** | [`alive_check.py`](#2-alive_checkpy--httphttps-probing--web-asset-verification) | `pd-httpx`, `httpx` | High-concurrency HTTP/HTTPS probing, status codes, and web verification | `domains` | Web surface verification |
 | **4** | [`port_scanner.py`](#4-port_scannerpy--port--service-profiler-with-delta-tracking) | `nmap`, NSE scripts | Port & service discovery, banner grabbing, and delta change detection | `domains.ports` | `port_scan_change` (High) |
 | **5** | [`directory_hunter.py`](#5-directory_hunterpy--two-phase-recursive-directory--sensitive-file-hunter) | `ffuf`, `httpx` | Two-phase recursive directory enumeration & high-value sensitive file hunting | `domains.endpoints` | `sensitive_files_critical` (Critical), `sensitive_files_high` (High) |
 | **6** | [`dynamic_js_collector.py`](#6-dynamic_js_collectorpy--headless-javascript-crawler--endpoint-miner) | Playwright Chromium | Headless browser SPA crawler, script extractor & API route miner | `domains.endpoints` | Route discovery, source map handoff |
@@ -269,33 +267,10 @@ RDash bundles a suite of 19 autonomous, multi-threaded reconnaissance engines an
 - **Database Collections Updated**: Ingests new records into the `domains` collection (`scanned=False`, `is_alive=None`), updates `domains.subdomains` array, and registers pending scan tasks in `tasks`.
 - **Alert Triggers**: Emits `new_subdomain_discovered` (`Low` / `Info` severity) with the new hostname, resolved IP, and apex root correlation.
 
----
-
-### 2. `subdomain_mutator.py` — Subdomain Alteration & Permutation Engine
-
-- **File Path**: `tools/subdomain_mutator.py`
-- **Role in Pipeline**: Deepens the attack surface map by generating and testing intelligent permutations, alterations, and environment variations of all known subdomains.
-- **Dependencies & Libraries**: `aiodns`, `dns.asyncresolver`, `dnspython`, Python `re`, `asyncio`.
-- **Underlying Mechanism & Methodology**:
-  - **Enterprise Taxonomy Matching**: Uses `ENV_TOKEN_REGEX` to extract structural components (prefix, root label, environment tag, index numbers, suffix) from known subdomains.
-  - **Environment Replacement Groups**: Interchanges environment tags against a pool of 50+ enterprise keywords across production, staging, QA, and development tiers:
-    - *Production*: `prod`, `production`, `prd`, `live`, `master`, `main`, `release`.
-    - *Staging & Pre-Prod*: `stage`, `staging`, `stg`, `pre`, `preprod`, `pprd`, `preview`, `pilot`, `nonprod`, `np`.
-    - *Testing & QA*: `test`, `testing`, `tst`, `qa`, `qas`, `uat`, `sit`, `iat`, `bat`, `perf`, `e2e`.
-    - *Development & Sandbox*: `dev`, `devel`, `development`, `local`, `internal`, `eng`, `ci`, `poc`, `lab`, `sandbox`, `sbx`, `demo`.
-  - **Permutation Strategies**:
-    - *Affix Injection*: Injects environment prefixes and suffixes with hyphens and dots (e.g. `api.target.com` ➔ `api-dev.target.com`, `dev-api.target.com`, `api.uat.target.com`).
-    - *Compound Enterprise Modifiers*: Injects enterprise network demarcations: `corp`, `priv`, `pub`, `dmz`, `int`, `ext`.
-    - *Numerical Stepping*: Increments and decrements numbered nodes (e.g. `app1` ➔ `app0`, `app2`, `app01`).
-    - *Service Cross-Pollination*: Tests core service tokens (`vpn`, `auth`, `portal`, `admin`, `login`, `sso`, `gw`, `edge`, `status`) against root labels.
-  - **High-Speed Asynchronous DNS Resolution**: Generated candidate hostnames are validated using `aiodns` and `dns.asyncresolver` against public DNS resolvers (`8.8.8.8`, `1.1.1.1`, `9.9.9.9`, `8.8.4.4`). Uses an `asyncio.Semaphore` (concurrency: 50) to prevent socket starvation and resolver rate-limiting.
-- **Scope & Inputs**: Receives confirmed subdomains from `subdomain_discovery.py`. Enforces `BaseAgent.is_in_scope()` so that no generated mutation escapes the target's apex boundaries.
-- **Database Collections Updated**: Validated, resolving candidates are persisted directly into `domains` with `source="mutator"` and queued for live HTTP probing.
-- **Alert Triggers**: Emits `new_subdomain_discovered` alerts specifically flagged with mutation derivation context.
 
 ---
 
-### 3. `alive_check.py` — HTTP/HTTPS Probing & Web Asset Verification
+### 2. `alive_check.py` — HTTP/HTTPS Probing & Web Asset Verification
 
 - **File Path**: `tools/alive_check.py`
 - **Role in Pipeline**: Triage engine that verifies which discovered hostnames and IP addresses host accessible web applications.
@@ -600,7 +575,7 @@ RDash bundles a suite of 19 autonomous, multi-threaded reconnaissance engines an
 - **Dependencies & Libraries**: Python `asyncio`, `datetime`, `motor.motor_asyncio`.
 - **Underlying Mechanism & Methodology**:
   - **Dependency Graph & Staged Execution**: Ensures scanner engines run in logical dependency order:
-    1. *Stage 1*: Subdomain Discovery & Permutation Mutation (`subdomain_discovery`, `subdomain_mutator`).
+    1. *Stage 1*: Subdomain Discovery (`subdomain_discovery`).
     2. *Stage 2*: Web Asset Probing (`alive_check`).
     3. *Stage 3*: Network, Service & Perimeter Profiling (`port_scanner`, `tech_fingerprinter`, `waf_detector`, `lb_detector`, `osint_agent`, `screenshot_agent`).
     4. *Stage 4*: Content & Deep Surface Hunting (`directory_hunter`, `dynamic_js_collector`, `cloud_storage_auditor`, `archive_hunter`).

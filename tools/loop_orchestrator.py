@@ -25,7 +25,6 @@ TASK_AGENT_MAP = {
     "screenshot": "screenshot_agent",
     "dynamic_js_extract": "dynamic_js_collector",
     "cloud_storage_audit": "cloud_storage_auditor",
-    "environment_mutate": "subdomain_mutator",
 }
 
 class ContinuousLoopAgent(BaseAgent):

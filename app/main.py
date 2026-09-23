@@ -734,12 +734,6 @@ def get_flattened_pipeline(
         else:
             match_stage["load_balancer.method"] = {"$regex": re.escape(lb), "$options": "i"}
 
-    if mutator:
-        mut_clean = str(mutator).strip().lower()
-        if mut_clean in ["true", "1", "yes", "permutator", "mutator", "environment_mutator"]:
-            match_stage["source"] = {"$in": ["environment_mutator", "subdomain_mutator"]}
-        elif mut_clean in ["false", "0", "no"]:
-            match_stage["source"] = {"$nin": ["environment_mutator", "subdomain_mutator"]}
 
     # Additional Domain & Reconnaissance Findings Filters
     if api_routes:
@@ -1510,9 +1504,7 @@ async def get_subdomains(
         # Determine scanned status: 
         # If we have system info or subdomain_scanned flag, it's scanned. Fallback to root's scanned_flag.
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
-        is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
-        
-        sub_drift_count = int(d.get("subdomain_drift_count", 0))
+        is_permutated = False
         latest_drift_time = d.get("latest_subdomain_drift_time")
         
         results.append({
@@ -1888,14 +1880,7 @@ def build_leads_query(status, risk, title, target, status_code, start_date, end_
     if target:
         query["target"] = {"$regex": re.escape(target), "$options": "i"}
     if source:
-        src_clean = str(source).strip()
-        if src_clean.lower() in ["subdomain environment mutator", "environment_mutator", "subdomain_mutator", "permutator", "domain_permutator", "domain permutator"]:
-            query["$or"] = [
-                {"source": {"$regex": r"mutator|permutat", "$options": "i"}},
-                {"alert_type": "domain_permutator_discovered"}
-            ]
-        else:
-            query["source"] = source
+        query["source"] = source
     
     if status_code:
         query["details"] = {"$regex": rf"\b{re.escape(status_code)}\b", "$options": "i"}
@@ -2048,8 +2033,6 @@ async def get_lead_sources(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=401)
     sources = await leads_col.distinct("source")
     source_list = [s for s in sources if s]
-    if "Subdomain Environment Mutator" not in source_list:
-        source_list.append("Subdomain Environment Mutator")
     return sorted(source_list)
 
 @app.post("/api/leads/{lead_id}/mute")
@@ -3330,7 +3313,6 @@ async def get_domains(
     for d in docs:
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
         last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
-        is_permutated = d.get("source") in ["environment_mutator", "subdomain_mutator"]
         sub_drift_count = int(d.get("subdomain_drift_count", 0))
         latest_drift_time = d.get("latest_subdomain_drift_time")
         
@@ -3347,7 +3329,7 @@ async def get_domains(
             "single_domain_only": d.get("single_domain_only", False),
             "scan_interval": d.get("scan_interval", 168),
             "source": d.get("source"),
-            "is_permutated": is_permutated,
+            "is_permutated": False,
             "asn": d.get("asn"),
             "as_org": d.get("as_org"),
             "cidr": d.get("cidr"),
@@ -3881,83 +3863,6 @@ async def scan_single_domain(domain_id: str, request: Request, user: dict = Depe
     
     await log_audit(user["username"], "SCAN_SINGLE_DOMAIN", f"Triggered single-target scan for {root_domain} (subdomain discovery bypassed)", request)
     return {"status": "success"}
-
-@app.post("/api/domains/{domain_id}/mutate-environments")
-async def mutate_domain_environments(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
-    """
-    Run environment-based permutation discovery across all known subdomains for a domain.
-    Replaces tokens like prod/stage/dev/uat/test, performs fast DNS checks, and queues discoveries.
-    """
-    check_analyst(user)
-    domain_doc = await domains_col.find_one({"_id": ObjectId(domain_id)})
-    if not domain_doc:
-        raise HTTPException(status_code=404, detail="Domain not found")
-
-    root_domain = domain_doc["domain"]
-    if domain_doc.get("single_domain_only"):
-        raise HTTPException(status_code=400, detail="Cannot run subdomain mutation on a single-target domain")
-
-    try:
-        from tools.subdomain_mutator import EnvironmentMutationAgent
-        agent = EnvironmentMutationAgent()
-        result = await agent.mutate_and_discover_for_domain(root_domain, resolve_dns=True)
-        await log_audit(
-            user["username"],
-            "MUTATE_ENVIRONMENTS",
-            f"Environment mutation completed for {root_domain}: {result.get('live_found', 0)} live discovered out of {result.get('generated_candidates', 0)} candidates",
-            request
-        )
-        return {
-            "status": "success",
-            "root_domain": root_domain,
-            "seeds_count": result.get("seeds_count", 0),
-            "matching_seeds": result.get("matching_seeds", 0),
-            "generated_candidates": result.get("generated_candidates", 0),
-            "live_found": result.get("live_found", 0),
-            "live_hosts": result.get("live_hosts", []),
-            "queued_for_verification": result.get("queued_for_verification", 0)
-        }
-    except Exception as e:
-        logger.error(f"Error executing environment mutation for {root_domain}: {e}")
-        raise HTTPException(status_code=500, detail=f"Environment mutation error: {str(e)}")
-
-@app.post("/api/subdomains/mutate")
-async def test_subdomain_mutation(request: Request, user: dict = Depends(get_current_user)):
-    """
-    Test environment mutations for a specific seed subdomain without writing to the database.
-    """
-    check_analyst(user)
-    body = await request.json()
-    subdomain = body.get("subdomain")
-    root_domain = body.get("root_domain")
-    resolve_dns = body.get("resolve_dns", True)
-
-    if not subdomain or not root_domain:
-        raise HTTPException(status_code=400, detail="Missing required parameters: subdomain and root_domain")
-
-    try:
-        from tools.subdomain_mutator import SubdomainMutator, FastDnsResolver
-        mutator = SubdomainMutator()
-        tokens = mutator.detect_environment_tokens(subdomain, root_domain)
-        candidates = sorted(list(mutator.generate_mutations(subdomain, root_domain)))
-
-        live_results = {}
-        if resolve_dns and candidates:
-            resolver = FastDnsResolver()
-            live_results = await resolver.filter_live_candidates(candidates, root_domain)
-
-        return {
-            "status": "success",
-            "subdomain": subdomain,
-            "root_domain": root_domain,
-            "detected_tokens": [t["env"] + t["idx"] for t in tokens],
-            "total_candidates": len(candidates),
-            "candidates": candidates,
-            "live_count": len(live_results),
-            "live_candidates": live_results
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/domains/bulk-scan-now")
 async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)):
@@ -4916,13 +4821,10 @@ DEFAULT_ALERT_SETTINGS = {
     "tech_stack_changes": True,
     "security_header_regressions": True,
     # Historical Archive Hunter
-    "archive_historical_leaks": True,
-    # Domain Permutator
-    "domain_permutator_discovered": True
+    "archive_historical_leaks": True
 }
 
 DEFAULT_SCANNING_SETTINGS = {
-    "auto_permutator": True,
     "auto_file_search": True,
     "auto_unpack_sourcemaps": True,
     "rate_delay_ms": 0

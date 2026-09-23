@@ -214,10 +214,6 @@ class BaseAgent:
         if "historical archive leak" in t or "archive" in t:
             return "archive_historical_leaks"
 
-        # Domain Permutator
-        if "permutat" in t or "subdomain mutator" in t or "environment mutator" in t:
-            return "domain_permutator_discovered"
-
         return "general_alert"
 
     async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None, alert_type=None):

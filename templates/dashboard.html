@@ -130,10 +130,7 @@
                         <option value="true">⚖️ Has LB (Detected)</option>
                         <option value="false">No Load Balancer</option>
                     </select>
-                    <select id="filter-mutator" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
-                        <option value="">Source (All)</option>
-                        <option value="true">🧬 Permutator Only</option>
-                    </select>
+
                     <select id="filter-takeover" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Takeover (All)</option>
                         <option value="true">⚠️ Dangling Takeover Only</option>
@@ -487,7 +484,7 @@
         const tech = document.getElementById('filter-tech').value;
         const waf = document.getElementById('filter-waf') ? document.getElementById('filter-waf').value : '';
         const lb = document.getElementById('filter-lb') ? document.getElementById('filter-lb').value : '';
-        const mutator = document.getElementById('filter-mutator') ? document.getElementById('filter-mutator').value : '';
+
         const aliveApps = document.getElementById('filter-alive-apps') ? document.getElementById('filter-alive-apps').value : '';
         const apiRoutes = document.getElementById('filter-api-routes') ? document.getElementById('filter-api-routes').value : '';
         const cloudAssets = document.getElementById('filter-cloud-assets') ? document.getElementById('filter-cloud-assets').value : '';
@@ -502,8 +499,7 @@
         const limit = document.getElementById('limit-select').value;
         const tbody = document.getElementById('inventory-table-body');
 
-        // Update active filters counter pill
-        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, mutator, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, currentPortFilter].filter(Boolean).length;
+        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, currentPortFilter].filter(Boolean).length;
         const pill = document.getElementById('active-filters-pill');
         if (pill) {
             if (activeCount > 0) {
@@ -529,7 +525,7 @@
                 _t: Date.now()
             });
             if (ip) params.append('ip', ip);
-            if (mutator) params.append('mutator', mutator);
+
             if (currentPortFilter) params.append('port', currentPortFilter);
             if (aliveApps) params.append('alive_apps', aliveApps);
             if (apiRoutes) params.append('api_routes', apiRoutes);
@@ -586,7 +582,6 @@
                     
                     const isSubdomain = item.subdomain_count === 0 && item.domain.split('.').length > 2;
                     const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/15 border border-tech-accent/30 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
-                    const mutatorBadge = (item.is_permutated || item.source === 'environment_mutator') ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-[9px] text-purple-600 dark:text-purple-400 font-bold uppercase tracking-wider font-mono inline-flex items-center gap-0.5 shadow-sm" title="Discovered via Subdomain Permutator">🧬 Permutator</span>' : '';
                     const takeoverBadge = item.dangling_takeover ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse inline-flex items-center gap-1" title="Dangling DNS Takeover Identified: ${item.cname || ''} (${item.takeover_provider || ''})">⚠️ TAKEOVER</span>` : '';
                     const ptrText = item.ptr ? `<span class="text-slate-500 text-[10px]">(${item.ptr})</span>` : '';
                     const asnBadge = item.asn ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold" title="${item.as_org || ''} ${item.cidr ? '| ' + item.cidr : ''}">${item.asn}</span>` : '';
@@ -615,7 +610,6 @@
                                     <div class="flex items-center flex-wrap gap-1">
                                         <span class="font-bold text-slate-900 dark:text-slate-100 group-hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${item.domain}')">${item.domain}</span>
                                         ${typeBadge}
-                                        ${mutatorBadge}
                                         ${takeoverBadge}
                                     </div>
                                     <div class="flex items-center flex-wrap gap-1.5 mt-0.5">
@@ -736,7 +730,7 @@
         const tech = document.getElementById('filter-tech').value;
         const waf = document.getElementById('filter-waf') ? document.getElementById('filter-waf').value : '';
         const lb = document.getElementById('filter-lb') ? document.getElementById('filter-lb').value : '';
-        const mutator = document.getElementById('filter-mutator') ? document.getElementById('filter-mutator').value : '';
+
         const aliveApps = document.getElementById('filter-alive-apps') ? document.getElementById('filter-alive-apps').value : '';
         const apiRoutes = document.getElementById('filter-api-routes') ? document.getElementById('filter-api-routes').value : '';
         const cloudAssets = document.getElementById('filter-cloud-assets') ? document.getElementById('filter-cloud-assets').value : '';
@@ -757,7 +751,7 @@
             sort_dir: currentSortDir
         });
         if (ip) params.append('ip', ip);
-        if (mutator) params.append('mutator', mutator);
+
         if (currentPortFilter) params.append('port', currentPortFilter);
         if (aliveApps) params.append('alive_apps', aliveApps);
         if (apiRoutes) params.append('api_routes', apiRoutes);
@@ -783,8 +777,7 @@
         if (wafSelect) wafSelect.value = '';
         const lbSelect = document.getElementById('filter-lb');
         if (lbSelect) lbSelect.value = '';
-        const mutatorSelect = document.getElementById('filter-mutator');
-        if (mutatorSelect) mutatorSelect.value = '';
+
         const aliveAppsSelect = document.getElementById('filter-alive-apps');
         if (aliveAppsSelect) aliveAppsSelect.value = '';
         const apiRoutesSelect = document.getElementById('filter-api-routes');
