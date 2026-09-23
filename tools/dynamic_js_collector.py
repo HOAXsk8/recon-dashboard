@@ -215,6 +215,128 @@ class CommentExtractor:
         return results
 
 
+class MetaTagExtractor:
+    """
+    Extracts and classifies HTML <meta> tags.
+    Identifies framework versions, CSRF/verification tokens, build IDs,
+    security policies, authors, and OpenGraph/SEO metadata.
+    """
+    META_TAG_REGEX = re.compile(r'<meta\s+((?:[^"\'\>]|"[^"]*"|\'[^\']*\')*?)\s*/?>', re.IGNORECASE)
+    ATTR_REGEX = re.compile(r'([a-zA-Z0-9_\-:]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+)))?', re.IGNORECASE)
+
+    SECURITY_KEYWORDS = {
+        'csrf', 'token', 'verification', 'verify', 'csp', 'security',
+        'content-security-policy', 'referrer', 'sentry-trace', 'api-key',
+        'apikey', 'secret', 'auth-token', 'authenticity', 'authorization'
+    }
+    FRAMEWORK_KEYWORDS = {
+        'generator', 'application-name', 'build', 'version', 'release',
+        'revision', 'environment', 'commit', 'branch', 'next-head-count'
+    }
+    AUTHOR_KEYWORDS = {
+        'author', 'creator', 'publisher', 'copyright', 'owner', 'contact', 'email'
+    }
+
+    @classmethod
+    def classify_meta_tag(cls, key: str, value: str, http_equiv: str = "") -> Tuple[str, bool]:
+        k_lower = (key or "").lower().strip()
+        v_lower = (value or "").lower().strip()
+        he_lower = (http_equiv or "").lower().strip()
+
+        # Check author / owner first
+        if any(w in k_lower for w in cls.AUTHOR_KEYWORDS):
+            return "Author & Ownership", True
+
+        # Check security / tokens / verification
+        if any(w in k_lower or w in he_lower for w in cls.SECURITY_KEYWORDS):
+            return "Security & Verification", True
+
+        # Check framework / build
+        if any(w in k_lower for w in cls.FRAMEWORK_KEYWORDS):
+            return "Framework & Build", True
+
+        # Check OpenGraph / Social
+        if k_lower.startswith('og:') or k_lower.startswith('twitter:'):
+            return "OpenGraph & Social", False
+
+        # Check SEO & Indexing
+        if k_lower in ('description', 'keywords', 'robots', 'googlebot'):
+            return "SEO & Indexing", False
+
+        return "Standard / Config", False
+
+    @classmethod
+    def extract_meta_tags(cls, html: str, source_url: str) -> List[dict]:
+        results = []
+        if not html:
+            return results
+
+        clean_source = source_url.split('?')[0].rstrip('/')
+        source_name = clean_source.split('/')[-1] if clean_source else "index.html"
+        if not source_name:
+            source_name = "index.html"
+
+        for match in cls.META_TAG_REGEX.finditer(html):
+            raw_tag = match.group(0)
+            attr_str = match.group(1) or ""
+            
+            attrs = {}
+            for attr_match in cls.ATTR_REGEX.finditer(attr_str):
+                attr_name = attr_match.group(1).lower()
+                attr_val = ""
+                if attr_match.group(2) is not None:
+                    attr_val = attr_match.group(2)
+                elif attr_match.group(3) is not None:
+                    attr_val = attr_match.group(3)
+                elif attr_match.group(4) is not None:
+                    attr_val = attr_match.group(4)
+                attrs[attr_name] = attr_val
+
+            # Determine key and content
+            key = ""
+            key_type = ""
+            if "name" in attrs:
+                key = attrs["name"]
+                key_type = "name"
+            elif "property" in attrs:
+                key = attrs["property"]
+                key_type = "property"
+            elif "http-equiv" in attrs:
+                key = attrs["http-equiv"]
+                key_type = "http-equiv"
+            elif "itemprop" in attrs:
+                key = attrs["itemprop"]
+                key_type = "itemprop"
+            elif "charset" in attrs:
+                key = "charset"
+                key_type = "charset"
+            
+            content = attrs.get("content", "")
+            if not content and "charset" in attrs:
+                content = attrs["charset"]
+
+            if not key and not content:
+                continue
+
+            line_no = html[:match.start()].count('\n') + 1
+            category, is_interesting = cls.classify_meta_tag(key, content, http_equiv=attrs.get("http-equiv", ""))
+
+            results.append({
+                "key": key or "unnamed",
+                "key_type": key_type or "meta",
+                "content": content,
+                "category": category,
+                "is_interesting": is_interesting,
+                "raw_tag": raw_tag,
+                "attributes": attrs,
+                "source_url": source_url,
+                "source_name": source_name,
+                "line_number": line_no
+            })
+
+        return results
+
+
 class DynamicJsCollectorAgent(BaseAgent):
     """
     Dynamic JavaScript Collector & Extractor Agent.
@@ -1088,6 +1210,38 @@ class DynamicJsCollectorAgent(BaseAgent):
                     alert_type="sensitive_comment_leak"
                 )
 
+            # 3. Extract HTML <meta> tags
+            all_meta_tags: List[dict] = []
+            for page_url, html_content in html_pages.items():
+                try:
+                    meta_tags = MetaTagExtractor.extract_meta_tags(html_content, page_url)
+                    all_meta_tags.extend(meta_tags)
+                except Exception as me:
+                    logger.debug(f"Error extracting <meta> tags from {page_url}: {me}")
+
+            # Deduplicate meta tags by (key, content)
+            seen_meta = set()
+            unique_meta_tags = []
+            for m in all_meta_tags:
+                meta_key = (m.get("key", "").lower().strip(), m.get("content", "").strip())
+                if meta_key in seen_meta:
+                    continue
+                seen_meta.add(meta_key)
+                unique_meta_tags.append(m)
+
+            meta_category_priority = {
+                "Security & Verification": 0,
+                "Framework & Build": 1,
+                "Author & Ownership": 2,
+                "OpenGraph & Social": 3,
+                "SEO & Indexing": 4,
+                "Standard / Config": 5
+            }
+            unique_meta_tags.sort(key=lambda x: meta_category_priority.get(x["category"], 99))
+            final_meta_tags = unique_meta_tags[:300]
+            interesting_meta_count = sum(1 for m in final_meta_tags if m.get("is_interesting"))
+            logger.info(f"Extracted {len(final_meta_tags)} <meta> tags ({interesting_meta_count} interesting) from {target}")
+
             all_subdomains: Set[str] = set()
             all_cloud_assets: Dict[str, dict] = {}
             all_endpoints: Dict[str, dict] = {}
@@ -1525,6 +1679,9 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "interesting_comments_count": interesting_count,
                 "high_interest_comments_count": high_interest_count,
                 "dev_notes_comments_count": dev_notes_count,
+                "meta_tags": final_meta_tags,
+                "meta_tags_count": len(final_meta_tags),
+                "interesting_meta_tags_count": interesting_meta_count,
                 "api_specifications": (api_res.get("openapi_specs") if api_res else []) or [],
                 "api_ui_endpoints": (api_res.get("api_ui_endpoints") if api_res else []) or [],
                 "graphql_endpoints": (api_res.get("graphql_endpoints") if api_res else []) or [],
@@ -1539,6 +1696,9 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "web_applications.$.interesting_comments_count": interesting_count,
                 "web_applications.$.high_interest_comments_count": high_interest_count,
                 "web_applications.$.dev_notes_comments_count": dev_notes_count,
+                "web_applications.$.meta_tags": final_meta_tags,
+                "web_applications.$.meta_tags_count": len(final_meta_tags),
+                "web_applications.$.interesting_meta_tags_count": interesting_meta_count,
             }
             if probed_cloud_assets:
                 webapp_set["web_applications.$.cloud_assets"] = [
@@ -1574,6 +1734,9 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "interesting_comments_count": interesting_count,
                         "high_interest_comments_count": high_interest_count,
                         "dev_notes_comments_count": dev_notes_count,
+                        "meta_tags": final_meta_tags,
+                        "meta_tags_count": len(final_meta_tags),
+                        "interesting_meta_tags_count": interesting_meta_count,
                     }
                     if probed_cloud_assets:
                         new_app["cloud_assets"] = webapp_set.get("web_applications.$.cloud_assets", [])
@@ -1592,6 +1755,9 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "comments": final_comments,
                         "comments_count": len(final_comments),
                         "interesting_comments_count": interesting_count,
+                        "meta_tags": final_meta_tags,
+                        "meta_tags_count": len(final_meta_tags),
+                        "interesting_meta_tags_count": interesting_meta_count,
                     }}
                 )
 
