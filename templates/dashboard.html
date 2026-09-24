@@ -4207,7 +4207,7 @@
                                         ${viewingSubdomain}
                                     </span>
                                 </div>
-                                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5">Passive historical URLs and endpoints for <span class="text-slate-900 dark:text-white font-mono font-semibold">${viewingSubdomain}</span> from AlienVault OTX, URLScan.io, and Wayback Machine.</p>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5">Passive historical URLs, mined parameters, and subdomains for <span class="text-slate-900 dark:text-white font-mono font-semibold">${viewingSubdomain}</span> from AlienVault OTX, URLScan.io, Wayback Machine, and Common Crawl.</p>
                             </div>
                             <div class="flex flex-wrap items-center gap-3">
                                 <!-- Format Toggle: Relative Endpoints vs Absolute URLs -->
@@ -4223,6 +4223,11 @@
                                 <a id="archive-export-link" href="/api/domains/${data._id}/archive-urls/export?target=${encodeURIComponent(viewingSubdomain)}" download class="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-200 dark:border-slate-700" title="Export archive URLs for ${viewingSubdomain}">
                                     <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                                     <span>Export URLs (.txt)</span>
+                                </a>
+
+                                <a id="archive-export-wordlist" href="/api/domains/${data._id}/archive-urls/export?target=${encodeURIComponent(viewingSubdomain)}&category=wordlist" download class="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border border-slate-200 dark:border-slate-700" title="Export Mined Parameter Wordlist for ${viewingSubdomain}">
+                                    <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                                    <span>Export Parameters (.txt)</span>
                                 </a>
                             </div>
                         </div>

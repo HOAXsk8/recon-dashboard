@@ -1699,7 +1699,22 @@ async def export_archive_urls(
     domain = domain_doc.get("domain", "domain")
     
     urls_to_export = []
-    if category in ["sensitive", "sensitive_files"]:
+    if category in ["wordlist", "parameters", "mined_parameters"]:
+        target_clean = (target or "").lower().strip()
+        wordlist = []
+        if target_clean and archive_urls.get("by_subdomain", {}).get(target_clean, {}).get("mined_parameters"):
+            wordlist = archive_urls["by_subdomain"][target_clean]["mined_parameters"]
+        if not wordlist:
+            wordlist = archive_urls.get("mined_parameters", {}).get("wordlist") or domain_doc.get("osint", {}).get("parameter_wordlist") or []
+        content_str = "\n".join(sorted(list(set(wordlist))))
+        file_prefix = target_clean or domain
+        filename = f"{file_prefix}_parameter_wordlist.txt"
+        return StreamingResponse(
+            io.StringIO(content_str),
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    elif category in ["sensitive", "sensitive_files"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("sensitive_files", []) if item.get("url")]
     elif category in ["api", "api_endpoints"]:
         urls_to_export = [item.get("url") for item in archive_urls.get("api_endpoints", []) if item.get("url")]
