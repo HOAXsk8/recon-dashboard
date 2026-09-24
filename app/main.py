@@ -4824,27 +4824,71 @@ DEFAULT_ALERT_SETTINGS = {
     "sensitive_files_critical": True,
     "sensitive_files_high": True,
     "sensitive_files_diagnostic": True,
-    # Dynamic JS Collector
+    "favicon_fingerprint": True,
+    "well_known_mobile_apps": True,
+    "well_known_internal_app": True,
+    "well_known_openid_configuration": True,
+    "http_method_trace_xst": True,
+    "http_method_webdav_enabled": True,
+    "http_method_arbitrary_write": True,
+
+    # Dynamic JS Collector & API Discovery
     "js_hardcoded_secrets": True,
     "js_cloud_storage_leaks": True,
     "js_cloud_storage_takeover": True,
     "js_source_maps": True,
     "js_jwt_tokens": True,
+    "sensitive_comment_leak": True,
+    "api_spec_discovered": True,
+    "graphql_introspection_enabled": True,
+    "graphql_ide_exposed": True,
+    "js_hydration_payload_leak": True,
+    "js_client_framework_routes": True,
+    "js_third_party_tracker_pivots": True,
+
     # Cloud Storage Auditor
     "cloud_storage_writable": True,
     "cloud_storage_listable": True,
-    # 403 Bypass
+
+    # 403 Forbidden Bypass
     "bypass_403_success": True,
-    # OSINT Agent
+
+    # Perimeter & Port Scanner / TLS
+    "port_scanner_changes": True,
+    "cloud_devops_port_exposed": True,
+    "unauthenticated_service_exposed": True,
+    "tls_cert_expired": True,
+    "tls_cert_expiry": True,
+    "tls_internal_domain_leak": True,
+    "tls_cert_self_signed": True,
+
+    # OSINT & Mail Security
     "osint_email_spoofing": True,
     "osint_public_buckets": True,
-    # Port Scanner
-    "port_scanner_changes": True,
-    # Tech Fingerprinter
+    "weak_dkim_key": True,
+    "dnssec_nsec_zone_walk": True,
+
+    # WHOIS & Corporate Entity Correlation
+    "whois_sister_domains": True,
+
+    # Historical Archive Hunter
+    "archive_historical_leaks": True,
+    "historical_subdomain_discovery": True,
+
+    # Tech Fingerprinter & Vulnerability Intel
     "tech_stack_changes": True,
     "security_header_regressions": True,
-    # Historical Archive Hunter
-    "archive_historical_leaks": True
+    "known_vulnerability_detected": True,
+    "insecure_cookie_configuration": True,
+
+    # WAF & Edge Infrastructure
+    "waf_protection_gap": True,
+    "waf_origin_bypass": True,
+
+    # DNS & Origin Uncloaking
+    "dual_stack_origin_exposure": True,
+    "origin_ip_exposed": True,
+    "dangling_dns_takeover": True
 }
 
 DEFAULT_SCANNING_SETTINGS = {

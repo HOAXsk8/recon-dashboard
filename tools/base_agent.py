@@ -162,13 +162,27 @@ class BaseAgent:
             return alert_type
         t = (title or "").lower()
 
-        # Cloud Storage Auditor (prioritize listable & writable specifically before generic leak)
+        # Cloud Storage Auditor
         if "publicly writable" in t or "writable" in t:
             return "cloud_storage_writable"
         if "publicly listable" in t or "listable" in t:
             return "cloud_storage_listable"
 
         # Directory & File Hunter
+        if "favicon" in t or "murmur" in t:
+            return "favicon_fingerprint"
+        if "openid" in t or "oauth server" in t:
+            return "well_known_openid_configuration"
+        if "internal/pre-release" in t or "pre-release ios" in t:
+            return "well_known_internal_app"
+        if "mobile app" in t or "assetlink" in t or "universal links" in t or "aasa" in t:
+            return "well_known_mobile_apps"
+        if "trace" in t or "xst" in t:
+            return "http_method_trace_xst"
+        if "webdav" in t:
+            return "http_method_webdav_enabled"
+        if "arbitrary write" in t or "arbitrary http" in t:
+            return "http_method_arbitrary_write"
         if "critical file exposed" in t or ("sensitive discovery" in t and any(p in t for p in [".env", ".git", ".aws", "credentials", "dump.sql", "id_rsa", "backup.zip"])):
             return "sensitive_files_critical"
         if "high-risk file exposed" in t or "config" in t or "admin" in t or "login" in t or ".htpasswd" in t or "passwd" in t:
@@ -178,7 +192,7 @@ class BaseAgent:
         if "sensitive discovery" in t or "file exposed" in t:
             return "sensitive_files_critical"
 
-        # JS Collector
+        # JS Collector & API Discovery
         if "hardcoded" in t or "credential" in t:
             return "js_hardcoded_secrets"
         if "unclaimed" in t or "takeover" in t:
@@ -189,30 +203,84 @@ class BaseAgent:
             return "js_jwt_tokens"
         if "cloud storage leak" in t or ("cloud storage" in t and "public" in t):
             return "js_cloud_storage_leaks"
+        if "comment" in t or "todo" in t or "fixme" in t:
+            return "sensitive_comment_leak"
+        if "api spec" in t or "postman" in t or "insomnia" in t:
+            return "api_spec_discovered"
+        if "introspection" in t:
+            return "graphql_introspection_enabled"
+        if "graphql ide" in t or "playground" in t or "graphiql" in t:
+            return "graphql_ide_exposed"
+        if "hydration" in t:
+            return "js_hydration_payload_leak"
+        if "client-side route" in t or "framework route" in t:
+            return "js_client_framework_routes"
+        if "tracker" in t or "attribution" in t:
+            return "js_third_party_tracker_pivots"
 
         # 403 Bypass
         if "403 bypass" in t:
             return "bypass_403_success"
 
-        # OSINT
+        # OSINT & Mail Security
+        if "dkim" in t:
+            return "weak_dkim_key"
+        if "nsec" in t or "zone walk" in t:
+            return "dnssec_nsec_zone_walk"
         if "email spoofing" in t or "dmarc" in t or "spf" in t:
             return "osint_email_spoofing"
         if "exposed public" in t and "bucket" in t:
             return "osint_public_buckets"
 
-        # Port Scanner
+        # WHOIS & Entity Correlation
+        if "sister" in t or "cross-domain" in t or "corporate properties" in t:
+            return "whois_sister_domains"
+
+        # Port Scanner & TLS
+        if "expired tls" in t or "certificate expired" in t:
+            return "tls_cert_expired"
+        if "expiry" in t and "tls" in t:
+            return "tls_cert_expiry"
+        if "internal domain leak" in t or "internal hostname" in t:
+            return "tls_internal_domain_leak"
+        if "self-signed" in t:
+            return "tls_cert_self_signed"
+        if "devops" in t or "cloud/devops" in t:
+            return "cloud_devops_port_exposed"
+        if "unauthenticated" in t and ("database" in t or "service" in t or "memcached" in t or "redis" in t):
+            return "unauthenticated_service_exposed"
         if "port change" in t:
             return "port_scanner_changes"
 
-        # Tech Fingerprinter
+        # Tech Fingerprinter & Vulnerabilities
+        if "cve-" in t or "vulnerability" in t or "cisa kev" in t:
+            return "known_vulnerability_detected"
+        if "cookie" in t:
+            return "insecure_cookie_configuration"
         if "technology stack changed" in t or "tech stack" in t:
             return "tech_stack_changes"
         if "security header regression" in t or "header regression" in t:
             return "security_header_regressions"
 
-        # Archive Hunter
+        # Historical Archive Hunter
+        if "historical subdomain" in t:
+            return "historical_subdomain_discovery"
         if "historical archive leak" in t or "archive" in t:
             return "archive_historical_leaks"
+
+        # WAF & Edge
+        if "waf protection gap" in t:
+            return "waf_protection_gap"
+        if "waf bypass" in t or "direct origin" in t:
+            return "waf_origin_bypass"
+
+        # Alive Check & Infrastructure
+        if "dual-stack" in t or "ipv6" in t:
+            return "dual_stack_origin_exposure"
+        if "origin ip" in t or "uncloaked" in t:
+            return "origin_ip_exposed"
+        if "takeover" in t or "dangling" in t:
+            return "dangling_dns_takeover"
 
         return "general_alert"
 

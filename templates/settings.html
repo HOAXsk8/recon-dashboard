@@ -38,7 +38,7 @@
         <button onclick="switchTab('alerts')" id="tab-btn-alerts" class="tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 bg-tech-accent text-tech-bg shadow-md">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
             <span>Alert Triggers</span>
-            <span id="active-alerts-count" class="px-1.5 py-0.5 rounded-full bg-tech-bg/30 text-[10px] font-mono font-black">16/16</span>
+            <span id="active-alerts-count" class="px-1.5 py-0.5 rounded-full bg-tech-bg/30 text-[10px] font-mono font-black">48/48</span>
         </button>
 
         <button onclick="switchTab('theme')" id="tab-btn-theme" class="tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800">
@@ -87,7 +87,7 @@
         <!-- Alert Categories Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-            <!-- Category 1: Directory & File Hunter -->
+            <!-- Category 1: Directory & Sensitive File Hunter -->
             <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div class="flex items-center space-x-2.5">
@@ -96,7 +96,7 @@
                         </div>
                         <div>
                             <h4 class="text-sm font-bold text-white">Directory & Sensitive File Hunter</h4>
-                            <p class="text-[11px] text-slate-400">Path enumeration, backup files, and unauthenticated endpoints</p>
+                            <p class="text-[11px] text-slate-400">Path enumeration, backup files, HTTP verbs, and unauthenticated endpoints</p>
                         </div>
                     </div>
                 </div>
@@ -146,10 +146,115 @@
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
+
+                    <!-- Arbitrary HTTP Write -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Arbitrary HTTP Write (PUT / DELETE)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Dangerous HTTP methods enabled permitting remote file upload, modification, or deletion</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-http_method_arbitrary_write" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- HTTP TRACE XST -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">HTTP TRACE Enabled (Cross-Site Tracing)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">HTTP TRACE reflects authorization headers and cookies back to clients, enabling XST attacks</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-http_method_trace_xst" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- WebDAV Methods -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">WebDAV HTTP Methods Enabled</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">WebDAV methods active (PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK)</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-http_method_webdav_enabled" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Internal Mobile App Bundle -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Internal / Pre-Release Mobile App ID</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Staging, dev, beta, or internal iOS bundle identifiers leaked in apple-app-site-association</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-well_known_internal_app" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- OpenID / OAuth Configuration -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">OpenID Connect / OAuth Configuration</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Exposed .well-known/openid-configuration revealing token, auth, and userinfo endpoints</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-well_known_openid_configuration" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Mobile App Association -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Mobile App Association (AASA / Assetlinks)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Discovered mobile client links, deep-link routes, and cert fingerprints</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-well_known_mobile_apps" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Favicon MurmurHash3 Fingerprint -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Favicon MurmurHash3 Fingerprint</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-sky-500/20 text-sky-300 border border-sky-500/40">Info</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Cryptographic MurmurHash3 calculation identifying COTS software and Shodan pivot signatures</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-favicon_fingerprint" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <!-- Category 2: Dynamic JS Collector & Secret Hunter -->
+            <!-- Category 2: JavaScript, Source Code & API Discovery -->
             <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div class="flex items-center space-x-2.5">
@@ -157,8 +262,8 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
                         </div>
                         <div>
-                            <h4 class="text-sm font-bold text-white">JavaScript & Secret Extraction</h4>
-                            <p class="text-[11px] text-slate-400">Hardcoded tokens, credentials, and client bundle leaks</p>
+                            <h4 class="text-sm font-bold text-white">JavaScript & API Discovery</h4>
+                            <p class="text-[11px] text-slate-400">Hardcoded tokens, GraphQL schemas, source maps, and SSR hydration leaks</p>
                         </div>
                     </div>
                 </div>
@@ -238,6 +343,111 @@
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
+
+                    <!-- Sensitive Developer Comments -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Sensitive Developer Comments</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Inline comments referencing passwords, internal staging URLs, TODOs, or security notes</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-sensitive_comment_leak" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- API Spec Schemas -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">API Specification Schemas</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Exposed OpenAPI, Swagger, Postman, or Insomnia schemas discovered in script bundles</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-api_spec_discovered" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- GraphQL Introspection -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">GraphQL Introspection Enabled</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">GraphQL endpoint responds to __schema queries exposing internal types, mutations, and fields</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-graphql_introspection_enabled" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- GraphQL IDE Exposed -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Interactive GraphQL IDE Exposed</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Interactive GraphQL playground (GraphiQL, GraphQL Playground, Apollo Sandbox) public</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-graphql_ide_exposed" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- SSR Hydration Payload Leak -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">SSR Hydration State Leak</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Sensitive data, user IDs, or API tokens leaked in __NEXT_DATA__, __NUXT__, or Redux states</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-js_hydration_payload_leak" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Client-Side Framework Routes -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Client-Side Framework Routes</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Hidden admin and internal application route paths extracted from client-side router AST</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-js_client_framework_routes" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Third-Party Tracker Pivots -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Third-Party Analytics & Tracker Pivots</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-sky-500/20 text-sky-300 border border-sky-500/40">Info</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Attribution identifiers (Google Analytics, GTM, Meta Pixel) linking corporate web assets</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-js_third_party_tracker_pivots" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -250,7 +460,7 @@
                         </div>
                         <div>
                             <h4 class="text-sm font-bold text-white">Cloud Storage Auditor</h4>
-                            <p class="text-[11px] text-slate-400">Direct S3 / GCS / Azure bucket permissions auditing</p>
+                            <p class="text-[11px] text-slate-400">Direct S3 / GCS / Azure bucket permissions and listing auditing</p>
                         </div>
                     </div>
                 </div>
@@ -297,7 +507,7 @@
                         </div>
                         <div>
                             <h4 class="text-sm font-bold text-white">Access Control & 403 Bypasses</h4>
-                            <p class="text-[11px] text-slate-400">BurpSuite-style reverse proxy and header manipulation exploits</p>
+                            <p class="text-[11px] text-slate-400">Reverse proxy header manipulation, URL normalization, and verb tampering</p>
                         </div>
                     </div>
                 </div>
@@ -319,7 +529,129 @@
                 </div>
             </div>
 
-            <!-- Category 5: OSINT & Domain Intelligence -->
+            <!-- Category 5: Perimeter & Port Scanner / TLS -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-white">Perimeter & Port Scanner / TLS</h4>
+                            <p class="text-[11px] text-slate-400">Port monitoring, DevOps interfaces, and TLS certificate vulnerabilities</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3 divide-y divide-slate-800/60">
+                    <!-- Cloud & DevOps Exposed -->
+                    <div class="pt-2 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Exposed Cloud & DevOps Port</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-red-500/20 text-red-300 border border-red-500/40">Critical</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Critical management services (Kubernetes, Docker API, Consul, etcd, Redis, Elasticsearch)</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-cloud_devops_port_exposed" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Unauthenticated Service Exposed -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Unauthenticated Dangerous Service</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-red-500/20 text-red-300 border border-red-500/40">Critical</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Exposed MongoDB, Redis, Memcached, Telnet, or VNC with raw service banner confirmation</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-unauthenticated_service_exposed" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Port Changes -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Port State Changes (Open/Closed)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Newly opened or modified ports detected, especially high-risk services (22, 3389, 445)</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-port_scanner_changes" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Expired TLS Certificate -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Expired TLS/SSL Certificate</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Active port serving an expired SSL/TLS certificate causing security warnings and outages</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-tls_cert_expired" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Impending TLS Expiry -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Impending TLS Certificate Expiry</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">SSL certificate expiring within 30 days requiring automated or manual renewal</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-tls_cert_expiry" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Internal Domain Leak in SAN -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Internal Hostname Leak in TLS SAN</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">TLS Subject Alternative Names expose internal server names (.internal, .local, or non-public domains)</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-tls_internal_domain_leak" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Self-Signed TLS -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Self-Signed / Untrusted TLS Certificate</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">Low</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">TLS certificate issued by an untrusted entity, testing authority, or self-signed</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-tls_cert_self_signed" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category 6: OSINT & Mail Security -->
             <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div class="flex items-center space-x-2.5">
@@ -327,8 +659,8 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                         </div>
                         <div>
-                            <h4 class="text-sm font-bold text-white">OSINT & Domain Intelligence</h4>
-                            <p class="text-[11px] text-slate-400">DNS email security, SPF/DMARC auditing, and external OSINT</p>
+                            <h4 class="text-sm font-bold text-white">OSINT & Mail Security</h4>
+                            <p class="text-[11px] text-slate-400">DNS email security, SPF/DMARC/DKIM auditing, and external OSINT</p>
                         </div>
                     </div>
                 </div>
@@ -339,7 +671,7 @@
                         <div>
                             <div class="flex items-center space-x-2">
                                 <span class="text-xs font-bold text-white">Email Spoofing (Weak/Absent DMARC)</span>
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-red-500/20 text-red-300 border border-red-500/40">Critical / Med</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-red-500/20 text-red-300 border border-red-500/40">Critical</span>
                             </div>
                             <p class="text-[11px] text-slate-400 mt-0.5">Missing DMARC record or policy set to p=none, allowing email forgery and domain impersonation</p>
                         </div>
@@ -363,41 +695,119 @@
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
-                </div>
-            </div>
 
-            <!-- Category 6: Perimeter & Network Scanner -->
-            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
-                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <div class="flex items-center space-x-2.5">
-                        <div class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-bold text-white">Perimeter & Port Scanner</h4>
-                            <p class="text-[11px] text-slate-400">Port state monitoring and sensitive exposed services</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between gap-3">
+                    <!-- Weak DKIM Key -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
                         <div>
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white">Port State Changes (Open/Closed)</span>
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High / Med</span>
+                                <span class="text-xs font-bold text-white">Weak DKIM Key Strength (512/1024-bit)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
                             </div>
-                            <p class="text-[11px] text-slate-400 mt-0.5">Newly opened or modified ports detected, especially high-risk services (22, 3389, 445)</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">DKIM selector published with 512-bit or 1024-bit RSA public key vulnerable to factorization</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                            <input type="checkbox" id="alert-port_scanner_changes" onchange="markDirty()" class="sr-only peer">
+                            <input type="checkbox" id="alert-weak_dkim_key" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- DNSSEC NSEC Zone Walking -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">DNSSEC NSEC Zone Walking</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">DNSSEC zone walking using NSEC record next-domain chaining to enumerate entire DNS zone</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-dnssec_nsec_zone_walk" onchange="markDirty()" class="sr-only peer">
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
                 </div>
             </div>
 
-            <!-- Category 7: Technology & Security Headers -->
+            <!-- Category 7: WHOIS & Corporate Entity Correlation -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-violet-500/15 text-violet-400 border border-violet-500/30 flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-white">WHOIS & Entity Correlation</h4>
+                            <p class="text-[11px] text-slate-400">Cross-domain registrant correlation and sister property mapping</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <!-- Sister Domains Correlation -->
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Cross-Domain Sister Properties</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-sky-500/20 text-sky-300 border border-sky-500/40">Info</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Identified related corporate domains sharing registrant organization, admin emails, or nameservers</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-whois_sister_domains" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category 8: Historical Archive Hunter -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-teal-500/15 text-teal-400 border border-teal-500/30 flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-white">Historical Archive Hunter</h4>
+                            <p class="text-[11px] text-slate-400">Wayback Machine & Common Crawl passive intelligence</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3 divide-y divide-slate-800/60">
+                    <!-- Historical Leaks -->
+                    <div class="pt-2 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Historical Archive Leak</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Historical records indexing exposed sensitive files (.env, .git, .sql, .bak) on target</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-archive_historical_leaks" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Historical Subdomains -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Historical Subdomain Discovery</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-sky-500/20 text-sky-300 border border-sky-500/40">Info</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Unlinked subdomains harvested from historical web crawl archives and auto-seeded</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-historical_subdomain_discovery" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category 9: Technology & Vulnerability Intelligence -->
             <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
                 <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                     <div class="flex items-center space-x-2.5">
@@ -405,24 +815,24 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                         </div>
                         <div>
-                            <h4 class="text-sm font-bold text-white">Technology & Security Headers</h4>
-                            <p class="text-[11px] text-slate-400">Software version changes and security configuration regressions</p>
+                            <h4 class="text-sm font-bold text-white">Technology & Vulnerability Intelligence</h4>
+                            <p class="text-[11px] text-slate-400">CVE correlation, cookie security, stack changes, and header regressions</p>
                         </div>
                     </div>
                 </div>
 
                 <div class="space-y-3 divide-y divide-slate-800/60">
-                    <!-- Tech Stack Changes -->
+                    <!-- Known Vulnerabilities (CVE / KEV) -->
                     <div class="pt-2 flex items-center justify-between gap-3">
                         <div>
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white">Technology Stack Changes</span>
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                                <span class="text-xs font-bold text-white">Known Vulnerability / CVE Correlation</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-red-500/20 text-red-300 border border-red-500/40">Critical</span>
                             </div>
-                            <p class="text-[11px] text-slate-400 mt-0.5">New technologies, frameworks, or server software added or altered</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">High/Critical CVEs or CISA Known Exploited Vulnerabilities matched to running software versions</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                            <input type="checkbox" id="alert-tech_stack_changes" onchange="markDirty()" class="sr-only peer">
+                            <input type="checkbox" id="alert-known_vulnerability_detected" onchange="markDirty()" class="sr-only peer">
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
@@ -441,41 +851,147 @@
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
-                </div>
-            </div>
 
-            <!-- Category 8: Historical Archive Hunter -->
-            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
-                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <div class="flex items-center space-x-2.5">
-                        <div class="w-8 h-8 rounded-xl bg-teal-500/15 text-teal-400 border border-teal-500/30 flex items-center justify-center">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        </div>
-                        <div>
-                            <h4 class="text-sm font-bold text-white">Historical Archive Hunter</h4>
-                            <p class="text-[11px] text-slate-400">Wayback Machine & Common Crawl passive URL discovery</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="space-y-3">
-                    <div class="flex items-center justify-between gap-3">
+                    <!-- Tech Stack Changes -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
                         <div>
                             <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white">Historical Archive Leak</span>
-                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                                <span class="text-xs font-bold text-white">Technology Stack Changes</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
                             </div>
-                            <p class="text-[11px] text-slate-400 mt-0.5">Historical records indexing exposed sensitive files (.env, .git, .sql, .bak) on target</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">New technologies, frameworks, or server software added or altered</p>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                            <input type="checkbox" id="alert-archive_historical_leaks" onchange="markDirty()" class="sr-only peer">
+                            <input type="checkbox" id="alert-tech_stack_changes" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Insecure Cookie Configuration -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Insecure Session Cookie Flags</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Session cookies missing HttpOnly, Secure, or proper SameSite attribute flags</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-insecure_cookie_configuration" onchange="markDirty()" class="sr-only peer">
                             <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
                         </label>
                     </div>
                 </div>
             </div>
 
+            <!-- Category 10: WAF & Edge Infrastructure -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30 flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-white">WAF & Edge Infrastructure</h4>
+                            <p class="text-[11px] text-slate-400">Web Application Firewall bypasses and protection rule inconsistencies</p>
+                        </div>
+                    </div>
+                </div>
 
+                <div class="space-y-3 divide-y divide-slate-800/60">
+                    <!-- Direct Origin Access / WAF Bypass -->
+                    <div class="pt-2 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Direct Origin Access (WAF Bypass)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Origin server IP directly accessible without traversing the CDN/WAF perimeter proxy</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-waf_origin_bypass" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- WAF Protection Gap -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">WAF Protection Gap</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">Medium</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Host lacks WAF coverage or maintains weaker filtering than protected corporate assets</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-waf_protection_gap" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category 11: DNS & Origin Uncloaking -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-5 space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center justify-center">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                        </div>
+                        <div>
+                            <h4 class="text-sm font-bold text-white">DNS & Origin Uncloaking</h4>
+                            <p class="text-[11px] text-slate-400">Origin uncloaking, IPv6 dual-stack bypasses, and DNS takeover</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-3 divide-y divide-slate-800/60">
+                    <!-- Direct Origin Server IP -->
+                    <div class="pt-2 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Direct Origin IP Uncloaked</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Historical DNS records uncloak true origin server IP behind Cloudflare or Akamai</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-origin_ip_exposed" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- IPv6 Dual-Stack Origin Exposure -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">IPv6 Dual-Stack Origin Exposure</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Target IPv4 is WAF-shielded but AAAA IPv6 points directly to unshielded hosting provider</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-dual_stack_origin_exposure" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+
+                    <!-- Dangling DNS Takeover -->
+                    <div class="pt-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">Subdomain Takeover (Dangling CNAME)</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase font-mono bg-orange-500/20 text-orange-300 border border-orange-500/40">High</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">CNAME points to deleted GitHub Pages, Heroku, S3, or Azure service susceptible to claim</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                            <input type="checkbox" id="alert-dangling_dns_takeover" onchange="markDirty()" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-tech-accent"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
 
         </div>
     </div>
@@ -808,23 +1324,75 @@ let isDirty = false;
 let currentTab = 'alerts';
 
 const ALL_ALERT_KEYS = [
+    // Directory & File Hunter
     'sensitive_files_critical',
     'sensitive_files_high',
     'sensitive_files_diagnostic',
+    'favicon_fingerprint',
+    'well_known_mobile_apps',
+    'well_known_internal_app',
+    'well_known_openid_configuration',
+    'http_method_trace_xst',
+    'http_method_webdav_enabled',
+    'http_method_arbitrary_write',
+
+    // JavaScript, Source Code & API Discovery
     'js_hardcoded_secrets',
     'js_cloud_storage_leaks',
     'js_cloud_storage_takeover',
     'js_source_maps',
     'js_jwt_tokens',
+    'sensitive_comment_leak',
+    'api_spec_discovered',
+    'graphql_introspection_enabled',
+    'graphql_ide_exposed',
+    'js_hydration_payload_leak',
+    'js_client_framework_routes',
+    'js_third_party_tracker_pivots',
+
+    // Cloud Storage Auditor
     'cloud_storage_writable',
     'cloud_storage_listable',
+
+    // Access Control & 403 Bypasses
     'bypass_403_success',
+
+    // Perimeter & Port Scanner / TLS
+    'port_scanner_changes',
+    'cloud_devops_port_exposed',
+    'unauthenticated_service_exposed',
+    'tls_cert_expired',
+    'tls_cert_expiry',
+    'tls_internal_domain_leak',
+    'tls_cert_self_signed',
+
+    // OSINT & Mail Security
     'osint_email_spoofing',
     'osint_public_buckets',
-    'port_scanner_changes',
+    'weak_dkim_key',
+    'dnssec_nsec_zone_walk',
+
+    // WHOIS & Corporate Entity Correlation
+    'whois_sister_domains',
+
+    // Historical Archive Hunter
+    'archive_historical_leaks',
+    'historical_subdomain_discovery',
+
+    // Technology & Vulnerability Intelligence
     'tech_stack_changes',
     'security_header_regressions',
-    'archive_historical_leaks'
+    'known_vulnerability_detected',
+    'insecure_cookie_configuration',
+
+    // WAF & Edge Infrastructure
+    'waf_protection_gap',
+    'waf_origin_bypass',
+
+    // DNS & Origin Uncloaking
+    'dual_stack_origin_exposure',
+    'origin_ip_exposed',
+    'dangling_dns_takeover'
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
