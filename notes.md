@@ -180,29 +180,32 @@ Below is an actionable breakdown of each tool, detailing **what it currently gat
 
 ## 4. Historical, OSINT & Identity Intelligence
 
-### [`tools/archive_hunter.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/archive_hunter.py)
-* **Current Data**: AlienVault OTX, Wayback Machine CDX, and URLScan.io historical URL harvesting.
+### [`tools/archive_hunter.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/archive_hunter.py) ✅ *[COMPLETED]*
+* **Current Data**: AlienVault OTX, Wayback Machine CDX, URLScan.io, and Common Crawl index harvesting.
 * **Gaps & Enhancements**:
-  1. **Common Crawl Index Integration**:
-     - *Why*: Common Crawl maintains petabytes of web crawl data that often contains parameters and URLs missing from Wayback Machine.
-  2. **Parameter Wordlist Mining & Extraction**:
-     - *Why*: Historical URLs contain old query parameters (e.g. `?debug=true`, `?redirect=`, `?token=`, `?file=`, `?admin=`).
-     - *Action*: Deduplicate and extract all query parameter names into a target-specific parameter wordlist for API and parameter fuzzing.
-  3. **Historical Subdomain Harvesting**:
-     - *Why*: Archived URLs often reference subdomains that are no longer linked on the current homepage.
-     - *Action*: Extract all unique hostnames from archived URLs and feed them into `alive_check`.
+  1. **Common Crawl Index Integration** ✅:
+     - Implemented dynamic index discovery (`index.commoncrawl.org/collinfo.json`) querying the latest CC crawl with pagination and wildcard domain matching.
+  2. **Parameter Wordlist Mining & Extraction** ✅:
+     - Automatically parses query strings from harvested URLs across all engines, deduplicating distinct parameter keys (`mined_parameters`) and supporting wordlist export.
+  3. **Historical Subdomain Harvesting & Auto-Seeding** ✅:
+     - Extracts valid in-scope subdomains from historical URLs and pushes verification tasks directly to `alive_check`.
 
 ---
 
-### [`tools/osint_agent.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/osint_agent.py) & [`tools/whois_agent.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/whois_agent.py)
-* **Current Data**: MX, SPF, DMARC evaluation, TXT verification tokens, web crawl for emails and social handles, WHOIS registrant and nameservers.
+### [`tools/osint_agent.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/osint_agent.py) & [`tools/whois_agent.py`](file:///Users/john/gemini-projects/recon-dashboard/tools/whois_agent.py) ✅ *[COMPLETED]*
+* **Current Data**: MX, SPF, DMARC, DKIM key strength, BIMI, MTA-STS, TLS-RPT, web email/social crawl, international WHOIS parsing, and cross-domain entity correlation.
 * **Gaps & Enhancements**:
-  1. **DKIM Selector Hunting & Key Strength Auditing**:
-     - *Why*: If SPF and DMARC are analyzed, DKIM is the missing piece. Querying common selectors (`default._domainkey`, `google._domainkey`, `k1._domainkey`) reveals whether weak 512-bit or 1024-bit RSA keys are used (which can be factored to forge signed emails).
-  2. **BIMI & MTA-STS Policy Verification**:
-     - *Why*: Check `default._bimi.<domain>` and `_mta-sts.<domain>` to audit advanced enterprise email transport security and brand impersonation protections.
-  3. **WHOIS Historical & Cross-Domain Registrant Correlation**:
-     - *Why*: Modern WHOIS is often redacted by GDPR, but registrar names, nameservers, or registrant organization names can be used via Reverse WHOIS to identify sister domains, acquisitions, and test domains owned by the same entity.
+  1. **DKIM Selector Hunting & Key Strength Auditing** ✅:
+     - Concurrently audits 24 common DKIM selectors (`default`, `google`, `k1`, `s1`, `mandrill`, `mailgun`, etc.).
+     - Parses base64 public keys (`p=`), decodes DER/ASN.1 structures using `cryptography` with binary fallback, calculates RSA bit strength, and raises high/critical alerts on weak 512-bit or 1024-bit RSA keys.
+  2. **BIMI & MTA-STS Policy Verification** ✅:
+     - Audits BIMI TXT records (`default._bimi.<domain>`), extracting SVG brand logo URLs (`l=`) and Verified Mark Certificates (`a=`).
+     - Queries MTA-STS DNS records (`_mta-sts.<domain>`) and fetches `https://mta-sts.<domain>/.well-known/mta-sts.txt`, parsing `mode` (`enforce`, `testing`, `none`), `mx` patterns, and `max_age`.
+     - Queries SMTP TLS Reporting (`_smtp._tls.<domain>`) for policy health monitoring.
+  3. **WHOIS Historical & Cross-Domain Registrant Correlation** ✅:
+     - Enhanced regex parsing across international WHOIS engines (org, admin email, nameservers, dates, DNSSEC).
+     - Filters out privacy masks (WhoisGuard, PrivacyProtect, Domains By Proxy, Cloudflare) and public DNS (Cloudflare, AWS, Google).
+     - Correlates registrant organizations, non-privacy emails, and custom authoritative nameservers across all target domains in MongoDB, bidirectionally linking sister domains and creating security alerts.
 
 ---
 

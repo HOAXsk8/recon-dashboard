@@ -1,22 +1,231 @@
 import asyncio
+import base64
 import datetime
 import logging
 import re
 import sys
 import os
+from typing import Any, Dict, List, Optional, Set, Tuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dns.resolver
 import httpx
 from base_agent import BaseAgent, logger
 from dns_analytics import DnsRecordHarvester, AsnNetworkResolver, DnssecAuditor
 
+try:
+    from cryptography.hazmat.primitives.serialization import load_der_public_key
+except ImportError:
+    load_der_public_key = None
+
+
 class OsintAgent(BaseAgent):
+    COMMON_DKIM_SELECTORS = [
+        "default", "google", "k1", "k2", "k3", "s1", "s2", "mail", "email",
+        "selector1", "selector2", "dkim", "smtp", "zoho", "office365", "sendgrid",
+        "mandrill", "mailgun", "protonmail", "mesmtp", "sig1", "2023", "2024", "2025", "2026"
+    ]
+
     def __init__(self):
         super().__init__("osint_collector", "OSINT Intelligence Agent")
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         }
+
+    # ---------------------------------------------------------
+    # DKIM Selector Hunting & Cryptographic Key Strength Auditing
+    # ---------------------------------------------------------
+    @staticmethod
+    def calculate_dkim_key_bits(p_b64: str) -> Tuple[int, str, bool]:
+        """Decode base64 DER public key and return (key_bits, strength_label, is_weak)."""
+        clean_b64 = re.sub(r'\s+', '', p_b64)
+        try:
+            der = base64.b64decode(clean_b64)
+        except Exception:
+            return 0, "Invalid Base64 Key", False
+
+        key_bits = 0
+        if load_der_public_key:
+            try:
+                key = load_der_public_key(der)
+                key_bits = getattr(key, "key_size", 0)
+            except Exception:
+                pass
+
+        if not key_bits:
+            # Fallback estimation from DER byte length
+            der_len = len(der)
+            if der_len < 130:
+                key_bits = 512
+            elif der_len < 220:
+                key_bits = 1024
+            elif der_len < 350:
+                key_bits = 2048
+            else:
+                key_bits = 4096
+
+        if key_bits <= 512:
+            return key_bits, "CRITICAL (512-bit RSA - Factorable in hours)", True
+        elif key_bits == 1024:
+            return key_bits, "WEAK (1024-bit RSA - Deprecated by NIST, vulnerable to cloud factorization)", True
+        elif key_bits >= 2048:
+            return key_bits, f"SECURE ({key_bits}-bit RSA)", False
+        return key_bits, f"{key_bits}-bit RSA", False
+
+    async def audit_dkim_selectors(self, domain: str) -> Dict[str, Any]:
+        """Audit common DKIM selectors for existence and cryptographic key strength."""
+        dkim_summary = {
+            "selectors_tested": len(self.COMMON_DKIM_SELECTORS),
+            "selectors_found": [],
+            "weak_keys": [],
+            "records": [],
+            "status": "No Selectors Found"
+        }
+
+        async def check_selector(sel: str):
+            target = f"{sel}._domainkey.{domain}"
+            try:
+                answers = await asyncio.to_thread(dns.resolver.resolve, target, "TXT")
+                for r in answers:
+                    txt = b"".join(r.strings).decode("utf-8", errors="ignore")
+                    if "v=dkim1" in txt.lower() or "p=" in txt:
+                        p_match = re.search(r'\bp=([a-zA-Z0-9+/=]+)', txt)
+                        p_val = p_match.group(1) if p_match else ""
+                        key_bits, strength, is_weak = self.calculate_dkim_key_bits(p_val) if p_val else (0, "No Public Key Found", False)
+                        rec_data = {
+                            "selector": sel,
+                            "fqdn": target,
+                            "key_bits": key_bits,
+                            "strength": strength,
+                            "is_weak": is_weak,
+                            "raw_record": txt
+                        }
+                        return rec_data
+            except Exception:
+                pass
+            return None
+
+        tasks = [check_selector(s) for s in self.COMMON_DKIM_SELECTORS]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, dict) and r.get("selector"):
+                dkim_summary["selectors_found"].append(r["selector"])
+                dkim_summary["records"].append(r)
+                if r.get("is_weak"):
+                    dkim_summary["weak_keys"].append(r)
+
+        if dkim_summary["weak_keys"]:
+            dkim_summary["status"] = "Weak Cryptographic Keys Detected"
+        elif dkim_summary["selectors_found"]:
+            dkim_summary["status"] = "Secure (2048-bit+)"
+
+        return dkim_summary
+
+    # ---------------------------------------------------------
+    # BIMI & MTA-STS Policy Verification (Enhancement #2)
+    # ---------------------------------------------------------
+    async def audit_bimi(self, domain: str) -> Dict[str, Any]:
+        """Audit BIMI (Brand Indicators for Message Identification) record at default._bimi.<domain>."""
+        bimi_summary = {
+            "record": None,
+            "status": "Not Configured",
+            "logo_url": None,
+            "vmc_url": None,
+            "has_vmc": False
+        }
+        try:
+            answers = await asyncio.to_thread(dns.resolver.resolve, f"default._bimi.{domain}", "TXT")
+            for r in answers:
+                txt = b"".join(r.strings).decode("utf-8", errors="ignore")
+                if "v=bimi1" in txt.lower():
+                    bimi_summary["record"] = txt
+                    l_match = re.search(r'\bl=([^\s;]+)', txt)
+                    a_match = re.search(r'\ba=([^\s;]+)', txt)
+                    bimi_summary["logo_url"] = l_match.group(1) if l_match else None
+                    bimi_summary["vmc_url"] = a_match.group(1) if a_match else None
+                    bimi_summary["has_vmc"] = bool(bimi_summary["vmc_url"])
+
+                    if bimi_summary["has_vmc"]:
+                        bimi_summary["status"] = "Enforced (VMC Certificate Verified)"
+                    elif bimi_summary["logo_url"]:
+                        bimi_summary["status"] = "Self-Asserted (No VMC Certificate)"
+                    else:
+                        bimi_summary["status"] = "Configured"
+                    break
+        except Exception:
+            pass
+        return bimi_summary
+
+    async def audit_mta_sts(self, domain: str, client: httpx.AsyncClient) -> Dict[str, Any]:
+        """Audit MTA-STS TXT record and policy file at https://mta-sts.<domain>/.well-known/mta-sts.txt."""
+        sts_summary = {
+            "dns_record": None,
+            "status": "Not Configured",
+            "policy_mode": None,
+            "mx_hosts": [],
+            "max_age": None,
+            "policy_url": f"https://mta-sts.{domain}/.well-known/mta-sts.txt"
+        }
+        try:
+            answers = await asyncio.to_thread(dns.resolver.resolve, f"_mta-sts.{domain}", "TXT")
+            for r in answers:
+                txt = b"".join(r.strings).decode("utf-8", errors="ignore")
+                if "v=stsv1" in txt.lower():
+                    sts_summary["dns_record"] = txt
+                    sts_summary["status"] = "DNS Record Published"
+                    break
+        except Exception:
+            pass
+
+        if sts_summary["dns_record"]:
+            try:
+                resp = await client.get(sts_summary["policy_url"], timeout=4.0)
+                if resp.status_code == 200:
+                    body = resp.text
+                    mode_m = re.search(r'mode:\s*([a-zA-Z]+)', body)
+                    mx_list = re.findall(r'mx:\s*([^\s]+)', body)
+                    age_m = re.search(r'max_age:\s*(\d+)', body)
+
+                    mode_val = mode_m.group(1).lower() if mode_m else "unknown"
+                    sts_summary["policy_mode"] = mode_val
+                    sts_summary["mx_hosts"] = mx_list
+                    sts_summary["max_age"] = int(age_m.group(1)) if age_m else None
+
+                    if mode_val == "enforce":
+                        sts_summary["status"] = "Strict TLS Enforced (mode=enforce)"
+                    elif mode_val == "testing":
+                        sts_summary["status"] = "Testing Mode (mode=testing)"
+                    elif mode_val == "none":
+                        sts_summary["status"] = "Disabled (mode=none)"
+                    else:
+                        sts_summary["status"] = f"Policy Published ({mode_val})"
+                else:
+                    sts_summary["status"] = f"Policy File Missing (HTTP {resp.status_code})"
+            except Exception:
+                sts_summary["status"] = "Policy Host Unreachable"
+
+        return sts_summary
+
+    async def audit_tls_rpt(self, domain: str) -> Dict[str, Any]:
+        """Audit SMTP TLS Reporting TXT record at _smtp._tls.<domain>."""
+        tls_summary = {
+            "record": None,
+            "status": "Not Configured",
+            "rua": None
+        }
+        try:
+            answers = await asyncio.to_thread(dns.resolver.resolve, f"_smtp._tls.{domain}", "TXT")
+            for r in answers:
+                txt = b"".join(r.strings).decode("utf-8", errors="ignore")
+                if "v=tlsrptv1" in txt.lower():
+                    tls_summary["record"] = txt
+                    rua_m = re.search(r'rua=mailto:([^\s;]+)', txt)
+                    tls_summary["rua"] = rua_m.group(1) if rua_m else None
+                    tls_summary["status"] = "Configured"
+                    break
+        except Exception:
+            pass
+        return tls_summary
 
     # ---------------------------------------------------------
     # 1. Mail Security, Vendor Fingerprinting & Spoofing Risk
@@ -33,6 +242,10 @@ class OsintAgent(BaseAgent):
             "dmarc_record": None,
             "dmarc_policy": "None / Missing",
             "dmarc_rua": None,
+            "dkim": {},
+            "bimi": {},
+            "mta_sts": {},
+            "tls_rpt": {},
             "spoofable": True,
             "spoofing_risk": "Critical",
             "summary": ""
@@ -76,7 +289,7 @@ class OsintAgent(BaseAgent):
             answers = dns.resolver.resolve(domain, "TXT")
             for r in answers:
                 txt = b"".join(r.strings).decode("utf-8", errors="ignore")
-                
+
                 # Check SPF
                 if txt.startswith("v=spf1"):
                     result["spf_record"] = txt
@@ -91,7 +304,6 @@ class OsintAgent(BaseAgent):
                     else:
                         result["spf_status"] = "Configured"
 
-                    # Parse SPF includes for vendor detection
                     for inc in re.findall(r"include:([^\s]+)", txt):
                         spf_includes.append(inc)
 
@@ -121,7 +333,7 @@ class OsintAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"[{domain}] No TXT records found: {e}")
 
-        # 3. Resolve SPF Include Chains (one hop) for email infrastructure insight
+        # 3. Resolve SPF Include Chains
         for inc in spf_includes[:4]:
             if "fireeye" in inc or "trellix" in inc:
                 detected_vendors.add("Trellix / FireEye Email Security")
@@ -135,16 +347,6 @@ class OsintAgent(BaseAgent):
                 detected_vendors.add("Google Workspace")
             if "outlook" in inc or "microsoft" in inc:
                 detected_vendors.add("Microsoft 365")
-            try:
-                sub_answers = dns.resolver.resolve(inc, "TXT")
-                for r in sub_answers:
-                    sub_txt = b"".join(r.strings).decode("utf-8", errors="ignore")
-                    if "fireeye" in sub_txt:
-                        detected_vendors.add("Trellix / FireEye Email Security")
-                    if "atmail" in sub_txt:
-                        detected_vendors.add("Atmail Cloud")
-            except Exception:
-                pass
 
         # 4. Resolve DMARC (TXT at _dmarc.<domain>)
         dmarc_target = f"_dmarc.{domain}"
@@ -174,7 +376,55 @@ class OsintAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"[{domain}] No DMARC record found: {e}")
 
-        # 5. Evaluate Spoofability & Risk
+        # 5. DKIM Selector Hunting & Key Strength Auditing (Enhancement #1)
+        logger.info(f"[{domain}] Hunting DKIM selectors and auditing cryptographic key strength...")
+        dkim_audit = await self.audit_dkim_selectors(domain)
+        result["dkim"] = dkim_audit
+        if dkim_audit.get("selectors_found"):
+            logger.info(f"[{domain}] Found DKIM selectors: {dkim_audit['selectors_found']}")
+
+        # Raise alert if weak DKIM keys (512 or 1024-bit RSA) detected
+        for weak_key in dkim_audit.get("weak_keys", []):
+            bits = weak_key.get("key_bits", 1024)
+            severity = "critical" if bits <= 512 else "high"
+            await self.create_alert(
+                title=f"Weak DKIM Key Strength ({bits}-bit RSA): {weak_key['selector']}._domainkey.{domain}",
+                description=(
+                    f"The DKIM public key under selector '{weak_key['selector']}._domainkey.{domain}' uses a weak "
+                    f"{bits}-bit RSA key. {bits}-bit keys can be mathematically factored using modern computational resources, "
+                    f"allowing attackers to forge cryptographic DKIM signatures and bypass email spoofing filters."
+                ),
+                target=domain,
+                risk_level=severity,
+                details={
+                    "selector": weak_key["selector"],
+                    "fqdn": weak_key["fqdn"],
+                    "key_bits": bits,
+                    "strength": weak_key["strength"],
+                    "raw_record": weak_key["raw_record"]
+                },
+                exploitation_suggestions=[
+                    f"Upgrade the DKIM key for selector '{weak_key['selector']}' to at least 2048-bit RSA.",
+                    "Revoke and remove the deprecated 1024-bit or 512-bit public key record from DNS.",
+                    "Ensure DMARC alignment matches the newly generated 2048-bit key."
+                ],
+                alert_type="weak_dkim_key"
+            )
+
+        # 6. BIMI, MTA-STS & TLS-RPT Transport Security (Enhancement #2)
+        logger.info(f"[{domain}] Auditing BIMI, MTA-STS, and SMTP TLS Reporting policies...")
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True, verify=False, headers=self.headers) as http_client:
+            bimi_res, mta_res, tls_res = await asyncio.gather(
+                self.audit_bimi(domain),
+                self.audit_mta_sts(domain, http_client),
+                self.audit_tls_rpt(domain),
+                return_exceptions=True
+            )
+            result["bimi"] = bimi_res if isinstance(bimi_res, dict) else {"status": "Error"}
+            result["mta_sts"] = mta_res if isinstance(mta_res, dict) else {"status": "Error"}
+            result["tls_rpt"] = tls_res if isinstance(tls_res, dict) else {"status": "Error"}
+
+        # 7. Evaluate Spoofability & Risk
         dmarc_pol = result["dmarc_policy"]
         if dmarc_pol == "reject":
             result["spoofable"] = False
@@ -196,7 +446,7 @@ class OsintAgent(BaseAgent):
         result["security_vendors"] = sorted(list(detected_vendors))
         result["verified_services"] = sorted(list(detected_services))
 
-        # Alert if vulnerable
+        # Alert if vulnerable to email spoofing
         if result["spoofable"]:
             await self.create_alert(
                 title=f"Email Spoofing Risk: DMARC Policy is {dmarc_pol.upper()}",
@@ -208,7 +458,10 @@ class OsintAgent(BaseAgent):
                     "spf_record": result["spf_record"],
                     "mx_records": result["mx_records"],
                     "mail_provider": result["mail_provider"],
-                    "security_vendors": result["security_vendors"]
+                    "security_vendors": result["security_vendors"],
+                    "dkim_selectors": dkim_audit.get("selectors_found", []),
+                    "bimi_status": result["bimi"].get("status"),
+                    "mta_sts_status": result["mta_sts"].get("status")
                 },
                 exploitation_suggestions=[
                     f"Send a test email spoofing admin@{domain} to verify inbox delivery.",

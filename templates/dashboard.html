@@ -4477,14 +4477,51 @@
                                                 ${mailSec.dmarc_rua ? `<span class="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title="${mailSec.dmarc_rua}">RUA: ${mailSec.dmarc_rua}</span>` : ''}
                                             </div>
                                             <code class="text-[11px] font-mono text-slate-600 dark:text-slate-400 break-all">${mailSec.dmarc_record || 'No DMARC record found at _dmarc.' + data.domain}</code>
+                                    <div>
+                                        <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">DKIM Key Strength & Selectors</span>
+                                        <div class="recon-sub-panel p-3 rounded-xl">
+                                            <div class="flex justify-between items-center mb-1">
+                                                <span class="text-xs font-bold text-slate-900 dark:text-white">DKIM Status:</span>
+                                                <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">${mailSec.dkim?.status || 'Not Enumerated'}</span>
+                                            </div>
+                                            ${(mailSec.dkim?.selectors_found && mailSec.dkim.selectors_found.length > 0) ? `
+                                                <div class="space-y-1.5 mt-2">
+                                                    ${mailSec.dkim.selectors_found.map(sel => {
+                                                        const keyInfo = mailSec.dkim.keys?.[sel] || {};
+                                                        const isWeak = keyInfo.strength === 'Weak' || (keyInfo.key_bits && keyInfo.key_bits <= 1024);
+                                                        const badgeCls = isWeak ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+                                                        return `<div class="flex items-center justify-between text-[11px] font-mono bg-slate-100/50 dark:bg-slate-900/50 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-800">
+                                                            <span class="text-slate-700 dark:text-slate-300 font-bold">${sel}._domainkey</span>
+                                                            <span class="text-[10px] px-2 py-0.5 rounded font-bold border ${badgeCls}">${keyInfo.key_bits || 'Unknown'}-bit ${keyInfo.algorithm || 'RSA'} (${keyInfo.strength || 'Standard'})</span>
+                                                        </div>`;
+                                                    }).join('')}
+                                                </div>
+                                            ` : `<p class="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1">No public DKIM selectors discovered.</p>`}
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="space-y-4">
                                     <div>
+                                        <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">MTA-STS & Transport Security</span>
+                                        <div class="recon-sub-panel p-3 rounded-xl space-y-1.5">
+                                            <div class="flex justify-between items-center text-xs">
+                                                <span class="text-slate-900 dark:text-white font-medium">MTA-STS Mode:</span>
+                                                <span class="font-mono text-[11px] px-2 py-0.5 rounded ${mailSec.mta_sts?.mode === 'enforce' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold' : (mailSec.mta_sts?.mode === 'testing' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500')}">${mailSec.mta_sts?.mode ? mailSec.mta_sts.mode.toUpperCase() : (mailSec.mta_sts?.status || 'Not Configured')}</span>
+                                            </div>
+                                            <div class="flex justify-between items-center text-xs">
+                                                <span class="text-slate-900 dark:text-white font-medium">BIMI Indicator:</span>
+                                                <span class="font-mono text-[11px] px-2 py-0.5 rounded ${mailSec.bimi?.status?.includes('Configured') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}">${mailSec.bimi?.status || 'Not Configured'}</span>
+                                            </div>
+                                            <div class="flex justify-between items-center text-xs">
+                                                <span class="text-slate-900 dark:text-white font-medium">TLS Reporting:</span>
+                                                <span class="font-mono text-[11px] px-2 py-0.5 rounded ${mailSec.tls_rpt?.status === 'Configured' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}">${mailSec.tls_rpt?.status || 'Not Configured'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
                                         <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">Email Infrastructure & Security Vendors</span>
-                                        <div class="recon-sub-panel p-3 rounded-xl min-h-[90px]">
+                                        <div class="recon-sub-panel p-3 rounded-xl min-h-[70px]">
                                             <div class="flex flex-wrap gap-2">
                                                 ${vendors.map(v => `<span class="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-sky-600 dark:text-sky-400 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold flex items-center">
                                                     <span class="w-1.5 h-1.5 rounded-full bg-sky-400 mr-2"></span>${v}
@@ -4693,6 +4730,32 @@
                                 </div>
                             </div>
                         </div>
+
+                        ${(data.ownership?.correlated_domains && data.ownership.correlated_domains.length > 0) ? `
+                            <div class="bg-tech-bg p-6 rounded-3xl border border-tech-accent/30 shadow-sm relative overflow-hidden">
+                                <div class="flex items-center justify-between pb-4 mb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                                        Correlated Sister Domains & Infrastructure Assets (${data.ownership.correlated_domains.length})
+                                    </h3>
+                                    <span class="text-xs px-2.5 py-1 bg-tech-accent/10 text-tech-accent border border-tech-accent/30 rounded-full font-bold">Cross-Domain Entity Pivot</span>
+                                </div>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                                    Identified through shared registrant organization, non-privacy admin emails, or authoritative custom nameserver clusters.
+                                </p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    ${data.ownership.correlated_domains.map(sd => `
+                                        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between hover:border-tech-accent/50 transition-colors">
+                                            <div class="flex items-center space-x-2 truncate">
+                                                <span class="w-2 h-2 rounded-full bg-tech-accent shrink-0"></span>
+                                                <span class="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate cursor-pointer hover:text-tech-accent" onclick="showDomainMenu(event, '${sd}')">${sd}</span>
+                                            </div>
+                                            <span class="text-[10px] font-bold px-2 py-0.5 bg-tech-accent/10 text-tech-accent rounded border border-tech-accent/30 cursor-pointer hover:bg-tech-accent hover:text-black transition-all shrink-0" onclick="showDomainMenu(event, '${sd}')">Actions</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
 
                         <div class="bg-tech-bg rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                             <div class="px-6 py-4 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
