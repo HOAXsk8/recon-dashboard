@@ -10,12 +10,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional, List, Union, Set
 import os
 import io
+import json
+import urllib.parse
+import logging
 import pandas as pd
 import asyncio
 
 from datetime import datetime, timedelta
 import re
 import ipaddress
+
+logger = logging.getLogger(__name__)
 
 from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col
 from app.security import (

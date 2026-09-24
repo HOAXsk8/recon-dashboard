@@ -542,9 +542,9 @@ class PortScannerAgent(BaseAgent):
         old_systems = domain_doc.get("systems", []) if domain_doc else []
 
         latest_prev_scan = None
-        for sys in reversed(old_systems):
-            if sys.get("target") == target:
-                latest_prev_scan = sys
+        for s_entry in reversed(old_systems):
+            if s_entry.get("target") == target:
+                latest_prev_scan = s_entry
                 break
 
         changed_ports = set()
