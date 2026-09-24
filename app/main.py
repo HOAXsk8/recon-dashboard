@@ -4838,6 +4838,11 @@ DEFAULT_SCANNING_SETTINGS = {
     "rate_delay_ms": 0
 }
 
+DEFAULT_API_KEY_SETTINGS = {
+    "shodan_api_key": "",
+    "nvd_api_key": ""
+}
+
 @app.get("/api/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     if not user:
@@ -4850,7 +4855,8 @@ async def get_settings(user: dict = Depends(get_current_user)):
             "scan_pause": False,
             "theme": "dark",
             "alerts": DEFAULT_ALERT_SETTINGS.copy(),
-            "scanning": DEFAULT_SCANNING_SETTINGS.copy()
+            "scanning": DEFAULT_SCANNING_SETTINGS.copy(),
+            "api_keys": DEFAULT_API_KEY_SETTINGS.copy()
         }
         await settings_col.insert_one(settings)
     else:
@@ -4868,6 +4874,13 @@ async def get_settings(user: dict = Depends(get_current_user)):
             for k, v in DEFAULT_SCANNING_SETTINGS.items():
                 if k not in settings["scanning"]:
                     settings["scanning"][k] = v
+
+        if "api_keys" not in settings or not isinstance(settings["api_keys"], dict):
+            settings["api_keys"] = DEFAULT_API_KEY_SETTINGS.copy()
+        else:
+            for k, v in DEFAULT_API_KEY_SETTINGS.items():
+                if k not in settings["api_keys"]:
+                    settings["api_keys"][k] = v
 
         if "theme" not in settings:
             settings["theme"] = "dark"
@@ -4897,6 +4910,22 @@ async def update_settings(request: Request, user: dict = Depends(get_current_use
     if "scanning" in data and isinstance(data["scanning"], dict):
         update_doc["scanning"] = data["scanning"]
 
+    if "api_keys" in data and isinstance(data["api_keys"], dict):
+        curr_settings = await settings_col.find_one({"key": "global_settings"})
+        existing_keys = (curr_settings.get("api_keys", {}) if curr_settings else {}) or {}
+        new_keys = {}
+        for k in ["shodan_api_key", "nvd_api_key"]:
+            val = data["api_keys"].get(k)
+            if val is not None:
+                val_str = str(val).strip()
+                if val_str.startswith("••••") or val_str.startswith("****"):
+                    new_keys[k] = existing_keys.get(k, "")
+                else:
+                    new_keys[k] = val_str
+            else:
+                new_keys[k] = existing_keys.get(k, "")
+        update_doc["api_keys"] = new_keys
+
     if "theme" in data:
         update_doc["theme"] = "dark" if data["theme"] == "dark" else "light"
 
@@ -4912,6 +4941,77 @@ async def update_settings(request: Request, user: dict = Depends(get_current_use
         await log_audit(user["username"], "UPDATE_SETTINGS", "Updated global system settings", request)
 
     return {"status": "success", "settings": update_doc}
+
+@app.post("/api/settings/test-shodan")
+async def test_shodan_key_endpoint(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    data = await request.json()
+    key = data.get("api_key", "").strip()
+    if not key or key.startswith("••••") or key.startswith("****"):
+        settings = await settings_col.find_one({"key": "global_settings"})
+        key = (settings.get("api_keys", {}).get("shodan_api_key") if settings else "") or ""
+    if not key:
+        return {"valid": False, "error": "No Shodan API key provided or configured."}
+
+    import urllib.request
+    import urllib.error
+    url = f"https://api.shodan.io/api-info?key={key}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "RDash/1.0"})
+        loop = asyncio.get_event_loop()
+        def _fetch():
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                import json
+                return resp.getcode(), json.loads(resp.read().decode())
+        code, body = await loop.run_in_executor(None, _fetch)
+        if code == 200:
+            return {
+                "valid": True,
+                "plan": body.get("plan", "Standard"),
+                "query_credits": body.get("query_credits", 0),
+                "scan_credits": body.get("scan_credits", 0)
+            }
+        return {"valid": False, "error": f"Shodan API returned status {code}"}
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return {"valid": False, "error": "Invalid Shodan API key (Authentication failed / 401 Unauthorized)."}
+        return {"valid": False, "error": f"Shodan API error (HTTP {e.code})"}
+    except Exception as e:
+        return {"valid": False, "error": f"Connection error: {str(e)}"}
+
+@app.post("/api/settings/test-nvd")
+async def test_nvd_key_endpoint(request: Request, user: dict = Depends(get_current_user)):
+    check_analyst(user)
+    data = await request.json()
+    key = data.get("api_key", "").strip()
+    if not key or key.startswith("••••") or key.startswith("****"):
+        settings = await settings_col.find_one({"key": "global_settings"})
+        key = (settings.get("api_keys", {}).get("nvd_api_key") if settings else "") or ""
+    if not key:
+        return {"valid": False, "error": "No NIST NVD API key provided or configured."}
+
+    import urllib.request
+    import urllib.error
+    url = "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1"
+    try:
+        req = urllib.request.Request(url, headers={"apiKey": key, "User-Agent": "RDash/1.0"})
+        loop = asyncio.get_event_loop()
+        def _fetch():
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                import json
+                return resp.getcode(), json.loads(resp.read().decode())
+        code, body = await loop.run_in_executor(None, _fetch)
+        if code == 200:
+            return {"valid": True, "message": "NIST NVD API key validated successfully. Rate limit bumped to 50 req/30s."}
+        return {"valid": False, "error": f"NVD API returned status {code}"}
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return {"valid": False, "error": "Invalid NIST NVD API key (403 Forbidden). Ensure your key is activated."}
+        elif e.code == 429:
+            return {"valid": False, "error": "Rate limit exceeded on NIST NVD API."}
+        return {"valid": False, "error": f"NVD API error (HTTP {e.code})"}
+    except Exception as e:
+        return {"valid": False, "error": f"Connection error: {str(e)}"}
 
 @app.post("/api/settings/reset-alerts")
 async def reset_alerts_settings(request: Request, user: dict = Depends(get_current_user)):

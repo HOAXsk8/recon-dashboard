@@ -557,14 +557,28 @@ class DirectoryHunterAgent(BaseAgent):
             "zoomeye_query": zoomeye_query
         }
 
-        # Create informational alert/lead
+        # Check for configured Shodan API key in settings or environment
+        shodan_api_key = None
+        try:
+            settings_doc = await self.settings_col.find_one({"key": "global_settings"})
+            if settings_doc:
+                shodan_api_key = settings_doc.get("api_keys", {}).get("shodan_api_key")
+        except Exception as e:
+            logger.debug(f"Error reading Shodan API key: {e}")
+        
+        if not shodan_api_key:
+            shodan_api_key = os.environ.get("SHODAN_API_KEY")
+
+        shodan_live = None
+        if shodan_api_key and shodan_hash is not None:
+            logger.info(f"Querying Shodan API for favicon MurmurHash3: {shodan_hash}")
+            shodan_live = await self.query_shodan_favicon_hash(shodan_hash, shodan_api_key)
+            if shodan_live and "total" in shodan_live:
+                favicon_info["shodan_live"] = shodan_live
+
+        # Create alert/lead
         try:
             hash_display = f"MurmurHash3 {shodan_hash}" if shodan_hash is not None else f"MD5 {md5_hash[:12]}"
-            title = f"Favicon Asset Fingerprint: {hash_display}"
-            description = (
-                f"Favicon asset fingerprinted on {target} ({len(favicon_bytes)}B). "
-                f"Shodan: {shodan_query or 'N/A'}, Censys MD5: {md5_hash}"
-            )
             details = (
                 f"Target: {target}\n"
                 f"Asset URL: {final_favicon_url}\n"
@@ -577,17 +591,54 @@ class DirectoryHunterAgent(BaseAgent):
                 f"- Censys Query: `{censys_query}`\n"
                 f"- ZoomEye Query: `{zoomeye_query}`"
             )
-            exploitation = (
-                f"### Asset Pivoting & Origin Uncloaking Guidance\n\n"
-                f"1. **Shodan Pivot**: Search [{shodan_query}](https://www.shodan.io/search?query=http.favicon.hash:{shodan_hash}) to discover origin IP addresses, staging subdomains, or forgotten subsidiary servers hosting the identical favicon.\n"
-                f"2. **Censys Pivot**: Search Censys for [{censys_query}](https://search.censys.io/search?q=services.http.response.favicons.md5_hash:\"{md5_hash}\") to find associated certificates and open cloud assets.\n"
-                f"3. **Host Context**: Discovered on `{target}` ({root_domain})."
-            )
+
+            if shodan_live and shodan_live.get("total", 0) > 0:
+                total_shodan = shodan_live["total"]
+                ips_sample = ", ".join(shodan_live["ips"][:5])
+                title = f"Favicon Origin Discovery via Shodan: {total_shodan} Host(s) (MMH3 {shodan_hash})"
+                description = (
+                    f"Favicon search on Shodan uncovered {total_shodan} Internet-facing host(s) sharing this hash. "
+                    f"Sample IPs: {ips_sample}"
+                )
+                risk_level = "high" if len(shodan_live["ips"]) > 0 else "medium"
+
+                shodan_section = (
+                    f"\n\n### Shodan Live Reconnaissance Discovery\n"
+                    f"- **Total Matching Hosts**: `{total_shodan}`\n"
+                    f"- **Discovered IPs**: {', '.join(shodan_live['ips'][:15]) or 'None'}\n"
+                    f"- **Discovered Hostnames**: {', '.join(shodan_live['hostnames'][:10]) or 'None'}\n"
+                )
+                if shodan_live.get("sample_results"):
+                    shodan_section += "\n#### Sample Matched Infrastructure:\n"
+                    for sm in shodan_live["sample_results"][:4]:
+                        shodan_section += f"- `{sm['ip']}:{sm['port']}` ({sm['org']}, {sm['country']}) - Hosts: {', '.join(sm['hostnames']) or 'N/A'}\n"
+
+                details += shodan_section
+                exploitation = (
+                    f"### Direct Origin Bypassing Guidance\n\n"
+                    f"1. **Direct IP Access**: Test direct HTTP/HTTPS connections to discovered IPs (`curl -k -H 'Host: {target}' https://<ip>`). If the backend server responds directly, Cloudflare/Akamai WAFs and DDoS shields can be bypassed completely.\n"
+                    f"2. **Host Correlation**: Check discovered hostnames for forgotten staging or development environments.\n"
+                    f"3. **Shodan Pivot**: View full query results at [http.favicon.hash:{shodan_hash}](https://www.shodan.io/search?query=http.favicon.hash:{shodan_hash})."
+                )
+            else:
+                title = f"Favicon Asset Fingerprint: {hash_display}"
+                description = (
+                    f"Favicon asset fingerprinted on {target} ({len(favicon_bytes)}B). "
+                    f"Shodan: {shodan_query or 'N/A'}, Censys MD5: {md5_hash}"
+                )
+                risk_level = "low"
+                exploitation = (
+                    f"### Asset Pivoting & Origin Uncloaking Guidance\n\n"
+                    f"1. **Shodan Pivot**: Search [{shodan_query}](https://www.shodan.io/search?query=http.favicon.hash:{shodan_hash}) to discover origin IP addresses, staging subdomains, or forgotten subsidiary servers hosting the identical favicon.\n"
+                    f"2. **Censys Pivot**: Search Censys for [{censys_query}](https://search.censys.io/search?q=services.http.response.favicons.md5_hash:\"{md5_hash}\") to find associated certificates and open cloud assets.\n"
+                    f"3. **Host Context**: Discovered on `{target}` ({root_domain})."
+                )
+
             await self.create_alert(
                 title=title,
                 description=description,
                 target=target,
-                risk_level="low",
+                risk_level=risk_level,
                 details=details,
                 exploitation_suggestions=exploitation,
                 response_size=len(favicon_bytes),
@@ -599,6 +650,60 @@ class DirectoryHunterAgent(BaseAgent):
 
         logger.info(f"Favicon fingerprinted on {target}: Shodan MMH3={shodan_hash}, MD5={md5_hash}")
         return favicon_info
+
+    async def query_shodan_favicon_hash(self, shodan_hash: int, api_key: str) -> dict:
+        """
+        Query Shodan API using the MurmurHash3 favicon hash to find all Internet-connected
+        origin IP addresses, hostnames, and exposed ports sharing this identical icon.
+        """
+        if not shodan_hash or not api_key:
+            return None
+        
+        url = f"https://api.shodan.io/shodan/host/search?key={api_key}&query=http.favicon.hash:{shodan_hash}"
+        try:
+            cmd = ["curl", "-s", "-m", "15", url]
+            stdout, stderr = await self.run_command(cmd, timeout=20)
+            if not stdout:
+                return None
+            data = json.loads(stdout)
+            if "error" in data:
+                logger.warning(f"Shodan API error for favicon hash {shodan_hash}: {data.get('error')}")
+                return {"error": data.get("error")}
+            
+            total = data.get("total", 0)
+            matches = data.get("matches", [])
+            
+            discovered_ips = []
+            discovered_hosts = set()
+            sample_results = []
+
+            for m in matches:
+                ip = m.get("ip_str")
+                if ip and ip not in discovered_ips:
+                    discovered_ips.append(ip)
+                for h in m.get("hostnames", []):
+                    if h:
+                        discovered_hosts.add(h)
+                
+                if len(sample_results) < 8:
+                    sample_results.append({
+                        "ip": ip,
+                        "port": m.get("port"),
+                        "hostnames": m.get("hostnames", []),
+                        "org": m.get("org", ""),
+                        "country": m.get("location", {}).get("country_name", ""),
+                        "product": m.get("product", "")
+                    })
+
+            return {
+                "total": total,
+                "ips": discovered_ips[:25],
+                "hostnames": sorted(list(discovered_hosts))[:25],
+                "sample_results": sample_results
+            }
+        except Exception as e:
+            logger.error(f"Error querying Shodan API for favicon {shodan_hash}: {e}")
+            return None
 
     async def harvest_well_known_profiles(self, base_url: str, target: str, root_domain: str):
         """

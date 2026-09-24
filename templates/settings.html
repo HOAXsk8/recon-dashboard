@@ -55,6 +55,12 @@
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
             <span>Queue & Data Maintenance</span>
         </button>
+
+        <button onclick="switchTab('apikeys')" id="tab-btn-apikeys" class="tab-btn px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+            <span>API Keys & Integrations</span>
+            <span id="api-keys-badge" class="px-1.5 py-0.5 rounded-full bg-tech-bg/30 text-[10px] font-mono font-black">Shodan / NVD</span>
+        </button>
     </div>
 
     <!-- TAB 1: Alert Settings -->
@@ -654,6 +660,140 @@
 
         </div>
     </div>
+
+    <!-- TAB 5: API Keys & Integrations -->
+    <div id="tab-pane-apikeys" class="space-y-6 hidden">
+        <!-- Overview Banner -->
+        <div class="bg-tech-panel/90 p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div class="space-y-1">
+                <div class="flex items-center space-x-2">
+                    <span class="px-2 py-0.5 rounded bg-tech-accent/20 text-tech-accent text-[10px] font-mono font-bold uppercase tracking-wider border border-tech-accent/30">External Intelligence</span>
+                    <h3 class="text-sm font-bold text-white uppercase tracking-wider">API Keys & OSINT Integrations</h3>
+                </div>
+                <p class="text-xs text-slate-400 leading-relaxed max-w-3xl">
+                    Configure optional third-party API credentials to unlock live external intelligence. Keys are stored in the encrypted system configuration.
+                </p>
+            </div>
+            <button onclick="saveSettings()" class="px-4 py-2 bg-gradient-to-r from-tech-accent to-blue-600 hover:from-sky-400 hover:to-blue-500 text-tech-bg font-black rounded-xl text-xs transition-all shadow-md flex items-center space-x-2 self-start sm:self-auto flex-shrink-0 active:scale-95">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                <span>Save API Keys</span>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Card 1: Shodan API Key -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-6 flex flex-col justify-between space-y-5 relative overflow-hidden">
+                <div class="absolute -right-8 -top-8 w-32 h-32 bg-rose-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center font-black">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                                    Shodan Intelligence API
+                                    <span id="shodan-key-badge" class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">Not Configured</span>
+                                </h4>
+                                <p class="text-[11px] text-slate-400">Favicon MurmurHash3 lookup & origin IP uncloaking</p>
+                            </div>
+                        </div>
+                        <a href="https://account.shodan.io" target="_blank" rel="noopener noreferrer" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 font-semibold">
+                            <span>Get Key</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </a>
+                    </div>
+
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        When enabled, <strong class="text-slate-300">Directory Hunter</strong> uses the calculated <code class="text-tech-accent text-[11px] px-1 py-0.5 rounded bg-slate-900 font-mono">http.favicon.hash:&lt;mmh3&gt;</code> to query Shodan in real time. This discovers origin servers, unlinked staging IPs, and leaked cloud infrastructure hosting the identical icon.
+                    </p>
+
+                    <!-- Key Input Field -->
+                    <div class="space-y-1.5">
+                        <label for="apikey-shodan" class="block text-xs font-semibold text-slate-300">Shodan API Key</label>
+                        <div class="relative">
+                            <input type="password" id="apikey-shodan" oninput="markDirty()" placeholder="e.g. 7q8Xk9... or leave blank" class="w-full px-3.5 py-2.5 pr-20 bg-slate-900 border border-slate-800 focus:border-tech-accent rounded-xl text-xs font-mono text-white placeholder-slate-600 focus:outline-none transition-all">
+                            <div class="absolute inset-y-0 right-1.5 flex items-center space-x-1">
+                                <button type="button" onclick="toggleKeyVisibility('apikey-shodan', 'eye-shodan')" class="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors" title="Show / Hide Key">
+                                    <svg id="eye-shodan" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Test Output Container -->
+                    <div id="shodan-test-status" class="hidden p-3 rounded-xl text-xs font-mono"></div>
+                </div>
+
+                <!-- Footer with Test Button -->
+                <div class="pt-4 border-t border-slate-800/80 flex items-center justify-between">
+                    <span class="text-[11px] text-slate-500">Query Credits consumed per search: 1</span>
+                    <button type="button" onclick="testShodanKey()" id="btn-test-shodan" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span>Test Connection</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 2: NIST NVD API Key -->
+            <div class="bg-tech-panel/80 rounded-3xl border border-slate-800 shadow-xl p-6 flex flex-col justify-between space-y-5 relative overflow-hidden">
+                <div class="absolute -right-8 -top-8 w-32 h-32 bg-sky-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-2xl bg-sky-500/15 text-sky-400 border border-sky-500/30 flex items-center justify-center font-black">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                                    NIST NVD API 2.0
+                                    <span id="nvd-key-badge" class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">Not Configured</span>
+                                </h4>
+                                <p class="text-[11px] text-slate-400">Relaxed CVE lookup rate limits (50 req / 30s)</p>
+                            </div>
+                        </div>
+                        <a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noopener noreferrer" class="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 font-semibold">
+                            <span>Free Key Request</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </a>
+                    </div>
+
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        NIST NVD restricts anonymous queries to <span class="text-amber-400 font-semibold">5 requests per 30 seconds</span>. Providing your free NIST API key increases the limit to <span class="text-emerald-400 font-semibold">50 requests per 30 seconds</span>, enabling high-speed live CVE correlation in the <strong class="text-slate-300">Technology Fingerprinter</strong>.
+                    </p>
+
+                    <!-- Key Input Field -->
+                    <div class="space-y-1.5">
+                        <label for="apikey-nvd" class="block text-xs font-semibold text-slate-300">NIST NVD API Key</label>
+                        <div class="relative">
+                            <input type="password" id="apikey-nvd" oninput="markDirty()" placeholder="e.g. 1a2b3c4d-5e6f-7890-... or leave blank" class="w-full px-3.5 py-2.5 pr-20 bg-slate-900 border border-slate-800 focus:border-tech-accent rounded-xl text-xs font-mono text-white placeholder-slate-600 focus:outline-none transition-all">
+                            <div class="absolute inset-y-0 right-1.5 flex items-center space-x-1">
+                                <button type="button" onclick="toggleKeyVisibility('apikey-nvd', 'eye-nvd')" class="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors" title="Show / Hide Key">
+                                    <svg id="eye-nvd" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Test Output Container -->
+                    <div id="nvd-test-status" class="hidden p-3 rounded-xl text-xs font-mono"></div>
+                </div>
+
+                <!-- Footer with Test Button -->
+                <div class="pt-4 border-t border-slate-800/80 flex items-center justify-between">
+                    <span class="text-[11px] text-slate-500">Without key: 5 req/30s | With key: 50 req/30s</span>
+                    <button type="button" onclick="testNvdKey()" id="btn-test-nvd" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span>Test Connection</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </div>
 
 <!-- Floating Toast Notification -->
@@ -701,7 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function switchTab(tabId) {
     currentTab = tabId;
-    ['alerts', 'theme', 'scanning', 'maintenance'].forEach(t => {
+    ['alerts', 'theme', 'scanning', 'maintenance', 'apikeys'].forEach(t => {
         const pane = document.getElementById(`tab-pane-${t}`);
         const btn = document.getElementById(`tab-btn-${t}`);
         if (t === tabId) {
@@ -763,6 +903,35 @@ function populateSettingsUI(s) {
 
     const procEl = document.getElementById('maint-processing-count');
     if (procEl) procEl.textContent = s.processing_tasks_count || 0;
+
+    // 5. API Keys
+    const apiKeys = s.api_keys || {};
+    const shodanIn = document.getElementById('apikey-shodan');
+    const nvdIn = document.getElementById('apikey-nvd');
+    if (shodanIn) shodanIn.value = apiKeys.shodan_api_key || '';
+    if (nvdIn) nvdIn.value = apiKeys.nvd_api_key || '';
+
+    // Update badges
+    const shodanBadge = document.getElementById('shodan-key-badge');
+    if (shodanBadge) {
+        if (apiKeys.shodan_api_key) {
+            shodanBadge.textContent = 'Configured';
+            shodanBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        } else {
+            shodanBadge.textContent = 'Not Configured';
+            shodanBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700';
+        }
+    }
+    const nvdBadge = document.getElementById('nvd-key-badge');
+    if (nvdBadge) {
+        if (apiKeys.nvd_api_key) {
+            nvdBadge.textContent = 'Configured';
+            nvdBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        } else {
+            nvdBadge.textContent = 'Not Configured';
+            nvdBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700';
+        }
+    }
 
     isDirty = false;
     updateSaveStatus('All changes saved', false);
@@ -955,9 +1124,15 @@ async function saveSettings() {
 
     const isDark = document.documentElement.classList.contains('dark');
 
+    const apiKeysPayload = {
+        shodan_api_key: (document.getElementById('apikey-shodan')?.value || '').trim(),
+        nvd_api_key: (document.getElementById('apikey-nvd')?.value || '').trim()
+    };
+
     const payload = {
         alerts: alertsPayload,
         scanning: scanningPayload,
+        api_keys: apiKeysPayload,
         theme: isDark ? 'dark' : 'light'
     };
 
@@ -1004,6 +1179,102 @@ function showSettingsToast(msg, type = 'success') {
     setTimeout(() => {
         toast.classList.add('hidden');
     }, 3500);
+}
+
+// API Key UI Helpers
+function toggleKeyVisibility(inputId, iconId) {
+    const el = document.getElementById(inputId);
+    const icon = document.getElementById(iconId);
+    if (!el) return;
+    if (el.type === 'password') {
+        el.type = 'text';
+        if (icon) {
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"></path>';
+        }
+    } else {
+        el.type = 'password';
+        if (icon) {
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>';
+        }
+    }
+}
+
+async function testShodanKey() {
+    const btn = document.getElementById('btn-test-shodan');
+    const statusBox = document.getElementById('shodan-test-status');
+    const keyVal = (document.getElementById('apikey-shodan')?.value || '').trim();
+
+    if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+    if (statusBox) {
+        statusBox.classList.remove('hidden', 'bg-emerald-500/10', 'text-emerald-300', 'border-emerald-500/30', 'bg-rose-500/10', 'text-rose-300', 'border-rose-500/30');
+        statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-slate-800 text-slate-300 border border-slate-700 animate-pulse';
+        statusBox.textContent = 'Connecting to Shodan API (/api-info)...';
+    }
+
+    try {
+        const resp = await fetch('/api/settings/test-shodan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: keyVal })
+        });
+        const res = await resp.json();
+        if (resp.ok && res.valid) {
+            statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+            statusBox.innerHTML = `✓ <strong>Valid Shodan Key</strong>: Plan: <em>${res.plan}</em> | Query Credits: <em>${res.query_credits}</em> | Scan Credits: <em>${res.scan_credits}</em>`;
+            const badge = document.getElementById('shodan-key-badge');
+            if (badge) {
+                badge.textContent = 'Configured';
+                badge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+            }
+        } else {
+            statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-rose-500/15 text-rose-300 border border-rose-500/30';
+            statusBox.innerHTML = `✕ <strong>Verification Failed</strong>: ${res.error || 'Authentication error'}`;
+        }
+    } catch (e) {
+        statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        statusBox.textContent = `✕ Connection error: ${e.message}`;
+    } finally {
+        if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+    }
+}
+
+async function testNvdKey() {
+    const btn = document.getElementById('btn-test-nvd');
+    const statusBox = document.getElementById('nvd-test-status');
+    const keyVal = (document.getElementById('apikey-nvd')?.value || '').trim();
+
+    if (btn) btn.classList.add('opacity-50', 'pointer-events-none');
+    if (statusBox) {
+        statusBox.classList.remove('hidden', 'bg-emerald-500/10', 'text-emerald-300', 'border-emerald-500/30', 'bg-rose-500/10', 'text-rose-300', 'border-rose-500/30');
+        statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-slate-800 text-slate-300 border border-slate-700 animate-pulse';
+        statusBox.textContent = 'Connecting to NIST NVD API 2.0...';
+    }
+
+    try {
+        const resp = await fetch('/api/settings/test-nvd', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: keyVal })
+        });
+        const res = await resp.json();
+        if (resp.ok && res.valid) {
+            statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30';
+            statusBox.innerHTML = `✓ <strong>Valid NIST NVD Key</strong>: ${res.message}`;
+            const badge = document.getElementById('nvd-key-badge');
+            if (badge) {
+                badge.textContent = 'Configured';
+                badge.className = 'px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+            }
+        } else {
+            statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-rose-500/15 text-rose-300 border border-rose-500/30';
+            statusBox.innerHTML = `✕ <strong>Verification Failed</strong>: ${res.error || 'Check key status'}`;
+        }
+    } catch (e) {
+        statusBox.className = 'p-3 rounded-xl text-xs font-mono bg-rose-500/15 text-rose-300 border border-rose-500/30';
+        statusBox.textContent = `✕ Connection error: ${e.message}`;
+    } finally {
+        if (btn) btn.classList.remove('opacity-50', 'pointer-events-none');
+    }
 }
 </script>
 {% endblock %}
