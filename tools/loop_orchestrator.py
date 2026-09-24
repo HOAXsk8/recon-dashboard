@@ -92,8 +92,13 @@ class ContinuousLoopAgent(BaseAgent):
                 })
                 unscanned_subs_queued += 1
 
+        ws_id = str(domain["workspace_id"]) if domain.get("workspace_id") else None
+        if ws_id:
+            for t in cycle_tasks:
+                t["workspace_id"] = ws_id
+
         await self.tasks_col.insert_many(cycle_tasks)
-        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain} (including {unscanned_subs_queued} unscanned subdomains).")
+        logger.info(f"Loop Orchestrator: Successfully queued initial {len(cycle_tasks)} tasks for {root_domain} (workspace: {ws_id}, including {unscanned_subs_queued} unscanned subdomains).")
 
     async def recover_stale_tasks(self):
         """

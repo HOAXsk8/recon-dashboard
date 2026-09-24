@@ -377,6 +377,10 @@ class SourceMapUnpacker(BaseAgent):
             "cached_files": cached_files
         }
 
+        domain_doc = await self.get_root_domain_for_target(target)
+        if domain_doc and domain_doc.get("workspace_id"):
+            record["workspace_id"] = str(domain_doc["workspace_id"])
+
         result = await self.source_maps_col.update_one(
             {"source_map_url": source_map_url},
             {"$set": record},

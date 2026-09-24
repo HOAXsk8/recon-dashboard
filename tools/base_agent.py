@@ -40,6 +40,7 @@ class BaseAgent:
         self.leads_col = self.db["leads"]
         self.fingerprints_col = self.db["alert_fingerprints"]
         self.settings_col = self.db["settings"]
+        self.workspaces_col = self.db["workspaces"]
         self.pause_event = asyncio.Event()
         self.pause_event.set() # Default to running
 
@@ -368,8 +369,11 @@ class BaseAgent:
             or "header regression" in title.lower()
         )
 
+        # Resolve domain document to check first-scan and attach workspace_id
+        domain_doc = await self.get_root_domain_for_target(target, root_domain=root_domain)
+        workspace_id = str(domain_doc["workspace_id"]) if (domain_doc and domain_doc.get("workspace_id")) else None
+
         if is_change_alert:
-            domain_doc = await self.get_root_domain_for_target(target, root_domain=root_domain)
             if domain_doc and self.is_first_scan_cycle(domain_doc):
                 logger.info(
                     f"[FIRST-SCAN SUPPRESSED] Suppressed change alert '{alert_key}' ('{title}') during initial domain scan for target '{target}' (domain: '{domain_doc.get('domain')}')"
@@ -421,20 +425,24 @@ class BaseAgent:
             "response_size": int(response_size) if response_size is not None else 0,
             "alert_type": alert_key
         }
+        if workspace_id:
+            lead_doc["workspace_id"] = workspace_id
         
         await self.leads_col.insert_one(lead_doc)
         
         # 4. Save/Update the fingerprint record
+        fp_set = {
+            "target": target,
+            "title": title,
+            "last_seen": datetime.datetime.utcnow(),
+            "status": "active"
+        }
+        if workspace_id:
+            fp_set["workspace_id"] = workspace_id
+
         await self.fingerprints_col.update_one(
             {"fingerprint": fingerprint},
-            {
-                "$set": {
-                    "target": target,
-                    "title": title,
-                    "last_seen": datetime.datetime.utcnow(),
-                    "status": "active"
-                }
-            },
+            {"$set": fp_set},
             upsert=True
         )
         

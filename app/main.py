@@ -22,7 +22,7 @@ import ipaddress
 
 logger = logging.getLogger(__name__)
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col, workspaces_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -856,8 +856,10 @@ def get_flattened_pipeline(
         
     return pipeline
 
-def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str], port: Optional[int] = None):
+def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomains: Optional[str], tech: Optional[str], blacklisted: Optional[str], port: Optional[int] = None, ws_clause: Optional[dict] = None):
     query = {}
+    if ws_clause:
+        query.update(ws_clause)
     
     # Text search, status, tech, and port are now handled in the flattened pipeline
     
@@ -882,6 +884,10 @@ def get_query_filters(q: Optional[str], status_val: Optional[str], has_subdomain
 # Auth Helper
 async def get_current_user(request: Request):
     token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
     if not token:
         return None
     try:
@@ -910,6 +916,321 @@ def check_analyst(user: dict):
 def check_viewer(user: dict):
     if not user:
         raise HTTPException(status_code=401)
+
+# Workspace Helpers
+async def get_or_create_default_workspace():
+    ws = await workspaces_col.find_one({"is_default": True})
+    if not ws:
+        ws = await workspaces_col.find_one({})
+    if not ws:
+        ws = {
+            "name": "Default Workspace",
+            "description": "Default workspace for reconnaissance targets",
+            "is_default": True,
+            "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "created_by": "system"
+        }
+        res = await workspaces_col.insert_one(ws)
+        ws["_id"] = res.inserted_id
+    elif not ws.get("is_default"):
+        await workspaces_col.update_one({"_id": ws["_id"]}, {"$set": {"is_default": True}})
+        ws["is_default"] = True
+    return ws
+
+async def get_active_workspace(user: Optional[dict], request: Optional[Request] = None) -> dict:
+    target_id = None
+    if request:
+        target_id = request.cookies.get("active_workspace_id")
+    if not target_id and user:
+        target_id = user.get("active_workspace_id")
+        
+    ws = None
+    if target_id:
+        try:
+            ws = await workspaces_col.find_one({"_id": ObjectId(target_id)})
+        except Exception:
+            pass
+            
+    if not ws:
+        ws = await get_or_create_default_workspace()
+        
+    ws_id_str = str(ws["_id"])
+    if user and user.get("active_workspace_id") != ws_id_str and "_id" in user:
+        await users_col.update_one({"_id": user["_id"]}, {"$set": {"active_workspace_id": ws_id_str}})
+        user["active_workspace_id"] = ws_id_str
+        
+    return ws
+
+def workspace_match_clause(ws_id: str, is_default: bool = False) -> dict:
+    """Builds a query clause to match records belonging to ws_id."""
+    if is_default:
+        return {"$or": [{"workspace_id": ws_id}, {"workspace_id": {"$exists": False}}, {"workspace_id": None}, {"workspace_id": ""}]}
+    return {"workspace_id": ws_id}
+
+async def render_page(request: Request, template_name: str, context: dict, user: dict):
+    active_ws = await get_active_workspace(user, request)
+    active_ws_id = str(active_ws["_id"])
+    is_default = bool(active_ws.get("is_default"))
+    
+    # Get all workspaces with domain count
+    all_ws_cursor = workspaces_col.find({}).sort("name", 1)
+    all_workspaces = []
+    async for w in all_ws_cursor:
+        w_id = str(w["_id"])
+        w_is_def = bool(w.get("is_default"))
+        dom_query = workspace_match_clause(w_id, w_is_def)
+        dom_count = await domains_col.count_documents(dom_query)
+        all_workspaces.append({
+            "id": w_id,
+            "name": w.get("name", "Unnamed"),
+            "description": w.get("description", ""),
+            "is_default": w_is_def,
+            "is_active": (w_id == active_ws_id),
+            "domains_count": dom_count
+        })
+        
+    full_context = {
+        "user": user,
+        "active_workspace": {
+            "id": active_ws_id,
+            "name": active_ws.get("name", "Default Workspace"),
+            "description": active_ws.get("description", ""),
+            "is_default": is_default
+        },
+        "workspaces": all_workspaces,
+        **context
+    }
+    response = templates.TemplateResponse(request, template_name, full_context)
+    if request.cookies.get("active_workspace_id") != active_ws_id:
+        response.set_cookie(key="active_workspace_id", value=active_ws_id, httponly=False, samesite="lax", max_age=86400*30)
+    return response
+
+# Workspace API Endpoints
+@app.get("/api/workspaces")
+async def list_workspaces(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    active_ws = await get_active_workspace(user, request)
+    active_ws_id = str(active_ws["_id"])
+    
+    workspaces = []
+    async for w in workspaces_col.find({}).sort("name", 1):
+        w_id = str(w["_id"])
+        w_is_def = bool(w.get("is_default"))
+        dom_clause = workspace_match_clause(w_id, w_is_def)
+        dom_count = await domains_col.count_documents(dom_clause)
+        lead_clause = workspace_match_clause(w_id, w_is_def)
+        lead_count = await leads_col.count_documents(lead_clause)
+        
+        workspaces.append({
+            "id": w_id,
+            "name": w.get("name", "Unnamed"),
+            "description": w.get("description", ""),
+            "is_default": w_is_def,
+            "is_active": (w_id == active_ws_id),
+            "created_at": w.get("created_at"),
+            "created_by": w.get("created_by"),
+            "domains_count": dom_count,
+            "leads_count": lead_count
+        })
+    return {"workspaces": workspaces, "active_workspace_id": active_ws_id}
+
+@app.post("/api/workspaces")
+async def create_workspace(
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    else:
+        form = await request.form()
+        body = dict(form)
+
+    name_clean = str(body.get("name") or "").strip()
+    description = str(body.get("description") or "").strip()
+
+    if not name_clean:
+        raise HTTPException(status_code=400, detail="Workspace name cannot be empty")
+        
+    existing = await workspaces_col.find_one({"name": {"$regex": f"^{re.escape(name_clean)}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail="A workspace with this name already exists")
+        
+    ws_doc = {
+        "name": name_clean,
+        "description": description,
+        "is_default": False,
+        "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "created_by": user.get("username", "admin")
+    }
+    res = await workspaces_col.insert_one(ws_doc)
+    ws_id = str(res.inserted_id)
+    
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"active_workspace_id": ws_id}})
+    await log_audit(user["username"], "CREATE_WORKSPACE", f"Created workspace: {name_clean} (ID: {ws_id})", request)
+    
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={
+        "status": "success",
+        "workspace_id": ws_id,
+        "workspace": {
+            "id": ws_id,
+            "name": name_clean,
+            "description": description,
+            "is_default": False
+        }
+    })
+    resp.set_cookie(key="active_workspace_id", value=ws_id, httponly=False, samesite="lax", max_age=86400*30)
+    return resp
+
+@app.post("/api/workspaces/{workspace_id}/switch")
+async def switch_workspace(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+        
+    try:
+        ws = await workspaces_col.find_one({"_id": ObjectId(workspace_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace ID")
+        
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    ws_id_str = str(ws["_id"])
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"active_workspace_id": ws_id_str}})
+    
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={"status": "success", "workspace_id": ws_id_str, "name": ws.get("name")})
+    resp.set_cookie(key="active_workspace_id", value=ws_id_str, httponly=False, samesite="lax", max_age=86400*30)
+    return resp
+
+@app.put("/api/workspaces/{workspace_id}")
+async def update_workspace(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    else:
+        form = await request.form()
+        body = dict(form)
+
+    name_clean = str(body.get("name") or "").strip()
+    description = str(body.get("description") or "").strip()
+
+    if not name_clean:
+        raise HTTPException(status_code=400, detail="Workspace name cannot be empty")
+        
+    try:
+        ws = await workspaces_col.find_one({"_id": ObjectId(workspace_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace ID")
+        
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    existing = await workspaces_col.find_one({
+        "_id": {"$ne": ObjectId(workspace_id)},
+        "name": {"$regex": f"^{re.escape(name_clean)}$", "$options": "i"}
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Another workspace with this name already exists")
+        
+    await workspaces_col.update_one(
+        {"_id": ObjectId(workspace_id)},
+        {"$set": {"name": name_clean, "description": description, "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}}
+    )
+    await log_audit(user["username"], "UPDATE_WORKSPACE", f"Updated workspace: {name_clean} (ID: {workspace_id})", request)
+    return {
+        "status": "success",
+        "workspace": {
+            "id": workspace_id,
+            "name": name_clean,
+            "description": description
+        }
+    }
+
+@app.delete("/api/workspaces/{workspace_id}")
+async def delete_workspace(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    try:
+        ws = await workspaces_col.find_one({"_id": ObjectId(workspace_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid workspace ID")
+        
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    total_ws = await workspaces_col.count_documents({})
+    if total_ws <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the only workspace. Create another workspace first.")
+        
+    ws_id_str = str(ws["_id"])
+    ws_name = ws.get("name", "Workspace")
+    is_default = bool(ws.get("is_default"))
+    
+    # Cascade delete all data belonging to this workspace
+    dom_clause = workspace_match_clause(ws_id_str, is_default)
+    del_dom_res = await domains_col.delete_many(dom_clause)
+    del_leads_res = await leads_col.delete_many(workspace_match_clause(ws_id_str, is_default))
+    del_tasks_res = await tasks_col.delete_many(workspace_match_clause(ws_id_str, is_default))
+    del_findings_res = await findings_col.delete_many(workspace_match_clause(ws_id_str, is_default))
+    del_sm_res = await source_maps_col.delete_many(workspace_match_clause(ws_id_str, is_default))
+    
+    # Delete workspace
+    await workspaces_col.delete_one({"_id": ObjectId(workspace_id)})
+    
+    # If the deleted workspace was default, designate another workspace as default
+    if is_default:
+        next_ws = await workspaces_col.find_one({})
+        if next_ws:
+            await workspaces_col.update_one({"_id": next_ws["_id"]}, {"$set": {"is_default": True}})
+            
+    # Resolve active workspace for current user
+    new_active_ws = await get_or_create_default_workspace()
+    new_active_id = str(new_active_ws["_id"])
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"active_workspace_id": new_active_id}})
+    
+    await log_audit(
+        user["username"], 
+        "DELETE_WORKSPACE", 
+        f"Deleted workspace: {ws_name} (ID: {workspace_id}). Cascade deleted {del_dom_res.deleted_count} domains, {del_leads_res.deleted_count} leads, {del_tasks_res.deleted_count} tasks, {del_findings_res.deleted_count} findings, {del_sm_res.deleted_count} source maps.",
+        request
+    )
+    
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={
+        "status": "success",
+        "message": f"Workspace '{ws_name}' and all associated data deleted",
+        "deleted_domains": del_dom_res.deleted_count,
+        "deleted_leads": del_leads_res.deleted_count,
+        "deleted_tasks": del_tasks_res.deleted_count,
+        "deleted_findings": del_findings_res.deleted_count,
+        "new_active_workspace_id": new_active_id
+    })
+    resp.set_cookie(key="active_workspace_id", value=new_active_id, httponly=False, samesite="lax", max_age=86400*30)
+    return resp
+
 
 @app.get("/api/admin/users")
 async def get_users(request: Request, page: int = 1, limit: int = 10, q: Optional[str] = None, user: dict = Depends(get_current_user)):
@@ -1041,13 +1362,21 @@ async def dashboard(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     embedded = request.query_params.get("embedded") == "1"
-    return templates.TemplateResponse(request, "dashboard.html", {"user": user, "embedded": embedded})
+    return await render_page(request, "dashboard.html", {"embedded": embedded}, user)
 
 @app.get("/search")
 async def search(request: Request, q: str, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
+    def scoped_query(criterion: dict) -> dict:
+        if ws_clause:
+            return {"$and": [ws_clause, criterion]}
+        return criterion
+
     # Clean query
     raw_q = q.strip()
     q = raw_q.lower()
@@ -1056,25 +1385,25 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     query_variants = list(dict.fromkeys([q, clean_q, raw_q]))
 
     # 1. Try exact domain match
-    domain_data = await domains_col.find_one({"domain": {"$in": query_variants}})
+    domain_data = await domains_col.find_one(scoped_query({"domain": {"$in": query_variants}}))
     
     # 2. Try exact subdomain match across all collections/arrays
     if not domain_data:
-        domain_data = await domains_col.find_one({"infrastructure.subdomains.name": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"infrastructure.subdomains.name": {"$in": query_variants}}))
     if not domain_data:
-        domain_data = await domains_col.find_one({"systems.target": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"systems.target": {"$in": query_variants}}))
     if not domain_data:
-        domain_data = await domains_col.find_one({"web_applications.target": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"web_applications.target": {"$in": query_variants}}))
     if not domain_data:
-        domain_data = await domains_col.find_one({"subdomains.subdomain": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"subdomains.subdomain": {"$in": query_variants}}))
     if not domain_data:
-        domain_data = await domains_col.find_one({"infrastructure.subdomains.ip": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"infrastructure.subdomains.ip": {"$in": query_variants}}))
     if not domain_data:
-        domain_data = await domains_col.find_one({"systems.ip": {"$in": query_variants}})
+        domain_data = await domains_col.find_one(scoped_query({"systems.ip": {"$in": query_variants}}))
     
     # 3. Fallback to partial match on domain
     if not domain_data:
-        domain_data = await domains_col.find_one({"domain": {"$regex": re.escape(clean_q or q), "$options": "i"}})
+        domain_data = await domains_col.find_one(scoped_query({"domain": {"$regex": re.escape(clean_q or q), "$options": "i"}}))
     
     if not domain_data:
         return {"error": f"Domain '{raw_q}' not found"}
@@ -1300,15 +1629,21 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
     return domain_data
 
 @app.get("/api/suggestions")
-async def get_suggestions(q: str, user: dict = Depends(get_current_user)):
+async def get_suggestions(request: Request, q: str, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
     if len(q) < 2:
         return []
     
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    query = {"domain": {"$regex": re.escape(q), "$options": "i"}}
+    if ws_clause:
+        query = {"$and": [ws_clause, query]}
+
     # Find up to 5 domains containing 'q' (case-insensitive)
-    cursor = domains_col.find({"domain": {"$regex": re.escape(q), "$options": "i"}}, {"domain": 1}).limit(5)
+    cursor = domains_col.find(query, {"domain": 1}).limit(5)
     results = await cursor.to_list(length=5)
     return [r["domain"] for r in results]
 
@@ -1357,34 +1692,38 @@ def get_country_code(ip: str) -> str:
     return "UNKNOWN"
 
 @app.get("/api/filters/options")
-async def get_filter_options(user: dict = Depends(get_current_user)):
+async def get_filter_options(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    filter_query = ws_clause if ws_clause else None
+
     # 1. Distinct technologies
-    raw_techs = await domains_col.distinct("web_applications.tech_stack")
+    raw_techs = await domains_col.distinct("web_applications.tech_stack", filter=filter_query)
     techs = sorted(list(set([t.strip() for t in raw_techs if t and isinstance(t, str) and t.strip()])), key=lambda s: s.lower())
 
     # 2. Distinct WAFs
-    wafs_infra = await domains_col.distinct("infrastructure.waf.firewall")
-    wafs_web = await domains_col.distinct("web_applications.waf.firewall")
+    wafs_infra = await domains_col.distinct("infrastructure.waf.firewall", filter=filter_query)
+    wafs_web = await domains_col.distinct("web_applications.waf.firewall", filter=filter_query)
     all_wafs = sorted(list(set([
         w.strip() for w in (wafs_infra + wafs_web)
         if w and isinstance(w, str) and w.strip().lower() not in ["none", "null", "false"]
     ])), key=lambda s: s.lower())
 
     # 3. Distinct LB methods
-    lbs_infra = await domains_col.distinct("infrastructure.load_balancer.method")
-    lbs_web = await domains_col.distinct("web_applications.load_balancer.method")
+    lbs_infra = await domains_col.distinct("infrastructure.load_balancer.method", filter=filter_query)
+    lbs_web = await domains_col.distinct("web_applications.load_balancer.method", filter=filter_query)
     all_lbs = sorted(list(set([
         l.strip() for l in (lbs_infra + lbs_web)
         if l and isinstance(l, str) and l.strip().lower() not in ["none", "null", "false"]
     ])), key=lambda s: s.lower())
 
     # 4. Distinct Discovered IPs
-    ips_systems = await domains_col.distinct("systems.ip")
-    ips_sub_ip = await domains_col.distinct("infrastructure.subdomains.ip")
-    ips_sub_ips = await domains_col.distinct("infrastructure.subdomains.ips")
+    ips_systems = await domains_col.distinct("systems.ip", filter=filter_query)
+    ips_sub_ip = await domains_col.distinct("infrastructure.subdomains.ip", filter=filter_query)
+    ips_sub_ips = await domains_col.distinct("infrastructure.subdomains.ips", filter=filter_query)
     
     all_raw_ips = set()
     for ip_val in (ips_systems + ips_sub_ip + ips_sub_ips):
@@ -1415,6 +1754,7 @@ async def get_filter_options(user: dict = Depends(get_current_user)):
 
 @app.get("/api/subdomains")
 async def get_subdomains(
+    request: Request,
     page: int = 1,
     limit: int = 20,
     q: Optional[str] = None,
@@ -1444,7 +1784,10 @@ async def get_subdomains(
     if not user:
         raise HTTPException(status_code=401)
 
-    root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
+    root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port, ws_clause=ws_clause)
     pipeline = get_flattened_pipeline(
         root_query,
         q,
@@ -1564,8 +1907,11 @@ async def get_subdomains(
             "has_subdomain_drift": sub_drift_count > 0
         })
 
-    # Calculate total scanned assets globally (root + subdomains)
-    scanned_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}}, status_val="scanned")
+    # Calculate total scanned assets for this workspace (root + subdomains)
+    scanned_root = {"blacklisted": {"$ne": True}}
+    if ws_clause:
+        scanned_root = {"$and": [ws_clause, scanned_root]}
+    scanned_pipeline = get_flattened_pipeline(scanned_root, status_val="scanned")
     scanned_pipeline.append({"$count": "total"})
     scanned_result = await domains_col.aggregate(scanned_pipeline).to_list(length=1)
     scanned_total = scanned_result[0]["total"] if scanned_result else 0
@@ -1574,6 +1920,7 @@ async def get_subdomains(
 
 @app.get("/api/subdomains/export")
 async def export_subdomains(
+    request: Request,
     q: Optional[str] = None,
     status_val: Optional[str] = None,
     has_subdomains: Optional[str] = None,
@@ -1598,7 +1945,10 @@ async def export_subdomains(
     if not user:
         raise HTTPException(status_code=401)
     
-    root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port)
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
+    root_query = get_query_filters(q, status_val, has_subdomains, tech, None, port, ws_clause=ws_clause)
     pipeline = get_flattened_pipeline(
         root_query,
         q,
@@ -1802,7 +2152,7 @@ async def admin_panel(request: Request, user: dict = Depends(get_current_user)):
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
     
     # Just render the template; the tables will be populated via AJAX
-    return templates.TemplateResponse(request, "admin.html", {"user": user})
+    return await render_page(request, "admin.html", {}, user)
 
 @app.post("/admin/create-user")
 @limiter.limit("10/minute")
@@ -1891,8 +2241,10 @@ async def delete_user(request: Request, target_username: str = Form(...), user: 
     return RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
 
 
-def build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=None):
+def build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=None, ws_clause=None):
     query = {}
+    if ws_clause:
+        query.update(ws_clause)
     if status == "all":
         pass # Include everything
     elif status:
@@ -1928,28 +2280,29 @@ def build_leads_query(status, risk, title, target, status_code, start_date, end_
 async def alerts_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "alerts.html", {"user": user})
+    return await render_page(request, "alerts.html", {}, user)
 
 @app.get("/investigate", response_class=HTMLResponse)
 async def investigate_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "investigate.html", {"user": user})
+    return await render_page(request, "investigate.html", {}, user)
 
 @app.get("/findings", response_class=HTMLResponse)
 async def findings_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "findings.html", {"user": user})
+    return await render_page(request, "findings.html", {}, user)
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "settings.html", {"user": user})
+    return await render_page(request, "settings.html", {}, user)
 
 @app.get("/api/leads")
 async def get_leads(
+    request: Request,
     status: Optional[str] = None,
     risk: Optional[str] = None,
     title: Optional[str] = None,
@@ -1966,7 +2319,12 @@ async def get_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_clause = workspace_match_clause(ws_id, is_def)
+    
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source, ws_clause=ws_clause)
             
     is_asc = (order == "asc")
     mongo_dir = 1 if is_asc else -1
@@ -2056,10 +2414,13 @@ async def apply_lead_mute(lead: dict, user: dict, request: Request):
     await log_audit(user["username"], "MUTE_LEAD", f"Muted/Suppressed lead: {lead['title']} on {lead['target']}", request)
 
 @app.get("/api/leads/sources")
-async def get_lead_sources(user: dict = Depends(get_current_user)):
+async def get_lead_sources(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    sources = await leads_col.distinct("source")
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    sources = await leads_col.distinct("source", workspace_match_clause(ws_id, is_def))
     source_list = [s for s in sources if s]
     return sorted(source_list)
 
@@ -2077,6 +2438,7 @@ async def mute_lead(lead_id: str, request: Request, user: dict = Depends(get_cur
 
 @app.get("/api/leads/export")
 async def export_leads(
+    request: Request,
     status: Optional[str] = None,
     risk: Optional[str] = None,
     title: Optional[str] = None,
@@ -2092,7 +2454,12 @@ async def export_leads(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source)
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_clause = workspace_match_clause(ws_id, is_def)
+    
+    query = build_leads_query(status, risk, title, target, status_code, start_date, end_date, source=source, ws_clause=ws_clause)
             
     is_asc = (order == "asc")
     mongo_dir = 1 if is_asc else -1
@@ -2315,36 +2682,50 @@ async def bulk_status_leads(request: Request, user: dict = Depends(get_current_u
     await log_audit(user["username"], "BULK_STATUS_LEADS", f"Updated {count} alerts to {new_status}", request)
     return {"status": "success", "count": count}
 @app.get("/api/notifications/count")
-async def get_notifications_count(user: dict = Depends(get_current_user)):
+async def get_notifications_count(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    # Count leads where status is "new" and acknowledged is either False or missing
-    count = await leads_col.count_documents({"status": "new", "acknowledged": {"$ne": True}})
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    query = {"status": "new", "acknowledged": {"$ne": True}}
+    query.update(workspace_match_clause(ws_id, is_def))
+    count = await leads_col.count_documents(query)
     return {"count": count}
 
 @app.post("/api/notifications/clear")
-async def clear_notifications(user: dict = Depends(get_current_user)):
+async def clear_notifications(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
-    # Mark 'new' leads as acknowledged
-    await leads_col.update_many({"status": "new", "acknowledged": {"$ne": True}}, {"$set": {"acknowledged": True}})
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    query = {"status": "new", "acknowledged": {"$ne": True}}
+    query.update(workspace_match_clause(ws_id, is_def))
+    await leads_col.update_many(query, {"$set": {"acknowledged": True}})
+    return {"status": "success"}
 
 # --- Findings Management Routes ---
 
 @app.get("/api/findings/stats/summary")
-async def get_findings_stats(user: dict = Depends(get_current_user)):
+async def get_findings_stats(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
-    total = await findings_col.count_documents({})
-    critical = await findings_col.count_documents({"severity": "critical"})
-    high = await findings_col.count_documents({"severity": "high"})
-    medium = await findings_col.count_documents({"severity": "medium"})
-    low = await findings_col.count_documents({"severity": "low"})
-    info = await findings_col.count_documents({"severity": "info"})
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_c = workspace_match_clause(ws_id, is_def)
+
+    total = await findings_col.count_documents(ws_c)
+    critical = await findings_col.count_documents({"severity": "critical", **ws_c})
+    high = await findings_col.count_documents({"severity": "high", **ws_c})
+    medium = await findings_col.count_documents({"severity": "medium", **ws_c})
+    low = await findings_col.count_documents({"severity": "low", **ws_c})
+    info = await findings_col.count_documents({"severity": "info", **ws_c})
     
-    confirmed = await findings_col.count_documents({"status": "confirmed"})
-    in_progress = await findings_col.count_documents({"status": "in_progress"})
-    remediated = await findings_col.count_documents({"status": "remediated"})
-    draft = await findings_col.count_documents({"status": "draft"})
+    confirmed = await findings_col.count_documents({"status": "confirmed", **ws_c})
+    in_progress = await findings_col.count_documents({"status": "in_progress", **ws_c})
+    remediated = await findings_col.count_documents({"status": "remediated", **ws_c})
+    draft = await findings_col.count_documents({"status": "draft", **ws_c})
     
     return {
         "total": total,
@@ -2361,6 +2742,7 @@ async def get_findings_stats(user: dict = Depends(get_current_user)):
 
 @app.get("/api/findings")
 async def get_findings(
+    request: Request,
     severity: Optional[str] = None,
     status: Optional[str] = None,
     category: Optional[str] = None,
@@ -2374,7 +2756,10 @@ async def get_findings(
 ):
     if not user:
         raise HTTPException(status_code=401)
-    query = {}
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    query = workspace_match_clause(ws_id, is_def).copy()
     if severity and severity != "all":
         query["severity"] = severity.lower()
     if status and status != "all":
@@ -2453,8 +2838,11 @@ async def create_finding(request: Request, user: dict = Depends(get_current_user
             root_domain = host.lower()
 
     now = datetime.utcnow().isoformat()
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
     doc = {
         "title": title,
+        "workspace_id": ws_id,
         "severity": (data.get("severity") or "medium").lower(),
         "status": (data.get("status") or "draft").lower(),
         "category": data.get("category") or "General Security",
@@ -2645,8 +3033,11 @@ async def promote_alert_to_finding(alert_id: str, request: Request, user: dict =
             root_domain = host.lower()
 
     now = datetime.utcnow().isoformat()
+    active_ws = await get_active_workspace(user, request)
+    ws_id = lead.get("workspace_id") or str(active_ws["_id"])
     finding_doc = {
         "title": title,
+        "workspace_id": ws_id,
         "severity": severity,
         "status": "confirmed",
         "category": cat,
@@ -2686,6 +3077,7 @@ async def promote_alert_to_finding(alert_id: str, request: Request, user: dict =
 
 @app.get("/api/findings/export")
 async def export_findings(
+    request: Request,
     severity: Optional[str] = None,
     status: Optional[str] = None,
     category: Optional[str] = None,
@@ -2696,7 +3088,11 @@ async def export_findings(
     if not user:
         raise HTTPException(status_code=401)
 
-    query = {}
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    query = workspace_match_clause(ws_id, is_def).copy()
+
     if severity and severity != "all":
         query["severity"] = severity.lower()
     if status and status != "all":
@@ -2750,13 +3146,18 @@ async def export_findings(
 
 @app.get("/api/source-maps")
 async def get_source_maps(
+    request: Request,
     target: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    
+    query = workspace_match_clause(ws_id, is_def).copy()
     if target:
         clean_t = target.lower().strip()
         query["$or"] = [
@@ -3275,10 +3676,11 @@ async def search_source_map_files(
 async def domains_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "domains.html", {"user": user})
+    return await render_page(request, "domains.html", {}, user)
 
 @app.get("/api/domains")
 async def get_domains(
+    request: Request,
     page: int = 1, 
     limit: int = 10, 
     q: Optional[str] = None,
@@ -3301,7 +3703,12 @@ async def get_domains(
     if not user:
         raise HTTPException(status_code=401)
     
-    root_query = get_query_filters(q, status_val, None, None, blacklisted)
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_clause = workspace_match_clause(ws_id, is_def)
+    
+    root_query = get_query_filters(q, status_val, None, None, blacklisted, ws_clause=ws_clause)
     pipeline = get_flattened_pipeline(
         root_query,
         q,
@@ -3439,11 +3846,22 @@ def normalize_and_validate_domain(raw: str) -> Optional[str]:
 @app.post("/api/domains/add")
 async def add_domain(
     request: Request,
-    domain: str = Form(...),
-    single_domain_only: Union[bool, str] = Form(False),
     user: dict = Depends(get_current_user)
 ):
     check_analyst(user)
+    
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    else:
+        form = await request.form()
+        body = dict(form)
+
+    domain = str(body.get("domain") or "").strip()
+    single_domain_only = body.get("single_domain_only", False)
     
     cleaned_domain = normalize_and_validate_domain(domain)
     if not cleaned_domain:
@@ -3451,13 +3869,18 @@ async def add_domain(
 
     is_single = single_domain_only is True or str(single_domain_only).lower() in ["true", "1", "yes"]
 
-    existing = await domains_col.find_one({"domain": cleaned_domain})
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+
+    existing = await domains_col.find_one({"domain": cleaned_domain, **workspace_match_clause(ws_id, is_def)})
     if existing:
-        return {"status": "error", "message": "Domain already exists"}
+        return {"status": "error", "message": "Domain already exists in this workspace"}
     
     now_dt = datetime.utcnow()
     await domains_col.insert_one({
         "domain": cleaned_domain,
+        "workspace_id": ws_id,
         "scanned": False,
         "blacklisted": False,
         "single_domain_only": is_single,
@@ -3470,19 +3893,19 @@ async def add_domain(
     
     # Queue initial tasks
     initial_tasks = [
-        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "osint", "status": "pending", "created_at": now_dt},
-        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt},
-        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt},
-        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt}
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "osint", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
     ]
     if is_single:
-        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "scan", "status": "pending", "created_at": now_dt})
+        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
     else:
-        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "discovery", "status": "pending", "created_at": now_dt})
+        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "discovery", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
 
     await tasks_col.insert_many(initial_tasks)
     
-    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {cleaned_domain} (single_domain_only={is_single})", request)
+    await log_audit(user["username"], "ADD_DOMAIN", f"Added domain: {cleaned_domain} to workspace {active_ws.get('name')} (single_domain_only={is_single})", request)
     return {"status": "success"}
 
 @app.post("/api/domains/bulk-add")
@@ -3549,11 +3972,15 @@ async def bulk_add_domains(
 
     # High-performance Batch Check & Bulk Insert
     now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+
     now_dt = datetime.utcnow()
     
-    # Check all existing domains in ONE database query
+    # Check all existing domains in ONE database query for this workspace
     existing_docs = await domains_col.find(
-        {"domain": {"$in": unique_candidates}},
+        {"domain": {"$in": unique_candidates}, **workspace_match_clause(ws_id, is_def)},
         {"domain": 1}
     ).to_list(length=None)
     existing_set = {doc["domain"] for doc in existing_docs}
@@ -3571,6 +3998,7 @@ async def bulk_add_domains(
         added_count += 1
         domains_to_insert.append({
             "domain": domain,
+            "workspace_id": ws_id,
             "scanned": scanned_val,
             "on_hold": on_hold_val,
             "blacklisted": False,
@@ -3584,15 +4012,15 @@ async def bulk_add_domains(
         
         if not scanned_val and not on_hold_val:
             initial_tasks = [
-                {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": now_dt},
-                {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt},
-                {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt},
-                {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt}
+                {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+                {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+                {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+                {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
             ]
             if is_single:
-                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": now_dt})
+                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
             else:
-                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": now_dt})
+                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
             tasks_to_insert.extend(initial_tasks)
 
     # Bulk insert domains in chunks of 1000
@@ -4005,13 +4433,20 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
 async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
     check_analyst(user)
     
-    domains = await domains_col.find({"blacklisted": {"$ne": True}}).to_list(length=None)
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    domains_query = {"blacklisted": {"$ne": True}}
+    if ws_clause:
+        domains_query = {"$and": [ws_clause, domains_query]}
+
+    domains = await domains_col.find(domains_query).to_list(length=None)
     if not domains:
-        return {"status": "error", "message": "No active domains found to scan"}
+        return {"status": "error", "message": "No active domains found in this workspace to scan"}
         
     now = datetime.utcnow()
+    ws_id_str = str(active_ws["_id"])
     
-    # 1. Reset all root domains and all subdomains safely
+    # 1. Reset all root domains and all subdomains safely in this workspace
     for d in domains:
         prev_scanned = d.get("last_scanned")
         last_cycle = prev_scanned if prev_scanned and prev_scanned != "Never" else d.get("last_cycle_completed")
@@ -4028,33 +4463,39 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
             {"_id": d["_id"]},
             {"$set": update_data}
         )
+
+    sub_query = {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}}
+    if ws_clause:
+        sub_query = {"$and": [ws_clause, sub_query]}
     await domains_col.update_many(
-        {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
+        sub_query,
         {"$set": {
             "infrastructure.subdomains.$[].scanned": False
         }}
     )
     
-    # 2. Clear all existing tasks
-    await tasks_col.delete_many({})
+    # 2. Clear existing tasks in this workspace
+    task_del_query = ws_clause if ws_clause else {}
+    await tasks_col.delete_many(task_del_query)
     
     # 3. Queue fresh tasks for all root domains + all existing subdomains
     all_tasks = []
     for d in domains:
         root_domain = d["domain"]
         is_single = d.get("single_domain_only", False)
+        domain_ws_id = str(d.get("workspace_id", ws_id_str))
         
         domain_tasks = [
-            {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": now},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": now},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": now},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": now},
-            {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now}
+            {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": now, "workspace_id": domain_ws_id},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": now, "workspace_id": domain_ws_id},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": now, "workspace_id": domain_ws_id},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": now, "workspace_id": domain_ws_id},
+            {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now, "workspace_id": domain_ws_id}
         ]
         if is_single:
-            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": now})
+            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
         else:
-            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": now})
+            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
             
         subs = (d.get("infrastructure") or {}).get("subdomains", [])
         for sub in subs:
@@ -4065,7 +4506,8 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
                     "target": sub_name,
                     "task_type": "verification",
                     "status": "pending",
-                    "created_at": now
+                    "created_at": now,
+                    "workspace_id": domain_ws_id
                 })
                 
         all_tasks.extend(domain_tasks)
@@ -4073,10 +4515,10 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
     if all_tasks:
         await tasks_col.insert_many(all_tasks)
         
-    await log_audit(user["username"], "RESCAN_ALL", f"Initiated global rescan across {len(domains)} domains with {len(all_tasks)} tasks queued", request)
+    await log_audit(user["username"], "RESCAN_ALL", f"Initiated workspace rescan across {len(domains)} domains with {len(all_tasks)} tasks queued", request)
     return {
         "status": "success",
-        "message": f"Global rescan initiated! Reset {len(domains)} domains and queued {len(all_tasks)} tasks across all domains and subdomains.",
+        "message": f"Workspace rescan initiated! Reset {len(domains)} domains and queued {len(all_tasks)} tasks.",
         "domains_count": len(domains),
         "tasks_count": len(all_tasks)
     }
@@ -4098,10 +4540,12 @@ async def bulk_update_status(request: Request, user: dict = Depends(get_current_
     on_hold_flag = True if status_val == "on_hold" else False
 
     if data.get("apply_to_all"):
+        active_ws = await get_active_workspace(user, request)
+        ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
         q = data.get("q")
         status_val_filter = data.get("status_val")
         blacklisted = data.get("blacklisted")
-        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted, ws_clause=ws_clause)
         pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
         pipeline.append({"$group": {"_id": "$_id"}})
         cursor = domains_col.aggregate(pipeline)
@@ -4128,10 +4572,12 @@ async def bulk_delete_domains(request: Request, user: dict = Depends(get_current
     data = await request.json()
     
     if data.get("apply_to_all"):
+        active_ws = await get_active_workspace(user, request)
+        ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
         q = data.get("q")
         status_val_filter = data.get("status_val")
         blacklisted = data.get("blacklisted")
-        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted, ws_clause=ws_clause)
         pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
         pipeline.append({"$group": {"_id": "$_id"}})
         cursor = domains_col.aggregate(pipeline)
@@ -4161,10 +4607,12 @@ async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_curr
     data = await request.json()
     
     if data.get("apply_to_all"):
+        active_ws = await get_active_workspace(user, request)
+        ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
         q = data.get("q")
         status_val_filter = data.get("status_val")
         blacklisted = data.get("blacklisted")
-        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted)
+        root_query = get_query_filters(q, status_val_filter, None, None, blacklisted, ws_clause=ws_clause)
         pipeline = get_flattened_pipeline(root_query, q, status_val_filter)
         pipeline.append({"$group": {"_id": "$_id"}})
         cursor = domains_col.aggregate(pipeline)
@@ -4189,22 +4637,23 @@ async def bulk_blacklist_domains(request: Request, user: dict = Depends(get_curr
 async def statistics_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "statistics.html", {"user": user})
+    return await render_page(request, "statistics.html", {}, user)
 
 @app.get("/tools", response_class=HTMLResponse)
 async def tools_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "tools.html", {"user": user})
+    return await render_page(request, "tools.html", {}, user)
 
 @app.get("/logs", response_class=HTMLResponse)
 async def logs_page(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request, "logs.html", {"user": user})
+    return await render_page(request, "logs.html", {}, user)
 
 @app.get("/api/tasks")
 async def get_tasks(
+    request: Request,
     task_type: Optional[str] = None,
     status: Optional[str] = None,
     page: int = 1,
@@ -4214,7 +4663,10 @@ async def get_tasks(
     if not user:
         raise HTTPException(status_code=401)
     
-    query = {}
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    query = workspace_match_clause(ws_id, is_def).copy()
     if task_type and task_type != "all":
         query["task_type"] = task_type
     if status and status != "all":
@@ -4233,12 +4685,18 @@ async def get_tasks(
     return {"tasks": tasks, "total": total, "page": page, "limit": limit}
 
 @app.get("/api/tasks/stats")
-async def get_tasks_stats(user: dict = Depends(get_current_user)):
+async def get_tasks_stats(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
         
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_c = workspace_match_clause(ws_id, is_def)
+
     # 1. Task counts by status
     task_pipeline = [
+        {"$match": ws_c},
         {"$group": {"_id": "$status", "count": {"$sum": 1}}}
     ]
     task_agg = await tasks_col.aggregate(task_pipeline).to_list(length=20)
@@ -4253,15 +4711,15 @@ async def get_tasks_stats(user: dict = Depends(get_current_user)):
     task_percent = round((completed_tasks / total_tasks * 100), 1) if total_tasks > 0 else 100.0
 
     # 2. (Sub)domains counts
-    root_total = await domains_col.count_documents({"blacklisted": {"$ne": True}})
-    root_completed = await domains_col.count_documents({"blacklisted": {"$ne": True}, "scanned": True})
+    root_total = await domains_col.count_documents({"blacklisted": {"$ne": True}, **ws_c})
+    root_completed = await domains_col.count_documents({"blacklisted": {"$ne": True}, "scanned": True, **ws_c})
     root_remaining = max(0, root_total - root_completed)
     
     sub_total = 0
     sub_completed = 0
     
     cursor = domains_col.find(
-        {"blacklisted": {"$ne": True}},
+        {"blacklisted": {"$ne": True}, **ws_c},
         {"infrastructure.subdomains": 1, "systems.target": 1}
     )
     async for d in cursor:
@@ -4394,10 +4852,13 @@ async def get_tools(user: dict = Depends(get_current_user)):
     return results
 
 @app.get("/api/domains/search-simple")
-async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def search_simple_domains(request: Request, q: Optional[str] = None, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
     query = {"blacklisted": {"$ne": True}}
     search_term = (q or "").strip().lower()
     
@@ -4410,6 +4871,9 @@ async def search_simple_domains(q: Optional[str] = None, user: dict = Depends(ge
             {"systems.target": {"$regex": escaped_q, "$options": "i"}},
             {"web_applications.target": {"$regex": escaped_q, "$options": "i"}}
         ]
+    
+    if ws_clause:
+        query = {"$and": [ws_clause, query]}
     
     cursor = domains_col.find(
         query,
@@ -4697,6 +5161,10 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
         
     domain_id = body.get("domain_id")
     target = body.get("target")
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    ws_id_str = str(active_ws["_id"])
+
     top_of_queue = bool(body.get("top_of_queue", False))
     run_all = bool(body.get("run_all", False)) or domain_id == "all"
     
@@ -4705,16 +5173,19 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     priority_txt = " (Top of Queue)" if top_of_queue else ""
     
     # -------------------------------------------------------------
-    # CASE A: Run tool across ALL active domains
+    # CASE A: Run tool across ALL active domains in current workspace
     # -------------------------------------------------------------
     if run_all:
-        cursor = domains_col.find({"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}})
+        query = {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}}
+        if ws_clause:
+            query = {"$and": [ws_clause, query]}
+        cursor = domains_col.find(query)
         eligible_domains = await cursor.to_list(length=None)
         
         if not eligible_domains:
             return {
                 "status": "warning",
-                "message": "No active domains found to run this tool on (all domains on hold or blacklisted).",
+                "message": "No active domains found in this workspace to run this tool on (all domains on hold or blacklisted).",
                 "tasks_queued": 0,
                 "domains_count": 0,
                 "tool_key": tool_key,
@@ -4723,7 +5194,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             
         if tool_key == "whois_lookup":
             await domains_col.update_many(
-                {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}},
+                query,
                 {"$set": {"whois_complete": False}}
             )
             msg = f"Reset WHOIS status for {len(eligible_domains)} active domain(s) to trigger immediate lookup"
@@ -4744,6 +5215,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             for d_doc in eligible_domains:
                 r_domain = d_doc["domain"]
                 is_single = d_doc.get("single_domain_only", False)
+                doc_ws_id = str(d_doc.get("workspace_id", ws_id_str))
                 await domains_col.update_one(
                     {"_id": d_doc["_id"]},
                     {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
@@ -4751,12 +5223,12 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                 if is_single:
                     await tasks_col.delete_many({"root_domain": r_domain})
                     tasks_to_create.extend([
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                        {"root_domain": r_domain, "target": r_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val}
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                        {"root_domain": r_domain, "target": r_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id}
                     ])
                 else:
                     tasks_to_create.append({
@@ -4765,7 +5237,8 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                         "task_type": "discovery",
                         "status": "pending",
                         "priority": priority_val,
-                        "created_at": created_at_val
+                        "created_at": created_at_val,
+                        "workspace_id": doc_ws_id
                     })
             if tasks_to_create:
                 await tasks_col.insert_many(tasks_to_create)
@@ -4784,8 +5257,11 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             targeted_domains_count = 0
             for d_doc in eligible_domains:
                 r_domain = d_doc["domain"]
+                doc_ws_id = str(d_doc.get("workspace_id", ws_id_str))
                 t_list = build_tool_tasks(tool_key, d_doc, r_domain, priority_val, created_at_val, is_run_all=True)
                 if t_list:
+                    for t in t_list:
+                        t["workspace_id"] = doc_ws_id
                     tasks_to_create.extend(t_list)
                     targeted_domains_count += 1
                     
@@ -4819,6 +5295,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     root_domain = domain_doc["domain"]
     target = (target or root_domain).strip()
     is_single = domain_doc.get("single_domain_only", False)
+    doc_ws_id = str(domain_doc.get("workspace_id", ws_id_str))
     
     if tool_key == "whois_lookup":
         await domains_col.update_one(
@@ -4839,12 +5316,12 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
         if is_single:
             await tasks_col.delete_many({"root_domain": root_domain})
             tasks_to_create = [
-                {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val},
-                {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val}
+                {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id},
+                {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "priority": priority_val, "created_at": created_at_val, "workspace_id": doc_ws_id}
             ]
         else:
             tasks_to_create = [{
@@ -4853,10 +5330,13 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                 "task_type": "discovery",
                 "status": "pending",
                 "priority": priority_val,
-                "created_at": created_at_val
+                "created_at": created_at_val,
+                "workspace_id": doc_ws_id
             }]
     else:
         tasks_to_create = build_tool_tasks(tool_key, domain_doc, target, priority_val, created_at_val, is_run_all=False)
+        for t in tasks_to_create:
+            t["workspace_id"] = doc_ws_id
 
     if tasks_to_create:
         await tasks_col.insert_many(tasks_to_create)
@@ -5257,31 +5737,37 @@ async def continue_scanning(request: Request, user: dict = Depends(get_current_u
     }
 
 @app.get("/api/stats/dashboard")
-async def get_stats_dashboard(user: dict = Depends(get_current_user)):
+async def get_stats_dashboard(request: Request, user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401)
     
+    active_ws = await get_active_workspace(user, request)
+    ws_id = str(active_ws["_id"])
+    is_def = bool(active_ws.get("is_default"))
+    ws_clause = workspace_match_clause(ws_id, is_def)
+
     # 1. Domain Status Distribution (Using flattened pipeline to count all assets)
-    all_assets_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}})
+    all_assets_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}, **ws_clause})
     all_assets_pipeline.append({"$count": "total"})
     all_assets_result = await domains_col.aggregate(all_assets_pipeline).to_list(length=1)
     total_assets = all_assets_result[0]["total"] if all_assets_result else 0
     
-    scanned_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}}, status_val="scanned")
+    scanned_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}, **ws_clause}, status_val="scanned")
     scanned_pipeline.append({"$count": "total"})
     scanned_result = await domains_col.aggregate(scanned_pipeline).to_list(length=1)
     scanned_count = scanned_result[0]["total"] if scanned_result else 0
     
-    pending_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}}, status_val="pending")
+    pending_pipeline = get_flattened_pipeline({"blacklisted": {"$ne": True}, **ws_clause}, status_val="pending")
     pending_pipeline.append({"$count": "total"})
     pending_result = await domains_col.aggregate(pending_pipeline).to_list(length=1)
     pending_count = pending_result[0]["total"] if pending_result else 0
 
-    on_hold_count = await domains_col.count_documents({"on_hold": True})
-    blacklisted_count = await domains_col.count_documents({"blacklisted": True})
+    on_hold_count = await domains_col.count_documents({"on_hold": True, **ws_clause})
+    blacklisted_count = await domains_col.count_documents({"blacklisted": True, **ws_clause})
     
     # 2. Risk Distribution (Leads)
     risk_agg = await leads_col.aggregate([
+        {"$match": ws_clause},
         {"$group": {"_id": "$risk_level", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}}
     ]).to_list(length=20)
@@ -5289,7 +5775,7 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
     
     # 3. Top Technologies & Headers (Separated)
     all_tech_agg = await domains_col.aggregate([
-        {"$match": {"web_applications": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
+        {"$match": {"web_applications": {"$exists": True, "$not": {"$size": 0}, "$ne": None}, **ws_clause}},
         {"$unwind": "$web_applications"},
         {"$unwind": "$web_applications.tech_stack"},
         {"$group": {"_id": "$web_applications.tech_stack", "count": {"$sum": 1}}},
@@ -5331,13 +5817,13 @@ async def get_stats_dashboard(user: dict = Depends(get_current_user)):
     activity = []
     for i in range(14):
         day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        count = await leads_col.count_documents({"timestamp": {"$regex": f"^{day}"}})
+        count = await leads_col.count_documents({"timestamp": {"$regex": f"^{day}"}, **ws_clause})
         activity.append({"date": day, "count": count})
     activity.reverse()
     
     # 5. Geographic (MOCK/SAMPLE derived from IPs)
     geo_agg = await domains_col.aggregate([
-        {"$match": {"systems": {"$exists": True, "$not": {"$size": 0}, "$ne": None}}},
+        {"$match": {"systems": {"$exists": True, "$not": {"$size": 0}, "$ne": None}, **ws_clause}},
         {"$project": {"ip": {"$arrayElemAt": ["$systems.ip", 0]}}},
         {"$limit": 2000}
     ]).to_list(length=2000)
