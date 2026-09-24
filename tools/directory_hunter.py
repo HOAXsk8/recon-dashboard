@@ -5,11 +5,16 @@ import json
 import os
 import re
 import base64
+import codecs
 import hashlib
 import secrets
 import urllib.parse
 from collections import Counter
 import httpx
+try:
+    import mmh3
+except ImportError:
+    mmh3 = None
 from base_agent import BaseAgent, logger
 
 DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
@@ -49,6 +54,10 @@ CURATED_SENSITIVE_FILES = [
     "robots.txt", "sitemap.xml", "security.txt", ".well-known/security.txt", "health", "healthz", "metrics", "actuator/health", "actuator/env",
     "actuator", "server-status", "debug", "test.php", "test.html",
     
+    # Mobile & Enterprise Well-Known & Assets
+    "favicon.ico", ".well-known/assetlinks.json", ".well-known/apple-app-site-association",
+    "apple-app-site-association", ".well-known/openid-configuration", ".well-known/oauth-authorization-server",
+
     # Common entrypoints & assets
     "index.php", "index.html", "main.js", "app.js", "api.php", "upload.php", "download.php"
 ]
@@ -453,6 +462,609 @@ class DirectoryHunterAgent(BaseAgent):
             "security_txt": security_meta
         }
 
+    async def fetch_favicon_fingerprint(self, base_url: str, target: str, root_domain: str):
+        """
+        Downloads /favicon.ico (or icon referenced in HTML <link rel='icon'>),
+        calculates MurmurHash3 (Shodan standard: mmh3.hash(codecs.encode(favicon, 'base64'))),
+        MD5, SHA-256, and generates search engine pivot queries (Shodan, Censys, ZoomEye).
+        """
+        logger.info(f"Phase 0.5: Probing favicon and computing asset hash fingerprints for {base_url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        candidate_urls = [f"{base_url.rstrip('/')}/favicon.ico"]
+
+        favicon_bytes = None
+        final_favicon_url = None
+        content_type = "image/x-icon"
+
+        async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers=headers) as client:
+            # 1. Probe direct /favicon.ico
+            try:
+                resp = await client.get(candidate_urls[0])
+                if resp.status_code == 200 and resp.content and len(resp.content) >= 16:
+                    raw = resp.content.strip()
+                    # Verify it's not a custom HTML 404
+                    if not (raw.lower().startswith(b"<!doctype html") or raw.lower().startswith(b"<html")):
+                        favicon_bytes = resp.content
+                        final_favicon_url = str(resp.url)
+                        content_type = resp.headers.get("content-type", "image/x-icon")
+            except Exception as e:
+                logger.debug(f"Direct favicon.ico probe failed on {base_url}: {e}")
+
+            # 2. If direct favicon failed or was HTML, inspect root HTML for <link rel="icon">
+            if not favicon_bytes:
+                try:
+                    home_resp = await client.get(base_url.rstrip("/") + "/")
+                    if home_resp.status_code == 200 and home_resp.text:
+                        html = home_resp.text
+                        matches = re.findall(
+                            r'<link\b[^>]*\brel=["\'](?:shortcut\s+)?icon["\'][^>]*\bhref=["\']([^"\']+)["\']',
+                            html,
+                            re.IGNORECASE
+                        )
+                        if not matches:
+                            matches = re.findall(
+                                r'<link\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*\brel=["\'](?:shortcut\s+)?icon["\']',
+                                html,
+                                re.IGNORECASE
+                            )
+                        if matches:
+                            icon_href = matches[0].strip()
+                            resolved_url = urllib.parse.urljoin(base_url, icon_href)
+                            logger.info(f"Discovered custom favicon link in HTML: {resolved_url}")
+                            icon_resp = await client.get(resolved_url)
+                            if icon_resp.status_code == 200 and icon_resp.content and len(icon_resp.content) >= 16:
+                                raw = icon_resp.content.strip()
+                                if not (raw.lower().startswith(b"<!doctype html") or raw.lower().startswith(b"<html")):
+                                    favicon_bytes = icon_resp.content
+                                    final_favicon_url = str(icon_resp.url)
+                                    content_type = icon_resp.headers.get("content-type", "image/x-icon")
+                except Exception as e:
+                    logger.debug(f"HTML favicon parsing failed on {base_url}: {e}")
+
+        if not favicon_bytes:
+            logger.info(f"No valid favicon discovered for {base_url}")
+            return None
+
+        # Calculate hashes
+        md5_hash = hashlib.md5(favicon_bytes).hexdigest()
+        sha256_hash = hashlib.sha256(favicon_bytes).hexdigest()
+        
+        # Standard Shodan MurmurHash3 calculation:
+        # Shodan encodes raw bytes into base64 with newlines every 76 characters (codecs.encode)
+        shodan_hash = None
+        if mmh3 is not None:
+            try:
+                b64_encoded = codecs.encode(favicon_bytes, 'base64')
+                shodan_hash = int(mmh3.hash(b64_encoded))
+            except Exception as e:
+                logger.error(f"MurmurHash3 computation error: {e}")
+
+        shodan_query = f"http.favicon.hash:{shodan_hash}" if shodan_hash is not None else None
+        censys_query = f'services.http.response.favicons.md5_hash:"{md5_hash}"'
+        zoomeye_query = f'iconhash:"{shodan_hash}"' if shodan_hash is not None else None
+
+        favicon_info = {
+            "url": final_favicon_url,
+            "mmh3": shodan_hash,
+            "md5": md5_hash,
+            "sha256": sha256_hash,
+            "size": len(favicon_bytes),
+            "content_type": content_type,
+            "shodan_query": shodan_query,
+            "censys_query": censys_query,
+            "zoomeye_query": zoomeye_query
+        }
+
+        # Create informational alert/lead
+        try:
+            hash_display = f"MurmurHash3 {shodan_hash}" if shodan_hash is not None else f"MD5 {md5_hash[:12]}"
+            title = f"Favicon Asset Fingerprint: {hash_display}"
+            description = (
+                f"Favicon asset fingerprinted on {target} ({len(favicon_bytes)}B). "
+                f"Shodan: {shodan_query or 'N/A'}, Censys MD5: {md5_hash}"
+            )
+            details = (
+                f"Target: {target}\n"
+                f"Asset URL: {final_favicon_url}\n"
+                f"MurmurHash3 (Shodan): {shodan_hash}\n"
+                f"MD5 Hash: {md5_hash}\n"
+                f"SHA256 Hash: {sha256_hash}\n"
+                f"Size: {len(favicon_bytes)} bytes\n\n"
+                f"Search Engine Pivot Queries:\n"
+                f"- Shodan Query: `{shodan_query}`\n"
+                f"- Censys Query: `{censys_query}`\n"
+                f"- ZoomEye Query: `{zoomeye_query}`"
+            )
+            exploitation = (
+                f"### Asset Pivoting & Origin Uncloaking Guidance\n\n"
+                f"1. **Shodan Pivot**: Search [{shodan_query}](https://www.shodan.io/search?query=http.favicon.hash:{shodan_hash}) to discover origin IP addresses, staging subdomains, or forgotten subsidiary servers hosting the identical favicon.\n"
+                f"2. **Censys Pivot**: Search Censys for [{censys_query}](https://search.censys.io/search?q=services.http.response.favicons.md5_hash:\"{md5_hash}\") to find associated certificates and open cloud assets.\n"
+                f"3. **Host Context**: Discovered on `{target}` ({root_domain})."
+            )
+            await self.create_alert(
+                title=title,
+                description=description,
+                target=target,
+                risk_level="low",
+                details=details,
+                exploitation_suggestions=exploitation,
+                response_size=len(favicon_bytes),
+                extra_key=str(shodan_hash or md5_hash),
+                alert_type="favicon_fingerprint"
+            )
+        except Exception as e:
+            logger.debug(f"Error creating favicon alert: {e}")
+
+        logger.info(f"Favicon fingerprinted on {target}: Shodan MMH3={shodan_hash}, MD5={md5_hash}")
+        return favicon_info
+
+    async def harvest_well_known_profiles(self, base_url: str, target: str, root_domain: str):
+        """
+        Harvests enterprise & mobile metadata hosted under /.well-known/:
+        1. /.well-known/assetlinks.json: Android package names & SHA256 fingerprints.
+        2. /.well-known/apple-app-site-association: iOS App IDs & deep-linking routes.
+        3. /.well-known/openid-configuration: Identity provider endpoints & public keys.
+        """
+        logger.info(f"Phase 0.5: Harvesting enterprise & mobile .well-known configurations on {base_url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        discovered_items = []
+        discovered_dirs = set()
+        extracted_paths = set()
+
+        assetlinks_data = {"present": False, "packages": [], "fingerprints": []}
+        aasa_data = {"present": False, "app_ids": [], "paths": [], "webcredentials": []}
+        openid_data = {"present": False, "issuer": None, "authorization_endpoint": None, "token_endpoint": None, "userinfo_endpoint": None, "jwks_uri": None, "registration_endpoint": None, "scopes": []}
+
+        endpoints = [
+            ("assetlinks", f"{base_url.rstrip('/')}/.well-known/assetlinks.json", ".well-known/assetlinks.json"),
+            ("aasa_well_known", f"{base_url.rstrip('/')}/.well-known/apple-app-site-association", ".well-known/apple-app-site-association"),
+            ("aasa_root", f"{base_url.rstrip('/')}/apple-app-site-association", "apple-app-site-association"),
+            ("openid", f"{base_url.rstrip('/')}/.well-known/openid-configuration", ".well-known/openid-configuration"),
+            ("oauth_server", f"{base_url.rstrip('/')}/.well-known/oauth-authorization-server", ".well-known/oauth-authorization-server")
+        ]
+
+        async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers=headers) as client:
+            for ep_type, ep_url, rel_path in endpoints:
+                try:
+                    resp = await client.get(ep_url)
+                    if resp.status_code == 200 and resp.content and len(resp.content) > 10:
+                        body_text = resp.text.strip()
+                        # Avoid HTML false positives
+                        if body_text.startswith("<") or "<html" in body_text.lower():
+                            continue
+
+                        discovered_items.append({
+                            "path": rel_path,
+                            "directory": ".well-known" if rel_path.startswith(".well-known") else "",
+                            "status": 200,
+                            "length": len(resp.content),
+                            "source": "well-known",
+                            "words": len(body_text.split())
+                        })
+                        if rel_path.startswith(".well-known"):
+                            discovered_dirs.add(".well-known")
+
+                        # Parse JSON payload
+                        try:
+                            json_obj = json.loads(body_text)
+                        except Exception:
+                            match_json = re.search(r'(\{[\s\S]*\})', body_text)
+                            if match_json:
+                                try:
+                                    json_obj = json.loads(match_json.group(1))
+                                except Exception:
+                                    json_obj = None
+                            else:
+                                json_obj = None
+
+                        if not json_obj:
+                            continue
+
+                        # 1. Parse assetlinks.json
+                        if ep_type == "assetlinks" and isinstance(json_obj, list):
+                            assetlinks_data["present"] = True
+                            for stmt in json_obj:
+                                if not isinstance(stmt, dict):
+                                    continue
+                                target_spec = stmt.get("target", {})
+                                pkg = target_spec.get("package_name")
+                                if pkg and pkg not in assetlinks_data["packages"]:
+                                    assetlinks_data["packages"].append(pkg)
+                                for fp in target_spec.get("sha256_cert_fingerprints", []):
+                                    if fp not in assetlinks_data["fingerprints"]:
+                                        assetlinks_data["fingerprints"].append(fp)
+
+                            if assetlinks_data["packages"]:
+                                internal_pkgs = [p for p in assetlinks_data["packages"] if any(k in p.lower() for k in ["beta", "stage", "staging", "dev", "internal", "test", "debug", "qa"])]
+                                if internal_pkgs:
+                                    title = f"Internal/Pre-Release Android Package Exposed: {internal_pkgs[0]}"
+                                    risk = "medium"
+                                    alert_type = "well_known_internal_app"
+                                else:
+                                    title = f"Android App Asset Links Discovered: {target}"
+                                    risk = "low"
+                                    alert_type = "well_known_mobile_apps"
+
+                                details = (
+                                    f"URL: {ep_url}\n"
+                                    f"Android Packages Discovered:\n" + "\n".join(f"- `{p}`" for p in assetlinks_data["packages"]) + "\n\n"
+                                    f"Certificate Fingerprints:\n" + "\n".join(f"- `{f}`" for f in assetlinks_data["fingerprints"][:5])
+                                )
+                                exploitation = (
+                                    f"### Mobile App Association Analysis\n\n"
+                                    f"1. **Analyze Application ID**: Query Google Play Store or APK repositories for package IDs: `{', '.join(assetlinks_data['packages'][:3])}`.\n"
+                                    f"2. **Decompile Mobile Client**: Extract mobile client APK to find embedded API keys, secret headers, and internal backend gateways.\n"
+                                    f"3. **Domain Ownership**: Confirms explicit deep-linking trust delegation from `{target}` to mobile app."
+                                )
+                                await self.create_alert(
+                                    title=title,
+                                    description=f"Android digital assetlinks discovered on {target}: {len(assetlinks_data['packages'])} package(s)",
+                                    target=target,
+                                    risk_level=risk,
+                                    details=details,
+                                    exploitation_suggestions=exploitation,
+                                    response_size=len(resp.content),
+                                    extra_key=f"assetlinks_{target}",
+                                    alert_type=alert_type
+                                )
+
+                        # 2. Parse Apple App Site Association
+                        elif ep_type in ("aasa_well_known", "aasa_root") and isinstance(json_obj, dict):
+                            aasa_data["present"] = True
+                            applinks = json_obj.get("applinks", {})
+                            details_list = applinks.get("details", [])
+                            if isinstance(details_list, dict):
+                                details_list = [details_list]
+
+                            for d in details_list:
+                                if not isinstance(d, dict):
+                                    continue
+                                app_id = d.get("appID")
+                                if app_id and app_id not in aasa_data["app_ids"]:
+                                    aasa_data["app_ids"].append(app_id)
+                                for aid in d.get("appIDs", []):
+                                    if aid not in aasa_data["app_ids"]:
+                                        aasa_data["app_ids"].append(aid)
+
+                                # Extract deep linking paths
+                                for p in d.get("paths", []):
+                                    if isinstance(p, str):
+                                        clean_p = p.strip().lstrip("/").rstrip("*").rstrip("/")
+                                        if clean_p and clean_p not in aasa_data["paths"]:
+                                            aasa_data["paths"].append(clean_p)
+                                            extracted_paths.add(clean_p)
+                                            dir_part = clean_p.rsplit("/", 1)[0] if "/" in clean_p else clean_p
+                                            if dir_part:
+                                                discovered_dirs.add(dir_part)
+
+                                # Components (AASA modern format)
+                                for comp in d.get("components", []):
+                                    if isinstance(comp, dict) and "/" in comp:
+                                        cp = str(comp["/"]).strip().lstrip("/").rstrip("*").rstrip("/")
+                                        if cp and cp not in aasa_data["paths"]:
+                                            aasa_data["paths"].append(cp)
+                                            extracted_paths.add(cp)
+                                            dir_part = cp.rsplit("/", 1)[0] if "/" in cp else cp
+                                            if dir_part:
+                                                discovered_dirs.add(dir_part)
+
+                            # Webcredentials
+                            webcred = json_obj.get("webcredentials", {})
+                            for wa in webcred.get("apps", []):
+                                if wa not in aasa_data["app_ids"]:
+                                    aasa_data["app_ids"].append(wa)
+
+                            if aasa_data["app_ids"] and not aasa_data.get("_alerted"):
+                                aasa_data["_alerted"] = True
+                                internal_aids = [a for a in aasa_data["app_ids"] if any(k in a.lower() for k in ["beta", "stage", "staging", "dev", "internal", "test", "debug"])]
+                                if internal_aids:
+                                    title = f"Internal/Pre-Release iOS App ID Exposed: {internal_aids[0]}"
+                                    risk = "medium"
+                                    alert_type = "well_known_internal_app"
+                                else:
+                                    title = f"Apple Universal Links Association Discovered: {target}"
+                                    risk = "low"
+                                    alert_type = "well_known_mobile_apps"
+
+                                details = (
+                                    f"URL: {ep_url}\n"
+                                    f"iOS App IDs (TeamID.BundleID):\n" + "\n".join(f"- `{a}`" for a in aasa_data["app_ids"]) + "\n\n"
+                                    f"Deep-Linking Route Paths:\n" + "\n".join(f"- `/{p}`" for p in aasa_data["paths"][:10])
+                                )
+                                exploitation = (
+                                    f"### iOS Universal Links Attack Surface Guidance\n\n"
+                                    f"1. **Identify App Bundle**: Cross-reference App Store or internal TestFlight builds using bundle IDs: `{', '.join(aasa_data['app_ids'][:3])}`.\n"
+                                    f"2. **Route Scraping**: The paths defined in AASA (`{', '.join(aasa_data['paths'][:5])}`) reveal client-side deep-link routing schemes.\n"
+                                    f"3. **Shared Web Credentials**: Check if `webcredentials` allows seamless credential autofill between the iOS app and web portal."
+                                )
+                                await self.create_alert(
+                                    title=title,
+                                    description=f"Apple App Site Association discovered on {target}: {len(aasa_data['app_ids'])} App ID(s)",
+                                    target=target,
+                                    risk_level=risk,
+                                    details=details,
+                                    exploitation_suggestions=exploitation,
+                                    response_size=len(resp.content),
+                                    extra_key=f"aasa_{target}",
+                                    alert_type=alert_type
+                                )
+
+                        # 3. Parse OpenID Configuration / OAuth Server
+                        elif ep_type in ("openid", "oauth_server") and isinstance(json_obj, dict):
+                            openid_data["present"] = True
+                            openid_data["issuer"] = json_obj.get("issuer")
+                            openid_data["authorization_endpoint"] = json_obj.get("authorization_endpoint")
+                            openid_data["token_endpoint"] = json_obj.get("token_endpoint")
+                            openid_data["userinfo_endpoint"] = json_obj.get("userinfo_endpoint")
+                            openid_data["jwks_uri"] = json_obj.get("jwks_uri")
+                            openid_data["registration_endpoint"] = json_obj.get("registration_endpoint")
+                            openid_data["scopes"] = json_obj.get("scopes_supported", [])
+
+                            if not openid_data.get("_alerted"):
+                                openid_data["_alerted"] = True
+                                reg_ep = openid_data.get("registration_endpoint")
+                                has_dynamic_reg = bool(reg_ep)
+                                risk = "medium" if has_dynamic_reg else "low"
+                                title = f"OpenID Connect Identity Provider Discovered: {target}"
+                                
+                                details = (
+                                    f"URL: {ep_url}\n"
+                                    f"Issuer: `{openid_data.get('issuer')}`\n"
+                                    f"Authorization Endpoint: `{openid_data.get('authorization_endpoint')}`\n"
+                                    f"Token Endpoint: `{openid_data.get('token_endpoint')}`\n"
+                                    f"UserInfo Endpoint: `{openid_data.get('userinfo_endpoint')}`\n"
+                                    f"JWKS URI: `{openid_data.get('jwks_uri')}`\n"
+                                    f"Dynamic Client Registration: `{reg_ep or 'None'}`\n"
+                                    f"Supported Scopes: `{', '.join(openid_data.get('scopes', [])[:10])}`"
+                                )
+                                exploitation = (
+                                    f"### OAuth / OIDC Identity Provider Auditing\n\n"
+                                    f"1. **Dynamic Client Registration**: If `{reg_ep}` is reachable, test whether unauthenticated client application registration is allowed.\n"
+                                    f"2. **SSO & Token Endpoints**: Check token endpoint `{openid_data.get('token_endpoint')}` for supported grant types (`client_credentials`, `authorization_code`).\n"
+                                    f"3. **JWKS Key Disclosure**: Inspect public keys at `{openid_data.get('jwks_uri')}` for algorithm configuration (e.g., RS256/ES256 vs weak keys).\n"
+                                    f"4. **UserInfo Exposure**: Verify if userinfo endpoint enforces strict token audience and scope validation."
+                                )
+                                await self.create_alert(
+                                    title=title,
+                                    description=f"OpenID Connect configuration discovered on {target} (Issuer: {openid_data.get('issuer')})",
+                                    target=target,
+                                    risk_level=risk,
+                                    details=details,
+                                    exploitation_suggestions=exploitation,
+                                    response_size=len(resp.content),
+                                    extra_key=f"openid_{target}",
+                                    alert_type="well_known_openid_configuration"
+                                )
+
+                except Exception as e:
+                    logger.debug(f"Error querying {ep_url}: {e}")
+
+        # Clean internal markers before returning
+        assetlinks_data.pop("_alerted", None)
+        aasa_data.pop("_alerted", None)
+        openid_data.pop("_alerted", None)
+
+        return {
+            "items": discovered_items,
+            "discovered_dirs": discovered_dirs,
+            "extracted_paths": extracted_paths,
+            "assetlinks": assetlinks_data,
+            "apple_app_site_association": aasa_data,
+            "openid_configuration": openid_data
+        }
+
+    async def audit_http_verbs(self, base_url: str, target: str, root_domain: str, candidate_paths: list = None):
+        """
+        Audits HTTP verbs and methods across root and discovered directories:
+        1. Probes OPTIONS to capture Allow, Public, and Access-Control-Allow-Methods headers.
+        2. Detects high-risk verbs (PUT, DELETE) and validates whether arbitrary write is permitted.
+        3. Probes TRACE to detect Cross-Site Tracing (XST) via header reflection.
+        4. Detects active WebDAV extensions via DAV headers and PROPFIND probes.
+        """
+        logger.info(f"Phase 3: Auditing HTTP methods and verbs on {base_url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        # Filter candidate paths: prioritize root, then up to 8 directories
+        paths_to_audit = [""]
+        if candidate_paths:
+            for p in candidate_paths:
+                p_clean = (p or "").strip("/")
+                if p_clean and p_clean not in paths_to_audit and len(paths_to_audit) < 9:
+                    paths_to_audit.append(p_clean)
+
+        root_allowed = []
+        dangerous_verbs_found = set()
+        webdav_active = False
+        trace_active = False
+        trace_reflected = False
+        path_results = {}
+
+        async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers=headers) as client:
+            # 1. TRACE Probe on Root to check for Cross-Site Tracing (XST)
+            try:
+                trace_token = f"ReconXST_{secrets.token_hex(4)}"
+                trace_resp = await client.request(
+                    "TRACE",
+                    f"{base_url.rstrip('/')}/",
+                    headers={"X-Trace-Audit": trace_token}
+                )
+                if trace_resp.status_code == 200:
+                    trace_active = True
+                    if trace_token in trace_resp.text or "X-Trace-Audit" in trace_resp.text:
+                        trace_reflected = True
+                        logger.warning(f"CONFIRMED HTTP TRACE (XST) reflection on {base_url}!")
+
+                        title = f"HTTP TRACE Enabled (Cross-Site Tracing / XST): {target}"
+                        description = f"The web server on {target} accepts HTTP TRACE and echoes back request headers."
+                        details = (
+                            f"Target: {target}\n"
+                            f"Endpoint: {base_url}/\n"
+                            f"HTTP Status: {trace_resp.status_code}\n"
+                            f"Header Echo Verified: Yes (`{trace_token}` reflected in response body)\n"
+                            f"Server Banner: {trace_resp.headers.get('server', 'N/A')}"
+                        )
+                        exploitation = (
+                            f"### Cross-Site Tracing (XST) Exploitation Guidance\n\n"
+                            f"1. **Session Hijacking via XSS**: In traditional XSS, `HttpOnly` cookies are protected from `document.cookie`. However, an attacker exploiting XSS can issue a `TRACE` request using `XMLHttpRequest` / `fetch`, reading the raw echoed request headers (including `Cookie` and `Authorization`).\n"
+                            f"2. **Remediation**: Disable the `TRACE` method in web server configuration:\n"
+                            f"   - **Apache**: Set `TraceEnable Off` in `httpd.conf`.\n"
+                            f"   - **Nginx**: Explicitly reject TRACE requests (`if ($request_method = TRACE) {{ return 405; }}`).\n"
+                            f"   - **IIS**: Add a request filtering rule blocking verb `TRACE`."
+                        )
+                        await self.create_alert(
+                            title=title,
+                            description=description,
+                            target=target,
+                            risk_level="medium",
+                            details=details,
+                            exploitation_suggestions=exploitation,
+                            alert_type="http_method_trace_xst",
+                            extra_key=f"trace_xst_{target}"
+                        )
+            except Exception as e:
+                logger.debug(f"TRACE probe error on {base_url}: {e}")
+
+            # 2. Audit OPTIONS on candidate directories
+            for path_str in paths_to_audit:
+                path_url = f"{base_url.rstrip('/')}/{path_str}" if path_str else f"{base_url.rstrip('/')}/"
+                path_label = f"/{path_str}" if path_str else "/"
+
+                try:
+                    opt_resp = await client.options(path_url)
+                    allow_hdr = opt_resp.headers.get("allow", "")
+                    public_hdr = opt_resp.headers.get("public", "")
+                    cors_methods = opt_resp.headers.get("access-control-allow-methods", "")
+                    dav_hdr = opt_resp.headers.get("dav", "") or opt_resp.headers.get("ms-author-via", "")
+
+                    # Extract all declared methods
+                    all_methods_str = f"{allow_hdr} {public_hdr} {cors_methods}".upper()
+                    methods_declared = set(re.findall(r'\b[A-Z]{3,10}\b', all_methods_str))
+
+                    if path_str == "":
+                        root_allowed = sorted(list(methods_declared))
+
+                    # Check for WebDAV
+                    is_webdav = bool(dav_hdr) or any(m in methods_declared for m in ["PROPFIND", "PROPPATCH", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+                    if is_webdav:
+                        webdav_active = True
+                        # Probe PROPFIND
+                        try:
+                            pf_resp = await client.request("PROPFIND", path_url, headers={"Depth": "0"})
+                            if pf_resp.status_code in (200, 207):
+                                title = f"WebDAV Extensions Active on {target} ({path_label})"
+                                details = (
+                                    f"Target: {target}\n"
+                                    f"Endpoint: {path_url}\n"
+                                    f"DAV Header: `{dav_hdr or 'Detected via PROPFIND'}`\n"
+                                    f"Status Code: {pf_resp.status_code} Multi-Status\n"
+                                    f"Allowed Methods: `{', '.join(sorted(list(methods_declared)))}`"
+                                )
+                                exploitation = (
+                                    f"### WebDAV Surface Analysis\n\n"
+                                    f"1. **PROPFIND Enumeration**: WebDAV `PROPFIND` requests with `Depth: 1` or `Depth: infinity` can dump entire directory trees and file metadata.\n"
+                                    f"2. **Unauthorized File Upload**: If `PUT` / `MKCOL` is supported without authentication, arbitrary web files can be authored.\n"
+                                    f"3. **Tooling**: Audit with `davtest` or `cadaver {path_url}`."
+                                )
+                                await self.create_alert(
+                                    title=title,
+                                    description=f"WebDAV extensions enabled on {target}{path_label} (HTTP {pf_resp.status_code})",
+                                    target=target,
+                                    risk_level="medium",
+                                    details=details,
+                                    exploitation_suggestions=exploitation,
+                                    alert_type="http_method_webdav_enabled",
+                                    extra_key=f"webdav_{target}_{path_str}"
+                                )
+                        except Exception as e:
+                            logger.debug(f"PROPFIND probe error on {path_url}: {e}")
+
+                    # Check for dangerous write methods (PUT, DELETE)
+                    dangerous_in_path = [m for m in ["PUT", "DELETE"] if m in methods_declared]
+                    if dangerous_in_path:
+                        for d_m in dangerous_in_path:
+                            dangerous_verbs_found.add(d_m)
+
+                        # Test arbitrary file write if PUT is advertised
+                        arbitrary_write_confirmed = False
+                        test_file_path = f"{base_url.rstrip('/')}/{path_str.rstrip('/')}/recon_write_test_{secrets.token_hex(4)}.txt".replace("//", "/").replace(":/", "://")
+                        if "PUT" in dangerous_in_path:
+                            try:
+                                put_resp = await client.put(test_file_path, content=b"ReconDashboard Write Test Probe", headers={"Content-Type": "text/plain"})
+                                if put_resp.status_code in (200, 201, 204):
+                                    arbitrary_write_confirmed = True
+                                    logger.warning(f"CRITICAL: Unauthenticated HTTP PUT succeeded on {test_file_path} (HTTP {put_resp.status_code})!")
+                                    # Clean up test probe
+                                    try:
+                                        await client.delete(test_file_path)
+                                    except Exception:
+                                        pass
+                            except Exception as e:
+                                logger.debug(f"PUT test probe error: {e}")
+
+                        if arbitrary_write_confirmed:
+                            title = f"CRITICAL: Arbitrary File Write Enabled via HTTP PUT on {target}"
+                            risk = "critical"
+                            desc = f"The web server allowed unauthorized file creation via HTTP PUT at {path_label}"
+                        else:
+                            title = f"Dangerous HTTP Methods Advertised ({', '.join(dangerous_in_path)}): {target}{path_label}"
+                            risk = "medium"
+                            desc = f"The web server advertises high-risk methods ({', '.join(dangerous_in_path)}) in Allow headers at {path_label}"
+
+                        details = (
+                            f"Target: {target}\n"
+                            f"Endpoint: {path_url}\n"
+                            f"Allow Header: `{allow_hdr or 'None'}`\n"
+                            f"Public Header: `{public_hdr or 'None'}`\n"
+                            f"Access-Control-Allow-Methods: `{cors_methods or 'None'}`\n"
+                            f"Dangerous Methods: `{', '.join(dangerous_in_path)}`\n"
+                            f"Arbitrary File Upload Confirmed: {'YES (CRITICAL)' if arbitrary_write_confirmed else 'No (Enforced/Protected)'}"
+                        )
+                        exploitation = (
+                            f"### High-Risk HTTP Verbs Exploitation Guidance\n\n"
+                            f"1. **Arbitrary File Upload (PUT)**: If `PUT` is unauthenticated, an attacker can upload web shells, HTML defacements, or phishing landing pages.\n"
+                            f"2. **Unauthorized Deletion (DELETE)**: If `DELETE` is unauthenticated, an attacker can destroy web application files or user assets.\n"
+                            f"3. **Remediation**: Disable unused HTTP methods in the web server or API gateway. Only permit `GET`, `POST`, and `HEAD` unless authenticated API routes specifically mandate `PUT`/`DELETE`."
+                        )
+                        await self.create_alert(
+                            title=title,
+                            description=desc,
+                            target=target,
+                            risk_level=risk,
+                            details=details,
+                            exploitation_suggestions=exploitation,
+                            alert_type="http_method_arbitrary_write",
+                            extra_key=f"verbs_{target}_{path_str}"
+                        )
+
+                    path_results[path_label] = {
+                        "status": opt_resp.status_code,
+                        "allow": allow_hdr,
+                        "methods": sorted(list(methods_declared)),
+                        "webdav": is_webdav,
+                        "dangerous": dangerous_in_path
+                    }
+
+                except Exception as e:
+                    logger.debug(f"OPTIONS probe failed on {path_url}: {e}")
+
+        summary = {
+            "root_allowed": root_allowed,
+            "dangerous_methods": sorted(list(dangerous_verbs_found)),
+            "webdav_active": webdav_active,
+            "trace_active": trace_active,
+            "trace_reflected": trace_reflected,
+            "paths_audited": path_results
+        }
+        logger.info(f"HTTP method audit completed on {target}: Root allowed: {root_allowed}, Dangerous: {summary['dangerous_methods']}, WebDAV: {webdav_active}, TRACE: {trace_active}")
+        return summary
+
     async def probe_soft_404_lengths(self, base_url: str):
         """
         Probe random non-existent paths to detect baseline catch-all / custom-404 response sizes.
@@ -751,6 +1363,22 @@ class DirectoryHunterAgent(BaseAgent):
             rb_items = rb_data.get("items", [])
             rb_dirs = rb_data.get("discovered_dirs", set())
 
+            # Phase 0.5: Favicon Fingerprinting & Well-Known Harvesting
+            favicon_data = await self.fetch_favicon_fingerprint(url, target, root_domain)
+            if favicon_data and favicon_data.get("url"):
+                rb_items.append({
+                    "path": "favicon.ico" if "/favicon.ico" in favicon_data["url"] else favicon_data["url"].replace(url, "").lstrip("/"),
+                    "directory": "",
+                    "status": 200,
+                    "length": favicon_data.get("size", 0),
+                    "source": "favicon"
+                })
+
+            well_known_data = await self.harvest_well_known_profiles(url, target, root_domain)
+            if well_known_data:
+                rb_items.extend(well_known_data.get("items", []))
+                rb_dirs.update(well_known_data.get("discovered_dirs", set()))
+
             # Phase 1 & 2: ffuf directory mapping and file brute-force
             found_items, discovered_dirs = await self.run_ffuf_recursive(
                 url,
@@ -759,6 +1387,14 @@ class DirectoryHunterAgent(BaseAgent):
                 initial_dirs=rb_dirs
             )
             discovered_dirs.update(rb_dirs)
+
+            # Phase 3: HTTP Verb & Method Auditing on root and discovered directories
+            http_methods_data = await self.audit_http_verbs(
+                url,
+                target,
+                root_domain,
+                candidate_paths=list(discovered_dirs)[:8]
+            )
 
             # Deduplicate and combine findings
             all_found_dict = {}
@@ -799,8 +1435,8 @@ class DirectoryHunterAgent(BaseAgent):
                         for item in combined_items:
                             path = item["path"]
                             if path not in existing_files:
-                                # For items discovered via robots/sitemap, only alert on sensitive patterns to avoid alert spam
-                                is_rb_src = item.get("source") in ["robots.txt", "sitemap.xml", "security.txt"]
+                                # For items discovered via robots/sitemap/well-known, only alert on sensitive patterns to avoid alert spam
+                                is_rb_src = item.get("source") in ["robots.txt", "sitemap.xml", "security.txt", "well-known", "favicon"]
                                 is_sensitive = any(pat in path.lower() for pat in [
                                     ".env", ".git", "admin", "login", "config", "backup", "secret", "private", "api", "swagger", "actuator"
                                 ])
@@ -844,6 +1480,16 @@ class DirectoryHunterAgent(BaseAgent):
                             app["sitemap"] = rb_data["sitemap"]
                         if rb_data.get("security_txt"):
                             app["security_txt"] = rb_data["security_txt"]
+                        if favicon_data:
+                            app["favicon"] = favicon_data
+                        if well_known_data:
+                            app["well_known"] = {
+                                "assetlinks": well_known_data.get("assetlinks", {}),
+                                "apple_app_site_association": well_known_data.get("apple_app_site_association", {}),
+                                "openid_configuration": well_known_data.get("openid_configuration", {})
+                            }
+                        if http_methods_data:
+                            app["http_methods"] = http_methods_data
                         app_found = True
                         break
                 
@@ -851,7 +1497,7 @@ class DirectoryHunterAgent(BaseAgent):
                     # Create new app entry
                     for item in combined_items:
                         path = item["path"]
-                        is_rb_src = item.get("source") in ["robots.txt", "sitemap.xml", "security.txt"]
+                        is_rb_src = item.get("source") in ["robots.txt", "sitemap.xml", "security.txt", "well-known", "favicon"]
                         is_sensitive = any(pat in path.lower() for pat in [
                             ".env", ".git", "admin", "login", "config", "backup", "secret", "private", "api", "swagger", "actuator"
                         ])
@@ -894,6 +1540,13 @@ class DirectoryHunterAgent(BaseAgent):
                         "robots_txt": rb_data.get("robots_txt", {}),
                         "sitemap": rb_data.get("sitemap", {}),
                         "security_txt": rb_data.get("security_txt", {}),
+                        "favicon": favicon_data or {},
+                        "well_known": {
+                            "assetlinks": well_known_data.get("assetlinks", {}) if well_known_data else {},
+                            "apple_app_site_association": well_known_data.get("apple_app_site_association", {}) if well_known_data else {},
+                            "openid_configuration": well_known_data.get("openid_configuration", {}) if well_known_data else {}
+                        } if well_known_data else {},
+                        "http_methods": http_methods_data or {},
                         "tech_stack": [],
                         "security_headers": {}
                     })

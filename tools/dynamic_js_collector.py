@@ -337,6 +337,572 @@ class MetaTagExtractor:
         return results
 
 
+class HydrationStateExtractor:
+    """
+    Extracts and parses SSR / hydration / state payloads from HTML and inline scripts:
+      - Next.js: <script id="__NEXT_DATA__" type="application/json">
+      - Nuxt 2/3: <script id="__NUXT_DATA__" type="application/json">, window.__NUXT__
+      - React SSR / Redux: window.__INITIAL_STATE__, window.__PRELOADED_STATE__
+      - Apollo Client GraphQL Cache: window.__APOLLO_STATE__, <script id="__APOLLO_STATE__">
+      - Remix: window.__remixContext
+      - SvelteKit: data-sveltekit-fetched, __sveltekit_
+    Pulls structured route patterns, environment configurations (NEXT_PUBLIC_*),
+    user identity/role context, and internal API endpoints.
+    """
+    NEXT_DATA_REGEX = re.compile(
+        r'<script[^>]*\bid=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+        re.DOTALL | re.IGNORECASE
+    )
+    NUXT_DATA_REGEX = re.compile(
+        r'<script[^>]*\bid=["\']__NUXT_DATA__["\'][^>]*>(.*?)</script>',
+        re.DOTALL | re.IGNORECASE
+    )
+    APOLLO_SCRIPT_REGEX = re.compile(
+        r'<script[^>]*\bid=["\']__APOLLO_STATE__["\'][^>]*>(.*?)</script>',
+        re.DOTALL | re.IGNORECASE
+    )
+    SVELTEKIT_REGEX = re.compile(
+        r'<script[^>]*\bdata-sveltekit-[^>]*>(.*?)</script>',
+        re.DOTALL | re.IGNORECASE
+    )
+
+    VAR_PATTERNS = [
+        ("Apollo Client GraphQL", "__APOLLO_STATE__", re.compile(r'(?:window\.)?__APOLLO_STATE__\s*=\s*(\{)', re.IGNORECASE)),
+        ("Redux / React SSR", "__INITIAL_STATE__", re.compile(r'(?:window\.)?__(?:INITIAL|PRELOADED)_STATE__\s*=\s*(\{)', re.IGNORECASE)),
+        ("Remix SSR", "__remixContext", re.compile(r'(?:window\.)?__remixContext\s*=\s*(\{)', re.IGNORECASE)),
+        ("Nuxt 2", "window.__NUXT__", re.compile(r'window\.__NUXT__\s*=\s*(?:.*?\breturn\s*)?(\{)', re.IGNORECASE | re.DOTALL)),
+    ]
+
+    ENV_KEYWORDS = {
+        'api_key', 'apikey', 'client_id', 'client_secret', 'secret', 'token',
+        'auth0', 'firebase', 'supabase', 'stripe', 'aws', 'backend_url',
+        'api_url', 'base_url', 'endpoint', 'domain', 'app_id', 'sentry_dsn',
+        'environment', 'runtime_config'
+    }
+
+    USER_KEYWORDS = {
+        'user', 'currentuser', 'session', 'auth', 'account', 'profile',
+        'identity', 'me', 'member'
+    }
+
+    @staticmethod
+    def _extract_json_from_index(text: str, start_brace_idx: int) -> Tuple[Optional[Any], str]:
+        """
+        Parses JSON object starting at start_brace_idx using JSONDecoder.raw_decode
+        with fallback to balanced bracket parsing.
+        """
+        if start_brace_idx < 0 or start_brace_idx >= len(text):
+            return None, ""
+        substring = text[start_brace_idx:]
+        try:
+            decoder = json.JSONDecoder()
+            obj, end = decoder.raw_decode(substring)
+            raw_snippet = substring[:end]
+            return obj, raw_snippet
+        except Exception:
+            pass
+
+        # Balanced brace fallback
+        depth = 0
+        in_string = False
+        quote_char = ''
+        escape = False
+        end_idx = -1
+
+        for i, ch in enumerate(substring):
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if in_string:
+                if ch == quote_char:
+                    in_string = False
+                continue
+            if ch in ('"', "'"):
+                in_string = True
+                quote_char = ch
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end_idx = i + 1
+                    break
+
+        if end_idx != -1:
+            raw_block = substring[:end_idx]
+            try:
+                return json.loads(raw_block), raw_block
+            except Exception:
+                try:
+                    cleaned = re.sub(r'([{,]\s*)([a-zA-Z0-9_$]+)\s*:', r'\1"\2":', raw_block)
+                    return json.loads(cleaned), raw_block
+                except Exception:
+                    return None, raw_block
+        return None, ""
+
+    @classmethod
+    def _walk_tree(cls, obj: Any, extracted: dict, depth: int = 0):
+        if depth > 10 or obj is None:
+            return
+
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                k_str = str(k)
+                k_lower = k_str.lower()
+
+                # 1. Environment & Public Config
+                if k_str.startswith(('NEXT_PUBLIC_', 'REACT_APP_', 'VITE_', 'NUXT_')) or any(w in k_lower for w in cls.ENV_KEYWORDS):
+                    if isinstance(v, (str, int, float, bool)) and len(str(v)) < 300:
+                        extracted['env_vars'][k_str] = v
+                    elif isinstance(v, dict):
+                        cls._walk_tree(v, extracted, depth + 1)
+
+                # 2. Routes & Paths
+                if k_lower in ('page', 'pathname', 'route', 'aspath', 'path', 'url'):
+                    if isinstance(v, str) and v.startswith('/') and len(v) < 150:
+                        if not any(v.lower().endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.woff', '.woff2', '.ttf', '.ico')):
+                            extracted['routes'].add(v)
+
+                # 3. User Identity & Privileges
+                if any(w == k_lower or k_lower.endswith('_' + w) for w in cls.USER_KEYWORDS):
+                    if isinstance(v, dict):
+                        user_summary = {}
+                        for uk in ('id', '_id', 'uuid', 'email', 'name', 'username', 'role', 'roles', 'permissions', 'tenant_id', 'org_id'):
+                            if uk in v:
+                                user_summary[uk] = v[uk]
+                        if user_summary:
+                            extracted['user_context'].append(user_summary)
+                    elif isinstance(v, str) and '@' in v and len(v) < 80:
+                        extracted['user_context'].append({"email": v})
+
+                # 4. API Endpoints
+                if isinstance(v, str):
+                    if (v.startswith(('/api/', '/v1/', '/v2/', '/v3/', '/graphql', '/rest/')) or '://' in v) and len(v) < 200:
+                        extracted['api_endpoints'].add(v)
+
+                # Continue recursion
+                cls._walk_tree(v, extracted, depth + 1)
+
+        elif isinstance(obj, list):
+            for item in obj[:50]:
+                cls._walk_tree(item, extracted, depth + 1)
+
+    @classmethod
+    def extract_from_html(cls, html: str, source_url: str) -> List[dict]:
+        results: List[dict] = []
+        if not html:
+            return results
+
+        seen_payload_types = set()
+
+        # 1. Next.js __NEXT_DATA__
+        for m in cls.NEXT_DATA_REGEX.finditer(html):
+            raw_json = m.group(1).strip()
+            try:
+                parsed = json.loads(raw_json)
+            except Exception:
+                parsed = None
+            if parsed and isinstance(parsed, dict):
+                tree_data = {'env_vars': {}, 'routes': set(), 'user_context': [], 'api_endpoints': set()}
+                cls._walk_tree(parsed, tree_data)
+                if parsed.get('page') and isinstance(parsed['page'], str) and parsed['page'].startswith('/'):
+                    tree_data['routes'].add(parsed['page'])
+
+                results.append({
+                    "id": "__NEXT_DATA__",
+                    "framework": "Next.js",
+                    "source_url": source_url,
+                    "build_id": parsed.get("buildId"),
+                    "page": parsed.get("page"),
+                    "routes": sorted(list(tree_data['routes'])),
+                    "env_vars": tree_data['env_vars'],
+                    "user_context": tree_data['user_context'][:5],
+                    "api_endpoints": sorted(list(tree_data['api_endpoints']))[:50],
+                    "raw_snippet": raw_json[:350] + ("..." if len(raw_json) > 350 else "")
+                })
+                seen_payload_types.add("__NEXT_DATA__")
+
+        # 2. Nuxt __NUXT_DATA__
+        for m in cls.NUXT_DATA_REGEX.finditer(html):
+            raw_json = m.group(1).strip()
+            try:
+                parsed = json.loads(raw_json)
+            except Exception:
+                parsed = None
+            if parsed:
+                tree_data = {'env_vars': {}, 'routes': set(), 'user_context': [], 'api_endpoints': set()}
+                cls._walk_tree(parsed, tree_data)
+                results.append({
+                    "id": "__NUXT_DATA__",
+                    "framework": "Nuxt 3",
+                    "source_url": source_url,
+                    "routes": sorted(list(tree_data['routes'])),
+                    "env_vars": tree_data['env_vars'],
+                    "user_context": tree_data['user_context'][:5],
+                    "api_endpoints": sorted(list(tree_data['api_endpoints']))[:50],
+                    "raw_snippet": raw_json[:350] + ("..." if len(raw_json) > 350 else "")
+                })
+                seen_payload_types.add("__NUXT_DATA__")
+
+        # 3. Apollo Script Tag <script id="__APOLLO_STATE__">
+        for m in cls.APOLLO_SCRIPT_REGEX.finditer(html):
+            raw_json = m.group(1).strip()
+            try:
+                parsed = json.loads(raw_json)
+            except Exception:
+                parsed = None
+            if parsed and isinstance(parsed, dict):
+                tree_data = {'env_vars': {}, 'routes': set(), 'user_context': [], 'api_endpoints': set()}
+                cls._walk_tree(parsed, tree_data)
+                apollo_queries = []
+                apollo_types = set()
+                root_query = parsed.get("ROOT_QUERY", {})
+                if isinstance(root_query, dict):
+                    for q in root_query.keys():
+                        if not q.startswith('__'):
+                            apollo_queries.append(q.split('(')[0])
+                for k in parsed.keys():
+                    if ':' in k and not k.startswith('$'):
+                        apollo_types.add(k.split(':')[0])
+
+                results.append({
+                    "id": "__APOLLO_STATE__",
+                    "framework": "Apollo Client GraphQL",
+                    "source_url": source_url,
+                    "apollo_queries": sorted(list(set(apollo_queries)))[:30],
+                    "apollo_entities": sorted(list(apollo_types))[:20],
+                    "routes": sorted(list(tree_data['routes'])),
+                    "env_vars": tree_data['env_vars'],
+                    "user_context": tree_data['user_context'][:5],
+                    "api_endpoints": sorted(list(tree_data['api_endpoints']))[:50],
+                    "raw_snippet": raw_json[:350] + ("..." if len(raw_json) > 350 else "")
+                })
+                seen_payload_types.add("__APOLLO_STATE__")
+
+        # 4. Variable assignments (Apollo, Redux, Remix, Nuxt 2)
+        for framework, var_id, pattern in cls.VAR_PATTERNS:
+            if var_id in seen_payload_types:
+                continue
+            for m in pattern.finditer(html):
+                brace_idx = m.start(1) if m.group(1) else -1
+                if brace_idx == -1:
+                    continue
+                parsed, raw_snippet = cls._extract_json_from_index(html, brace_idx)
+                if parsed and isinstance(parsed, dict):
+                    tree_data = {'env_vars': {}, 'routes': set(), 'user_context': [], 'api_endpoints': set()}
+                    cls._walk_tree(parsed, tree_data)
+
+                    extra = {}
+                    if var_id == "__APOLLO_STATE__":
+                        apollo_queries = []
+                        apollo_types = set()
+                        root_query = parsed.get("ROOT_QUERY", {})
+                        if isinstance(root_query, dict):
+                            for q in root_query.keys():
+                                if not q.startswith('__'):
+                                    apollo_queries.append(q.split('(')[0])
+                        for k in parsed.keys():
+                            if ':' in k and not k.startswith('$'):
+                                apollo_types.add(k.split(':')[0])
+                        extra["apollo_queries"] = sorted(list(set(apollo_queries)))[:30]
+                        extra["apollo_entities"] = sorted(list(apollo_types))[:20]
+
+                    elif var_id == "__remixContext":
+                        manifest_routes = parsed.get("manifest", {}).get("routes", {})
+                        if isinstance(manifest_routes, dict):
+                            for r_val in manifest_routes.values():
+                                if isinstance(r_val, dict) and r_val.get("path"):
+                                    tree_data['routes'].add("/" + r_val["path"].lstrip("/"))
+
+                    res_item = {
+                        "id": var_id,
+                        "framework": framework,
+                        "source_url": source_url,
+                        "routes": sorted(list(tree_data['routes'])),
+                        "env_vars": tree_data['env_vars'],
+                        "user_context": tree_data['user_context'][:5],
+                        "api_endpoints": sorted(list(tree_data['api_endpoints']))[:50],
+                        "raw_snippet": raw_snippet[:350] + ("..." if len(raw_snippet) > 350 else ""),
+                        **extra
+                    }
+                    results.append(res_item)
+                    seen_payload_types.add(var_id)
+                    break
+
+        return results
+
+
+class ClientRouterExtractor:
+    """
+    Extracts client-side SPA routing declarations (React Router, Vue Router,
+    Angular Router, Next.js SPA navigation & page manifests).
+    Classifies discovered routes by privilege level and functionality.
+    """
+    JSX_ROUTE_REGEX = re.compile(
+        r'<Route\b[^>]*\bpath\s*=\s*(?:["\']([^"\'\s>]+)["\']|\{["\']([^"\'\s}]+)["\']\}|\{`([^`\s]+)`\})',
+        re.IGNORECASE
+    )
+    OBJECT_ROUTE_REGEX = re.compile(
+        r'\bpath\s*:\s*["\'](/[^"\'\s?#\n\r]{1,120})["\']',
+        re.IGNORECASE
+    )
+    NAVIGATE_REGEX = re.compile(
+        r'\b(?:navigate|push|replace|routerLink)\s*(?:\.push|\.replace)?\s*(?:\(\s*["\']|:\s*["\']|=\s*["\'])(/[^"\'\s?#\n\r]{1,120})["\']',
+        re.IGNORECASE
+    )
+
+    STATIC_EXTENSIONS = (
+        '.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.js', '.woff',
+        '.woff2', '.ttf', '.ico', '.map', '.webp', '.wasm'
+    )
+
+    CATEGORY_PATTERNS = [
+        ("🔥 Admin / Privileged", re.compile(r'/(?:admin|administrator|super|internal|manage|control-panel|root|staff|backoffice|sysadmin)\b', re.IGNORECASE)),
+        ("💳 Billing & Commercial", re.compile(r'/(?:billing|subscription|invoice|payment|stripe|checkout|plan|pricing)\b', re.IGNORECASE)),
+        ("🔑 Auth & Identity", re.compile(r'/(?:login|signin|signup|register|oauth|sso|callback|reset-password|forgot-password|mfa|2fa|verify|logout)\b', re.IGNORECASE)),
+        ("⚙️ Settings & Security", re.compile(r'/(?:settings|preferences|config|security|keys|api-keys|tokens|integrations|webhooks)\b', re.IGNORECASE)),
+        ("👥 User & Org Management", re.compile(r'/(?:users|teams|members|organizations|orgs|roles|permissions|tenants|accounts)\b', re.IGNORECASE)),
+        ("📊 Analytics & Reports", re.compile(r'/(?:analytics|metrics|telemetry|reports|audit|logs|monitoring)\b', re.IGNORECASE)),
+    ]
+
+    @classmethod
+    def classify_route(cls, path: str) -> str:
+        for cat, pat in cls.CATEGORY_PATTERNS:
+            if pat.search(path):
+                return cat
+        return "📄 App Route"
+
+    @classmethod
+    def normalize_route(cls, raw_path: str) -> Tuple[str, str]:
+        """
+        Returns (clean_route, base_path).
+        Example: '/users/:userId/settings' -> ('/users/:userId/settings', '/users/settings')
+        """
+        p = raw_path.strip().split('?')[0].split('#')[0]
+        p = re.sub(r'/+', '/', p)
+        if len(p) > 1 and p.endswith('/'):
+            p = p.rstrip('/')
+        
+        base_clean = re.sub(r'/(?::[a-zA-Z0-9_]+|\[[a-zA-Z0-9_]+\]|\{[a-zA-Z0-9_]+\})', '', p)
+        base_clean = re.sub(r'/+', '/', base_clean)
+        return p, (base_clean if base_clean else "/")
+
+    @classmethod
+    def extract_from_code(cls, code: str, script_url: str) -> List[dict]:
+        results: List[dict] = []
+        if not code or len(code) < 10:
+            return results
+
+        raw_candidates = set()
+
+        # 1. JSX Route matches
+        for m in cls.JSX_ROUTE_REGEX.finditer(code):
+            p = m.group(1) or m.group(2) or m.group(3)
+            if p and p.startswith('/'):
+                raw_candidates.add(p)
+
+        # 2. Object literal path matches
+        for m in cls.OBJECT_ROUTE_REGEX.finditer(code):
+            raw_candidates.add(m.group(1))
+
+        # 3. Navigation matches
+        for m in cls.NAVIGATE_REGEX.finditer(code):
+            raw_candidates.add(m.group(1))
+
+        # Deduplicate and classify
+        seen_paths = set()
+        for cand in raw_candidates:
+            if any(cand.lower().endswith(ext) for ext in cls.STATIC_EXTENSIONS):
+                continue
+            if cand in ('/', '/*', '/*/', ''):
+                continue
+
+            clean_route, base_path = cls.normalize_route(cand)
+            if clean_route in seen_paths or len(clean_route) < 2:
+                continue
+            seen_paths.add(clean_route)
+
+            category = cls.classify_route(clean_route)
+            is_privileged = category in ("🔥 Admin / Privileged", "💳 Billing & Commercial", "⚙️ Settings & Security")
+
+            results.append({
+                "path": clean_route,
+                "base_path": base_path,
+                "category": category,
+                "is_privileged": is_privileged,
+                "source_script": script_url
+            })
+
+        priority = {
+            "🔥 Admin / Privileged": 0,
+            "💳 Billing & Commercial": 1,
+            "⚙️ Settings & Security": 2,
+            "🔑 Auth & Identity": 3,
+            "👥 User & Org Management": 4,
+            "📊 Analytics & Reports": 5,
+            "📄 App Route": 6
+        }
+        results.sort(key=lambda x: (priority.get(x["category"], 99), x["path"]))
+        return results
+
+
+class TrackerSdkExtractor:
+    """
+    Extracts third-party marketing, telemetry, APM, and customer support tracker IDs
+    (Google Tag Manager, GA4, Sentry DSNs, Datadog, Segment, Intercom, Mixpanel, etc.)
+    and generates OSINT search engine pivot links (PublicWWW, Censys, BuiltWith, Shodan).
+    """
+    TRACKER_SPECS = [
+        {
+            "name": "Google Tag Manager",
+            "category": "Tag Management & Telemetry",
+            "pattern": re.compile(r'\b(GTM-[A-Z0-9]{4,10})\b'),
+            "risk": "info"
+        },
+        {
+            "name": "Google Analytics 4",
+            "category": "Analytics",
+            "pattern": re.compile(r'\b(G-[A-Z0-9]{8,12})\b'),
+            "risk": "info"
+        },
+        {
+            "name": "Google Universal Analytics",
+            "category": "Legacy Analytics",
+            "pattern": re.compile(r'\b(UA-\d{4,10}-\d{1,4})\b'),
+            "risk": "info"
+        },
+        {
+            "name": "Google AdSense / Publisher",
+            "category": "Monetization",
+            "pattern": re.compile(r'\b((?:ca-)?pub-\d{10,20})\b'),
+            "risk": "info"
+        },
+        {
+            "name": "Segment",
+            "category": "Customer Data Platform",
+            "pattern": re.compile(r'\banalytics\.load\(["\']([a-zA-Z0-9]{20,40})["\']\)'),
+            "risk": "low"
+        },
+        {
+            "name": "Sentry DSN",
+            "category": "Error Monitoring & APM",
+            "pattern": re.compile(r'https://[a-f0-9]{32}@[a-z0-9.-]+\.sentry\.io/\d+'),
+            "risk": "medium"
+        },
+        {
+            "name": "Datadog RUM / APM",
+            "category": "Telemetry & APM",
+            "pattern": re.compile(r'(?:applicationId|clientToken)\s*:\s*["\']([a-f0-9-]{32,40})["\']', re.IGNORECASE),
+            "risk": "low"
+        },
+        {
+            "name": "Intercom",
+            "category": "Customer Engagement",
+            "pattern": re.compile(r'(?:app_id|intercomSettings\s*=\s*\{[^}]*app_id)\s*:\s*["\']([a-z0-9]{6,12})["\']', re.IGNORECASE),
+            "risk": "low"
+        },
+        {
+            "name": "Mixpanel",
+            "category": "Product Analytics",
+            "pattern": re.compile(r'mixpanel\.init\(["\']([a-f0-9]{32})["\']'),
+            "risk": "info"
+        },
+        {
+            "name": "Hotjar",
+            "category": "Session Recording",
+            "pattern": re.compile(r'\bhjid\s*:\s*(\d{5,9})\b'),
+            "risk": "info"
+        },
+        {
+            "name": "HubSpot",
+            "category": "CRM & Marketing",
+            "pattern": re.compile(r'(?:portalId\s*:\s*["\']?(\d{6,10})["\']?|hs-script-loader.*\/(\d{6,10})\.js)'),
+            "risk": "info"
+        },
+        {
+            "name": "Meta Pixel",
+            "category": "Advertising & Tracking",
+            "pattern": re.compile(r'fbq\([\'"]init[\'"],\s*[\'"](\d{12,18})[\'"]\)'),
+            "risk": "info"
+        },
+        {
+            "name": "Amplitude",
+            "category": "Product Analytics",
+            "pattern": re.compile(r'amplitude\.getInstance\(\)\.init\(["\']([a-f0-9]{32})["\']'),
+            "risk": "info"
+        },
+        {
+            "name": "Microsoft Clarity",
+            "category": "Behavior Analytics",
+            "pattern": re.compile(r'clarity\([\'"]init[\'"],\s*[\'"]([a-z0-9]{8,12})[\'"]\)'),
+            "risk": "info"
+        },
+        {
+            "name": "PostHog",
+            "category": "Product Analytics",
+            "pattern": re.compile(r'posthog\.init\(["\'](phc_[a-zA-Z0-9_-]{30,60})["\']'),
+            "risk": "info"
+        },
+        {
+            "name": "New Relic",
+            "category": "APM & Telemetry",
+            "pattern": re.compile(r'(?:accountID\s*:\s*["\']?(\d{5,10})["\']?|applicationID\s*:\s*["\']?(\d{6,12})["\']?)'),
+            "risk": "low"
+        }
+    ]
+
+    @staticmethod
+    def generate_pivot_links(tracker_id: str) -> dict:
+        clean_id = tracker_id.strip()
+        encoded = urllib.parse.quote(clean_id)
+        return {
+            "publicwww": f"https://publicwww.com/websites/%22{encoded}%22/",
+            "censys": f"https://search.censys.io/search?q=%22{encoded}%22&resource=hosts",
+            "builtwith": f"https://builtwith.com/relationships/tag/{encoded}",
+            "shodan": f"https://www.shodan.io/search?query=http.html:%22{encoded}%22"
+        }
+
+    @classmethod
+    def extract_from_text(cls, text: str, source_url: str) -> List[dict]:
+        results: List[dict] = []
+        if not text or len(text) < 10:
+            return results
+
+        seen_keys = set()
+        for spec in cls.TRACKER_SPECS:
+            for m in spec["pattern"].finditer(text):
+                tracker_id = m.group(1) if m.groups() else m.group(0)
+                tracker_id = tracker_id.strip().strip('"\'`')
+
+                if spec["name"] == "Google Tag Manager":
+                    if tracker_id in ("GTM-XXXX", "GTM-XXXXXX", "GTM-TEMPLATE"):
+                        continue
+                elif spec["name"] == "Google Analytics 4":
+                    if tracker_id in ("G-XXXXXXXX", "G-MEASUREMENT_ID"):
+                        continue
+
+                key = (spec["name"], tracker_id)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+
+                results.append({
+                    "provider": spec["name"],
+                    "category": spec["category"],
+                    "id": tracker_id,
+                    "risk_level": spec["risk"],
+                    "source_url": source_url,
+                    "pivot_links": cls.generate_pivot_links(tracker_id),
+                    "correlated_domains": []
+                })
+
+        return results
+
+
 class DynamicJsCollectorAgent(BaseAgent):
     """
     Dynamic JavaScript Collector & Extractor Agent.
@@ -1113,6 +1679,64 @@ class DynamicJsCollectorAgent(BaseAgent):
             "base64_strings": base64_strings,
         }
 
+    async def correlate_trackers_in_workspace(self, trackers: List[dict], current_target: str, root_domain: str) -> List[dict]:
+        """
+        Cross-correlate tracker IDs across all web applications and domains in the database
+        to uncover shared tracking infrastructure, shadow portals, or related subdomains.
+        """
+        if not trackers:
+            return trackers
+
+        tracker_ids = [t["id"] for t in trackers if t.get("id")]
+        if not tracker_ids:
+            return trackers
+
+        try:
+            matches_by_id = {t_id: set() for t_id in tracker_ids}
+            cursor = self.domains_col.find(
+                {
+                    "$or": [
+                        {"web_applications.dynamic_js.trackers.id": {"$in": tracker_ids}},
+                        {"web_applications.trackers.id": {"$in": tracker_ids}},
+                        {"infrastructure.dynamic_js.trackers.id": {"$in": tracker_ids}}
+                    ]
+                },
+                {
+                    "domain": 1,
+                    "web_applications.target": 1,
+                    "web_applications.url": 1,
+                    "web_applications.dynamic_js.trackers": 1,
+                    "web_applications.trackers": 1,
+                    "infrastructure.dynamic_js.trackers": 1
+                }
+            )
+
+            async for doc in cursor:
+                d_name = doc.get("domain", "")
+                for app in doc.get("web_applications", []):
+                    app_target = app.get("target") or app.get("url") or d_name
+                    if app_target:
+                        app_target = app_target.strip().lower()
+                    app_trackers = (app.get("dynamic_js", {}) or {}).get("trackers", []) + (app.get("trackers", []) or [])
+                    for at in app_trackers:
+                        at_id = at.get("id")
+                        if at_id in matches_by_id and app_target and app_target != current_target.strip().lower():
+                            matches_by_id[at_id].add(app_target)
+
+                infra_trackers = (doc.get("infrastructure", {}) or {}).get("dynamic_js", {}).get("trackers", [])
+                for it in infra_trackers:
+                    it_id = it.get("id")
+                    if it_id in matches_by_id and d_name and d_name.lower() != current_target.strip().lower():
+                        matches_by_id[it_id].add(d_name)
+
+            for t in trackers:
+                matched = sorted(list(matches_by_id.get(t["id"], set())))
+                t["correlated_domains"] = matched
+        except Exception as e:
+            logger.debug(f"Tracker workspace correlation error: {e}")
+
+        return trackers
+
     async def process_tasks(self):
         """Process queued dynamic_js_extract tasks."""
         task = await self.get_next_task("dynamic_js_extract")
@@ -1242,6 +1866,26 @@ class DynamicJsCollectorAgent(BaseAgent):
             interesting_meta_count = sum(1 for m in final_meta_tags if m.get("is_interesting"))
             logger.info(f"Extracted {len(final_meta_tags)} <meta> tags ({interesting_meta_count} interesting) from {target}")
 
+            # 4. Extract SSR & Hydration State Payloads (__NEXT_DATA__, __NUXT_DATA__, __INITIAL_STATE__, __APOLLO_STATE__, __remixContext)
+            all_hydration_payloads: List[dict] = []
+            all_trackers: List[dict] = []
+
+            for page_url, html_content in html_pages.items():
+                try:
+                    h_payloads = HydrationStateExtractor.extract_from_html(html_content, page_url)
+                    all_hydration_payloads.extend(h_payloads)
+                except Exception as he:
+                    logger.debug(f"Error extracting hydration payloads from {page_url}: {he}")
+
+                try:
+                    html_trackers = TrackerSdkExtractor.extract_from_text(html_content, page_url)
+                    all_trackers.extend(html_trackers)
+                except Exception as te:
+                    logger.debug(f"Error extracting trackers from HTML {page_url}: {te}")
+
+            if all_hydration_payloads:
+                logger.info(f"Extracted {len(all_hydration_payloads)} hydration/state payloads from {target}")
+
             all_subdomains: Set[str] = set()
             all_cloud_assets: Dict[str, dict] = {}
             all_endpoints: Dict[str, dict] = {}
@@ -1249,9 +1893,10 @@ class DynamicJsCollectorAgent(BaseAgent):
             all_sourcemaps: List[str] = []
             all_jwts: Dict[str, dict] = {}
             all_base64: Dict[str, dict] = {}
+            all_client_routes: List[dict] = []
             script_summaries: List[dict] = []
 
-            # 2. Analyze all captured scripts
+            # 5. Analyze all captured scripts
             for script_url, content in scripts.items():
                 analysis = self.extract_from_script(script_url, content, root_domain, target_url=target_url)
                 
@@ -1271,6 +1916,20 @@ class DynamicJsCollectorAgent(BaseAgent):
                     if b["raw"] not in all_base64:
                         all_base64[b["raw"]] = b
 
+                # Extract Client-Side SPA Routes
+                try:
+                    c_routes = ClientRouterExtractor.extract_from_code(content, script_url)
+                    all_client_routes.extend(c_routes)
+                except Exception as cre:
+                    logger.debug(f"Error extracting client routes from {script_url}: {cre}")
+
+                # Extract Trackers & SDK telemetry IDs
+                try:
+                    js_trackers = TrackerSdkExtractor.extract_from_text(content, script_url)
+                    all_trackers.extend(js_trackers)
+                except Exception as te:
+                    logger.debug(f"Error extracting trackers from script {script_url}: {te}")
+
                 script_summaries.append({
                     "url": script_url,
                     "is_inline": "#inline-script-" in script_url,
@@ -1282,6 +1941,82 @@ class DynamicJsCollectorAgent(BaseAgent):
                     "base64_found": len(analysis.get("base64_strings", [])),
                     "has_sourcemap": len(analysis["sourcemaps"]) > 0,
                 })
+
+            # Deduplicate and sort client routes
+            seen_cr = set()
+            unique_client_routes = []
+            for cr in all_client_routes:
+                p = cr["path"]
+                if p in seen_cr:
+                    continue
+                seen_cr.add(p)
+                unique_client_routes.append(cr)
+
+            # Deduplicate and workspace-correlate trackers
+            seen_trackers = set()
+            unique_trackers = []
+            for tr in all_trackers:
+                t_key = (tr["provider"], tr["id"])
+                if t_key in seen_trackers:
+                    continue
+                seen_trackers.add(t_key)
+                unique_trackers.append(tr)
+
+            if unique_trackers:
+                unique_trackers = await self.correlate_trackers_in_workspace(unique_trackers, target, root_domain)
+                logger.info(f"Identified {len(unique_trackers)} unique tracker/telemetry SDK IDs on {target}")
+
+            # Merge Client SPA routes & Hydration routes into global endpoint catalog
+            target_base = target_url.rstrip("/") if target_url else ""
+            if target_base:
+                parsed_t = urllib.parse.urlparse(target_base)
+                target_origin = f"{parsed_t.scheme}://{parsed_t.netloc}"
+                target_host = parsed_t.hostname or target
+            else:
+                target_origin = f"https://{target}"
+                target_host = target
+
+            for cr in unique_client_routes:
+                clean_p = cr["path"]
+                full_ep_url = f"{target_origin}{clean_p}"
+                if full_ep_url not in all_endpoints:
+                    all_endpoints[full_ep_url] = {
+                        "url": full_ep_url,
+                        "path": clean_p,
+                        "host": target_host,
+                        "is_in_scope": True,
+                        "source_script": cr.get("source_script", ""),
+                        "category": cr.get("category", "📄 App Route"),
+                        "discovered_via": "client_spa_router"
+                    }
+
+            for hyd in all_hydration_payloads:
+                for r in hyd.get("routes", []):
+                    clean_p = r if r.startswith('/') else f"/{r}"
+                    full_ep_url = f"{target_origin}{clean_p}"
+                    if full_ep_url not in all_endpoints:
+                        all_endpoints[full_ep_url] = {
+                            "url": full_ep_url,
+                            "path": clean_p,
+                            "host": target_host,
+                            "is_in_scope": True,
+                            "source_script": hyd.get("source_url", ""),
+                            "category": "Hydration Route",
+                            "discovered_via": "hydration_payload"
+                        }
+                for ep in hyd.get("api_endpoints", []):
+                    clean_p = ep if ep.startswith('/') else (urllib.parse.urlparse(ep).path if ep.startswith('http') else f"/{ep}")
+                    full_ep_url = ep if ep.startswith('http') else f"{target_origin}{clean_p}"
+                    if full_ep_url not in all_endpoints:
+                        all_endpoints[full_ep_url] = {
+                            "url": full_ep_url,
+                            "path": clean_p,
+                            "host": target_host,
+                            "is_in_scope": True,
+                            "source_script": hyd.get("source_url", ""),
+                            "category": "Hydration API Endpoint",
+                            "discovered_via": "hydration_payload"
+                        }
 
             # Active Cloud Storage Permission Probing
             probed_cloud_assets: List[dict] = []
@@ -1568,6 +2303,98 @@ class DynamicJsCollectorAgent(BaseAgent):
             except Exception as api_err:
                 logger.warning(f"API & GraphQL auto-discovery error on {target_url}: {api_err}")
 
+            # G) SSR & Hydration State Payload Leaks
+            for hyd in all_hydration_payloads:
+                has_sensitive_env = any(
+                    k.startswith(('NEXT_PUBLIC_', 'REACT_APP_', 'VITE_', 'NUXT_'))
+                    or any(w in k.lower() for w in ['api_key', 'auth', 'secret', 'token', 'backend', 'client_id', 'stripe', 'firebase', 'supabase'])
+                    for k in hyd.get("env_vars", {}).keys()
+                )
+                has_user_ctx = bool(hyd.get("user_context"))
+                if has_sensitive_env or has_user_ctx or hyd.get("routes"):
+                    env_snippet = "\n".join([f"- `{k}`: `{v}`" for k, v in list(hyd.get("env_vars", {}).items())[:12]])
+                    user_snippet = "\n".join([f"- {u}" for u in hyd.get("user_context", [])[:5]])
+                    routes_snippet = ", ".join(f"`{r}`" for r in hyd.get("routes", [])[:8])
+
+                    details_text = (
+                        f"**Framework:** {hyd['framework']} (`{hyd['id']}`)\n\n"
+                        f"**Source URL:** [{hyd['source_url']}]({hyd['source_url']})\n\n"
+                        + (f"**Exposed Environment & Config Variables:**\n{env_snippet}\n\n" if env_snippet else "")
+                        + (f"**Exposed User Identity Context:**\n{user_snippet}\n\n" if user_snippet else "")
+                        + (f"**Pre-rendered Routes in State:** {routes_snippet}\n\n" if routes_snippet else "")
+                        + (f"**Discovered Apollo Queries:** {', '.join(hyd.get('apollo_queries', [])[:10])}\n\n" if hyd.get('apollo_queries') else "")
+                        + f"**Raw Payload Snippet:**\n```json\n{hyd['raw_snippet']}\n```"
+                    )
+
+                    is_high = has_user_ctx or any('secret' in k.lower() or 'key' in k.lower() or 'token' in k.lower() for k in hyd.get("env_vars", {}).keys())
+                    await self.create_alert(
+                        title=f"JS Discovery: Exposed State Payload ({hyd['framework']})",
+                        description=f"Server-side rendered state blob (`{hyd['id']}`) on {target} exposes application config variables or user identity context.",
+                        target=target,
+                        risk_level="high" if is_high else "medium",
+                        details=details_text,
+                        exploitation_suggestions=(
+                            "1. **Review Exposed Configuration**: Check if runtime configs expose private microservice URLs, cloud project keys, or API tokens.\n"
+                            "2. **State Payload Hardening**: Ensure user role claims and internal user IDs are sanitized from SSR HTML payloads.\n"
+                            "3. **Server-Side Isolation**: Move private secrets to server-side only runtime configs (e.g. `serverRuntimeConfig` in Next.js)."
+                        ),
+                        extra_key=f"{hyd['source_url']}|{hyd['id']}",
+                        alert_type="js_hydration_payload_leak"
+                    )
+
+            # H) Client SPA Privileged Routes
+            privileged_routes = [r for r in unique_client_routes if r.get("is_privileged")]
+            if privileged_routes:
+                routes_md = "\n".join([f"- `{r['path']}` ({r['category']})" for r in privileged_routes[:15]])
+                await self.create_alert(
+                    title=f"JS Discovery: Client SPA Route Catalog ({len(privileged_routes)} Privileged Routes)",
+                    description=f"Single Page Application client router on {target} defines {len(privileged_routes)} administrative, billing, or security management paths.",
+                    target=target,
+                    risk_level="medium",
+                    details=(
+                        f"**Target:** {target}\n\n"
+                        f"**Discovered Privileged Routes ({len(privileged_routes)}):**\n{routes_md}\n\n"
+                        f"**Total SPA Routes Found:** {len(unique_client_routes)}"
+                    ),
+                    exploitation_suggestions=(
+                        "1. **Audit Route Permissions**: Verify that all administrative and settings routes enforce strict server-side authorization checks on their underlying APIs.\n"
+                        "2. **Check for Insecure Direct Object References (IDOR)**: Inspect parameterized routes (e.g. `/users/:id/settings`, `/billing/invoices/:id`) for lack of horizontal access control.\n"
+                        "3. **Catalog Shadow Endpoints**: Incorporate discovered administrative paths into backend route fuzzing catalogs."
+                    ),
+                    extra_key=f"{target}|spa_routes",
+                    alert_type="js_client_framework_routes"
+                )
+
+            # I) Third-Party Trackers & SDK Telemetry Pivots
+            for tr in unique_trackers:
+                if tr["provider"] in ["Google Tag Manager", "Segment", "Sentry DSN", "Datadog RUM / APM", "Intercom"] or tr.get("correlated_domains"):
+                    pivot_md = (
+                        f"- [PublicWWW Search]({tr['pivot_links']['publicwww']})\n"
+                        f"- [Censys Search]({tr['pivot_links']['censys']})\n"
+                        f"- [BuiltWith Tag Relationships]({tr['pivot_links']['builtwith']})\n"
+                        f"- [Shodan Query]({tr['pivot_links']['shodan']})"
+                    )
+                    corr_text = f"\n\n**Correlated Domains in Workspace:** {', '.join(tr['correlated_domains'])}" if tr.get("correlated_domains") else ""
+                    await self.create_alert(
+                        title=f"OSINT Pivoting: Tracker ID Discovered ({tr['provider']})",
+                        description=f"Third-party tracking / telemetry key `{tr['id']}` identified on {target}." + (f" Shared across {len(tr['correlated_domains'])} other assets in workspace." if tr.get("correlated_domains") else ""),
+                        target=target,
+                        risk_level="medium" if tr["provider"] == "Sentry DSN" else "low",
+                        details=(
+                            f"**Provider:** {tr['provider']} ({tr['category']})\n\n"
+                            f"**Tracker / Telemetry ID:** `{tr['id']}`\n\n"
+                            f"**Source URL:** [{tr['source_url']}]({tr['source_url']})"
+                            f"{corr_text}\n\n"
+                            f"**OSINT Search Engine Pivots:**\n{pivot_md}"
+                        ),
+                        exploitation_suggestions=(
+                            "1. **Pivot Across Organization Footprint**: Click the PublicWWW or Censys links to identify other web assets, shadow IT, or internal staging portals sharing this tracking key.\n"
+                            "2. **Track Cross-Origin Infrastructure**: Identify acquisition targets or subsidiaries connected to the same analytics account."
+                        ),
+                        extra_key=f"{tr['provider']}|{tr['id']}",
+                        alert_type="js_third_party_tracker_pivots"
+                    )
+
             # 5. Store aggregated findings in domain document & web application inventory
             s3_items = []
             azure_items = []
@@ -1682,6 +2509,13 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "meta_tags": final_meta_tags,
                 "meta_tags_count": len(final_meta_tags),
                 "interesting_meta_tags_count": interesting_meta_count,
+                "hydration_payloads": all_hydration_payloads,
+                "hydration_payloads_count": len(all_hydration_payloads),
+                "client_routes": unique_client_routes,
+                "client_routes_count": len(unique_client_routes),
+                "privileged_client_routes_count": len([r for r in unique_client_routes if r.get("is_privileged")]),
+                "trackers": unique_trackers,
+                "trackers_count": len(unique_trackers),
                 "api_specifications": (api_res.get("openapi_specs") if api_res else []) or [],
                 "api_ui_endpoints": (api_res.get("api_ui_endpoints") if api_res else []) or [],
                 "graphql_endpoints": (api_res.get("graphql_endpoints") if api_res else []) or [],
@@ -1699,6 +2533,12 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "web_applications.$.meta_tags": final_meta_tags,
                 "web_applications.$.meta_tags_count": len(final_meta_tags),
                 "web_applications.$.interesting_meta_tags_count": interesting_meta_count,
+                "web_applications.$.hydration_payloads": all_hydration_payloads,
+                "web_applications.$.hydration_payloads_count": len(all_hydration_payloads),
+                "web_applications.$.client_routes": unique_client_routes,
+                "web_applications.$.client_routes_count": len(unique_client_routes),
+                "web_applications.$.trackers": unique_trackers,
+                "web_applications.$.trackers_count": len(unique_trackers),
             }
             if probed_cloud_assets:
                 webapp_set["web_applications.$.cloud_assets"] = [
@@ -1737,6 +2577,12 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "meta_tags": final_meta_tags,
                         "meta_tags_count": len(final_meta_tags),
                         "interesting_meta_tags_count": interesting_meta_count,
+                        "hydration_payloads": all_hydration_payloads,
+                        "hydration_payloads_count": len(all_hydration_payloads),
+                        "client_routes": unique_client_routes,
+                        "client_routes_count": len(unique_client_routes),
+                        "trackers": unique_trackers,
+                        "trackers_count": len(unique_trackers),
                     }
                     if probed_cloud_assets:
                         new_app["cloud_assets"] = webapp_set.get("web_applications.$.cloud_assets", [])
@@ -1758,6 +2604,9 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "meta_tags": final_meta_tags,
                         "meta_tags_count": len(final_meta_tags),
                         "interesting_meta_tags_count": interesting_meta_count,
+                        "infrastructure.dynamic_js.hydration_payloads": all_hydration_payloads,
+                        "infrastructure.dynamic_js.client_routes": unique_client_routes,
+                        "infrastructure.dynamic_js.trackers": unique_trackers,
                     }}
                 )
 

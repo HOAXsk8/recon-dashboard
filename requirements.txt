@@ -16,3 +16,4 @@ dnspython
 wafw00f
 playwright
 brotli
+mmh3

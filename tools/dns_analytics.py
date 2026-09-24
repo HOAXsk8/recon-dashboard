@@ -840,10 +840,10 @@ class DnssecAuditor:
             result["enabled"] = True
             result["keys_count"] = len(answers)
             for rdata in answers:
-                alg_id = rdata.algorithm
+                alg_id = int(rdata.algorithm)
                 result["algorithm_id"] = alg_id
                 result["algorithm"] = self.ALGORITHM_NAMES.get(alg_id, f"Algorithm {alg_id}")
-                result["key_flags"] = rdata.flags
+                result["key_flags"] = int(rdata.flags)
                 # key_tag calculation (per RFC 4034 appendix B)
                 try:
                     wire = rdata.to_wire()
