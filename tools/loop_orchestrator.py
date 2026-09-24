@@ -44,13 +44,17 @@ class ContinuousLoopAgent(BaseAgent):
 
         logger.info(f"Loop Orchestrator: Starting scan cycle for {root_domain} (single={is_single}, reason={reason}).")
 
+        last_completed = domain.get("last_scanned")
+        if not last_completed or last_completed == "Never":
+            last_completed = domain.get("last_cycle_completed")
+
         await self.domains_col.update_one(
             {"_id": domain["_id"]},
             {"$set": {
                 "scanned": False,
                 "osint_complete": False,
                 "archive_hunter_complete": False,
-                "last_cycle_completed": domain.get("last_scanned")
+                "last_cycle_completed": last_completed
             }}
         )
         # Clear any stale or orphan tasks for this domain before re-queuing

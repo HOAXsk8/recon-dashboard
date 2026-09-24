@@ -475,6 +475,12 @@ class PortScannerAgent(BaseAgent):
 
     async def create_port_alert(self, root_domain, target, old_ports, new_ports):
         """Create an alert for opened/closed ports and record timeline history."""
+        # Suppress port change alerts and history drift during the domain's initial scan cycle
+        domain_doc = await self.domains_col.find_one({"domain": root_domain})
+        if domain_doc and self.is_first_scan_cycle(domain_doc):
+            logger.info(f"[FIRST-SCAN SUPPRESSED] Suppressed port change detection during initial domain scan for target '{target}' (domain: '{root_domain}')")
+            return False
+
         old_set = {f"{p['port']}/{p['protocol']}" for p in old_ports}
         new_set = {f"{p['port']}/{p['protocol']}" for p in new_ports}
 
@@ -529,7 +535,7 @@ class PortScannerAgent(BaseAgent):
             except Exception as he:
                 logger.warning(f"Failed to record port change history: {he}")
 
-        return await self.create_alert(title, description, target, risk, details, exploitation, alert_type="port_scanner_changes")
+        return await self.create_alert(title, description, target, risk, details, exploitation, alert_type="port_scanner_changes", root_domain=root_domain)
 
     async def update_scan_results_in_db(self, root_domain, target, ip, services):
         domain_doc = await self.domains_col.find_one({"domain": root_domain})

@@ -3458,7 +3458,9 @@ async def add_domain(
         "single_domain_only": is_single,
         "scan_interval": 168,
         "notes": "",
-        "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "initial_scan_completed": False,
+        "scan_cycle_count": 0
     })
     
     # Queue initial tasks
@@ -3570,7 +3572,9 @@ async def bulk_add_domains(
             "single_domain_only": is_single,
             "scan_interval": 168,
             "notes": "",
-            "added_at": now_str
+            "added_at": now_str,
+            "initial_scan_completed": True if scanned_val else False,
+            "scan_cycle_count": 1 if scanned_val else 0
         })
         
         if not scanned_val and not on_hold_val:
@@ -3804,15 +3808,21 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
     is_single = domain_doc.get("single_domain_only", False)
     
     # 1. Reset scanned flag, on_hold flag, osint_complete, archive_hunter_complete, and all subdomains
+    prev_scanned = domain_doc.get("last_scanned")
+    last_cycle = prev_scanned if prev_scanned and prev_scanned != "Never" else domain_doc.get("last_cycle_completed")
+    update_data = {
+        "scanned": False,
+        "on_hold": False,
+        "osint_complete": False,
+        "archive_hunter_complete": False,
+        "last_scanned": "Never"
+    }
+    if last_cycle:
+        update_data["last_cycle_completed"] = last_cycle
+
     await domains_col.update_one(
         {"_id": ObjectId(domain_id)},
-        {"$set": {
-            "scanned": False,
-            "on_hold": False,
-            "osint_complete": False,
-            "archive_hunter_complete": False,
-            "last_scanned": "Never"
-        }}
+        {"$set": update_data}
     )
     await domains_col.update_one(
         {"_id": ObjectId(domain_id), "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
@@ -3867,9 +3877,21 @@ async def scan_single_domain(domain_id: str, request: Request, user: dict = Depe
     root_domain = domain_doc["domain"]
     
     # 1. Reset scan status flags
+    prev_scanned = domain_doc.get("last_scanned")
+    last_cycle = prev_scanned if prev_scanned and prev_scanned != "Never" else domain_doc.get("last_cycle_completed")
+    update_data = {
+        "scanned": False,
+        "on_hold": False,
+        "osint_complete": False,
+        "archive_hunter_complete": False,
+        "last_scanned": "Never"
+    }
+    if last_cycle:
+        update_data["last_cycle_completed"] = last_cycle
+
     await domains_col.update_one(
         {"_id": ObjectId(domain_id)},
-        {"$set": {"scanned": False, "on_hold": False, "osint_complete": False, "archive_hunter_complete": False, "last_scanned": "Never"}}
+        {"$set": update_data}
     )
     
     # 2. Clear old tasks for this domain
@@ -3918,15 +3940,21 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
         is_single = domain_doc.get("single_domain_only", False)
         
         # 1. Reset flags and subdomains
+        prev_scanned = domain_doc.get("last_scanned")
+        last_cycle = prev_scanned if prev_scanned and prev_scanned != "Never" else domain_doc.get("last_cycle_completed")
+        update_data = {
+            "scanned": False,
+            "on_hold": False,
+            "osint_complete": False,
+            "archive_hunter_complete": False,
+            "last_scanned": "Never"
+        }
+        if last_cycle:
+            update_data["last_cycle_completed"] = last_cycle
+
         await domains_col.update_one(
             {"_id": d_id},
-            {"$set": {
-                "scanned": False,
-                "on_hold": False,
-                "osint_complete": False,
-                "archive_hunter_complete": False,
-                "last_scanned": "Never"
-            }}
+            {"$set": update_data}
         )
         await domains_col.update_one(
             {"_id": d_id, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
@@ -3979,16 +4007,22 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
     now = datetime.utcnow()
     
     # 1. Reset all root domains and all subdomains safely
-    await domains_col.update_many(
-        {"blacklisted": {"$ne": True}},
-        {"$set": {
+    for d in domains:
+        prev_scanned = d.get("last_scanned")
+        last_cycle = prev_scanned if prev_scanned and prev_scanned != "Never" else d.get("last_cycle_completed")
+        update_data = {
             "scanned": False,
             "on_hold": False,
             "osint_complete": False,
             "archive_hunter_complete": False,
             "last_scanned": "Never"
-        }}
-    )
+        }
+        if last_cycle:
+            update_data["last_cycle_completed"] = last_cycle
+        await domains_col.update_one(
+            {"_id": d["_id"]},
+            {"$set": update_data}
+        )
     await domains_col.update_many(
         {"blacklisted": {"$ne": True}, "infrastructure.subdomains": {"$exists": True, "$type": "array", "$ne": []}},
         {"$set": {
@@ -4306,6 +4340,21 @@ async def startup_event():
         asyncio.create_task(sync_all_cloud_storage())
     except Exception as e:
         print(f"Failed to start cloud storage sync task: {e}")
+
+    try:
+        await domains_col.update_many(
+            {
+                "$or": [
+                    {"scanned": True},
+                    {"last_scanned": {"$exists": True, "$nin": ["Never", None, ""]}},
+                    {"last_cycle_completed": {"$exists": True, "$nin": [None, ""]}}
+                ],
+                "initial_scan_completed": {"$exists": False}
+            },
+            {"$set": {"initial_scan_completed": True, "scan_cycle_count": 1}}
+        )
+    except Exception as e:
+        print(f"Failed to initialize initial_scan_completed for existing domains: {e}")
 
 @app.get("/api/tools")
 async def get_tools(user: dict = Depends(get_current_user)):

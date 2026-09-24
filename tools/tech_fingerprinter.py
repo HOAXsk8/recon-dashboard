@@ -1286,6 +1286,11 @@ class TechFingerprinterAgent(BaseAgent):
 
     async def create_tech_alert(self, root_domain, target, old_tech, new_tech, url):
         """Create a lead/alert for a changed technology stack using the centralized alerting system."""
+        domain_doc = await self.domains_col.find_one({"domain": root_domain})
+        if domain_doc and self.is_first_scan_cycle(domain_doc):
+            logger.info(f"[FIRST-SCAN SUPPRESSED] Suppressed tech stack change alert during initial domain scan for target '{target}' (domain: '{root_domain}')")
+            return False
+
         added = set(new_tech) - set(old_tech)
         removed = set(old_tech) - set(new_tech)
         
@@ -1303,10 +1308,15 @@ class TechFingerprinterAgent(BaseAgent):
         details = f"A change in the technology stack was detected for {url}.\n\nPrevious stack: {', '.join(old_tech) or 'None'}\nNew stack: {', '.join(new_tech) or 'None'}"
         exploitation = f"### Tech Stack Analysis\n\n1. **Review Changes**: Analyze why these technologies were added or removed. New technologies might introduce new attack surfaces.\n2. **Version Check**: Check if the newly added technologies have known vulnerabilities (CVEs).\n3. **Consistency**: Ensure these changes align with known infrastructure updates."
 
-        await self.create_alert(title, description, target, "medium", details, exploitation, alert_type="tech_stack_changes")
+        return await self.create_alert(title, description, target, "medium", details, exploitation, alert_type="tech_stack_changes", root_domain=root_domain)
 
-    async def create_header_alert(self, target, old_headers, new_headers, url):
+    async def create_header_alert(self, root_domain, target, old_headers, new_headers, url):
         """Create a lead/alert for degraded security headers using the centralized alerting system."""
+        domain_doc = await self.domains_col.find_one({"domain": root_domain})
+        if domain_doc and self.is_first_scan_cycle(domain_doc):
+            logger.info(f"[FIRST-SCAN SUPPRESSED] Suppressed security header regression alert during initial domain scan for target '{target}' (domain: '{root_domain}')")
+            return False
+
         regressions = []
         for key, name in [
             ("hsts", "Strict-Transport-Security"),
@@ -1324,7 +1334,7 @@ class TechFingerprinterAgent(BaseAgent):
         details = f"One or more security headers were removed from {url}.\n\nRegressions: {', '.join(regressions)}"
         exploitation = f"### Header Analysis\n\n1. **Check Config**: Verify if a recent server configuration change accidentally removed these headers.\n2. **Security Impact**: Removing {regressions} increases susceptibility to attacks like Clickjacking or XSS."
 
-        await self.create_alert(title, description, target, "high", details, exploitation, alert_type="security_header_regressions")
+        return await self.create_alert(title, description, target, "high", details, exploitation, alert_type="security_header_regressions", root_domain=root_domain)
 
     async def process_tasks(self):
         task = await self.get_next_task("tech_fingerprint")
@@ -1467,7 +1477,7 @@ class TechFingerprinterAgent(BaseAgent):
                         # Check for header regressions
                         old_headers = app.get("security_headers", {})
                         if security_headers:
-                            await self.create_header_alert(target, old_headers, security_headers, url)
+                            await self.create_header_alert(root_domain, target, old_headers, security_headers, url)
                             app["security_headers"] = security_headers
 
                         # Correlate vulnerabilities & fire alerts (Enhancement #1)

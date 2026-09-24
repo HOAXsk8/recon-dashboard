@@ -21,6 +21,12 @@ DB_NAME = "recon_db"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+CHANGE_ALERT_TYPES = {
+    "port_scanner_changes",
+    "tech_stack_changes",
+    "security_header_regressions"
+}
+
 class BaseAgent:
     def __init__(self, agent_key, agent_name, type="script"):
         self.agent_key = agent_key
@@ -284,12 +290,91 @@ class BaseAgent:
 
         return "general_alert"
 
-    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None, alert_type=None):
+    @staticmethod
+    def is_first_scan_cycle(domain_doc: Optional[dict]) -> bool:
+        """
+        Determine whether a domain is on its initial (first-ever) scan cycle.
+        Returns True if the domain has never completed a scan cycle.
+        """
+        if not domain_doc:
+            return False
+        if domain_doc.get("initial_scan_completed") is True:
+            return False
+        last_scanned = domain_doc.get("last_scanned")
+        if last_scanned and str(last_scanned).strip().lower() not in ["never", "none", ""]:
+            return False
+        if domain_doc.get("last_cycle_completed"):
+            return False
+        if (domain_doc.get("scan_cycle_count") or 0) > 0:
+            return False
+        if domain_doc.get("scanned") is True and last_scanned:
+            return False
+        return True
+
+    async def get_root_domain_for_target(self, target: str, root_domain: Optional[str] = None) -> Optional[dict]:
+        """
+        Find the domain document for a given target or root_domain.
+        """
+        if root_domain:
+            doc = await self.domains_col.find_one({"domain": root_domain.strip().lower()})
+            if doc:
+                return doc
+
+        if not target:
+            return None
+
+        target_clean = str(target).strip().lower()
+        if "://" in target_clean:
+            try:
+                target_clean = urllib.parse.urlparse(target_clean).hostname or target_clean
+            except Exception:
+                pass
+        target_clean = target_clean.split(":")[0].strip()
+
+        # 1. Direct match on domain
+        doc = await self.domains_col.find_one({"domain": target_clean})
+        if doc:
+            return doc
+
+        # 2. Subdomain match
+        doc = await self.domains_col.find_one({"infrastructure.subdomains.name": target_clean})
+        if doc:
+            return doc
+
+        # 3. Suffix match against domain parts
+        parts = target_clean.split(".")
+        for i in range(1, len(parts) - 1):
+            parent_candidate = ".".join(parts[i:])
+            doc = await self.domains_col.find_one({"domain": parent_candidate})
+            if doc:
+                return doc
+
+        return None
+
+    async def create_alert(self, title, description, target, risk_level, details, exploitation_suggestions, response_size=None, extra_key=None, alert_type=None, root_domain=None):
         """
         Create a new alert (lead) with fingerprint-based deduplication and alert setting checks.
         Prevents repeats even if the user deletes the lead.
+        Suppresses change/regression alerts if the domain is on its initial scan cycle.
         """
         alert_key = self.classify_alert_type(title, alert_type)
+
+        # Check if this alert indicates a change/regression and should be suppressed on first scan cycle
+        is_change_alert = (
+            alert_key in CHANGE_ALERT_TYPES
+            or "change" in alert_key
+            or "regression" in alert_key
+            or "change detected" in title.lower()
+            or "header regression" in title.lower()
+        )
+
+        if is_change_alert:
+            domain_doc = await self.get_root_domain_for_target(target, root_domain=root_domain)
+            if domain_doc and self.is_first_scan_cycle(domain_doc):
+                logger.info(
+                    f"[FIRST-SCAN SUPPRESSED] Suppressed change alert '{alert_key}' ('{title}') during initial domain scan for target '{target}' (domain: '{domain_doc.get('domain')}')"
+                )
+                return False
 
         # Check if this alert type is disabled in Global Settings
         try:
@@ -586,10 +671,14 @@ class BaseAgent:
             now_iso = datetime.datetime.utcnow().isoformat()
             await self.domains_col.update_one(
                 {"domain": root_domain},
-                {"$set": {
-                    "scanned": True,
-                    "last_scanned": now_iso
-                }}
+                {
+                    "$set": {
+                        "scanned": True,
+                        "last_scanned": now_iso,
+                        "initial_scan_completed": True
+                    },
+                    "$inc": {"scan_cycle_count": 1}
+                }
             )
             try:
                 await self.domains_col.update_one(
