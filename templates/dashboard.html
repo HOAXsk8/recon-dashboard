@@ -2547,6 +2547,7 @@
                 // Render Detailed Card View
                 const listHtml = `
                     <div class="space-y-8">
+                        ${apps.map(app => {
                             const appTarget = (app.target || '').toLowerCase().trim();
                             const appSubArchive = bySubdomain[appTarget] || app.archive_urls || { total_urls: 0, sensitive_files: [], api_endpoints: [], interesting_params: [], documents: [], other_endpoints: [] };
                             const totalFiles = app.sensitive_files?.length || 0;
