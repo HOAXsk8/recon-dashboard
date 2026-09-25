@@ -717,12 +717,18 @@ class TechFingerprinterAgent(BaseAgent):
     async def run_httpx(self, url):
         logger.info(f"Running httpx fingerprinting on {url}")
         cmd = [
-            "pd-httpx", "-u", url, "-td", "-title", "-server", "-sc", "-json", "-silent"
+            "pd-httpx", "-u", url, "-H", f"User-Agent: {self.user_agent}", "-td", "-title", "-server", "-sc", "-json", "-silent"
         ]
         try:
             stdout, stderr = await self.run_command(cmd, timeout=60)
-            if stdout:
-                return json.loads(stdout)
+            if stdout and stdout.strip():
+                for line in reversed(stdout.strip().splitlines()):
+                    line = line.strip()
+                    if line.startswith("{") and line.endswith("}"):
+                        try:
+                            return json.loads(line)
+                        except Exception:
+                            pass
         except Exception as e:
             logger.error(f"httpx error for {url}: {e}")
         return None
@@ -730,7 +736,7 @@ class TechFingerprinterAgent(BaseAgent):
     async def run_whatweb(self, url):
         logger.info(f"Running whatweb fingerprinting on {url}")
         cmd = [
-            "whatweb", "--log-json=-", "-q", "-a", "1", url
+            "whatweb", "-U", self.user_agent, "--log-json=-", "-q", "-a", "1", url
         ]
         try:
             stdout, stderr = await self.run_command(cmd, timeout=60)
@@ -787,7 +793,7 @@ class TechFingerprinterAgent(BaseAgent):
         query_encoded = urllib.parse.quote(search_term)
         url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={query_encoded}&resultsPerPage=5"
 
-        cmd = ["curl", "-s", "-m", "15"]
+        cmd = ["curl", "-s", "-m", "15", "-A", self.user_agent]
         if api_key:
             cmd.extend(["-H", f"apiKey: {api_key}"])
         cmd.append(url)
@@ -1012,7 +1018,7 @@ class TechFingerprinterAgent(BaseAgent):
 
         # 3. Direct probe with curl to capture redirect chain Set-Cookie headers
         try:
-            cmd = ["curl", "-sI", "-L", "--max-redirs", "2", "-m", "8", "-k", url]
+            cmd = ["curl", "-sI", "-L", "--max-redirs", "2", "-m", "8", "-k", "-A", self.user_agent, url]
             stdout, _ = await self.run_command(cmd, timeout=10)
             if stdout:
                 for line in stdout.splitlines():
@@ -1210,7 +1216,7 @@ class TechFingerprinterAgent(BaseAgent):
 
         # 1. Probe HTTP/2 negotiation
         try:
-            cmd = ["curl", "-sI", "-k", "--http2", "-m", "8", url]
+            cmd = ["curl", "-sI", "-k", "--http2", "-m", "8", "-A", self.user_agent, url]
             stdout, _ = await self.run_command(cmd, timeout=10)
             if stdout:
                 lines = stdout.splitlines()
@@ -1230,7 +1236,7 @@ class TechFingerprinterAgent(BaseAgent):
 
         # 2. Probe HTTP/1.1 legacy fallback
         try:
-            cmd = ["curl", "-sI", "-k", "--http1.1", "-m", "8", url]
+            cmd = ["curl", "-sI", "-k", "--http1.1", "-m", "8", "-A", self.user_agent, url]
             stdout, _ = await self.run_command(cmd, timeout=10)
             if stdout and any(line.upper().startswith("HTTP/1.1") for line in stdout.splitlines()):
                 http1_fallback = True

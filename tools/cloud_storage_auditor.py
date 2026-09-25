@@ -688,7 +688,7 @@ class CloudStorageAuditorAgent(BaseAgent):
 
             all_audited: List[dict] = []
 
-            async with httpx.AsyncClient(verify=False, timeout=8.0) as client:
+            async with httpx.AsyncClient(verify=False, timeout=8.0, headers={"User-Agent": self.user_agent}) as client:
                 # 1. Audit existing discovered buckets
                 existing_results = await self.audit_existing_assets(root_domain, client)
                 all_audited.extend(existing_results)

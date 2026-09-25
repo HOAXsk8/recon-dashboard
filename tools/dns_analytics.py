@@ -215,6 +215,8 @@ TAKEOVER_SIGNATURES = [
     }
 ]
 
+COMMON_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
 
 class TakeoverDetector:
     """
@@ -225,7 +227,7 @@ class TakeoverDetector:
     def __init__(self, timeout: float = 4.0):
         self.timeout = timeout
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": COMMON_USER_AGENT,
             "Accept": "*/*"
         }
 
@@ -681,7 +683,7 @@ class AsnNetworkResolver:
         # Fallback to ip-api.com if DNS didn't return an ASN
         if not result["asn"]:
             try:
-                async with httpx.AsyncClient(timeout=2.0) as client:
+                async with httpx.AsyncClient(timeout=2.0, headers=self.headers) as client:
                     resp = await client.get(f"http://ip-api.com/json/{clean_ip}?fields=status,countryCode,as,org")
                     if resp.status_code == 200:
                         data = resp.json()

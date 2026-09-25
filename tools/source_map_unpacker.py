@@ -159,11 +159,7 @@ class SourceMapUnpacker(BaseAgent):
             pass
 
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": self.user_agent,
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br" if has_brotli else "gzip, deflate"
         }

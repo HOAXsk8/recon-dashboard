@@ -157,7 +157,7 @@ class AliveCheckAgent(BaseAgent):
                         timeout=4.5,
                         verify=False,
                         follow_redirects=True,
-                        headers={"Host": target, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                        headers={"Host": target, "User-Agent": self.user_agent}
                     ) as client:
                         resp = await client.get(url)
                         meta["reachable"] = True
@@ -249,7 +249,7 @@ class AliveCheckAgent(BaseAgent):
 
         # 1. RapidDNS (Free, passive historical DNS)
         try:
-            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                 r = await client.get(f"https://rapiddns.io/s/{target}?same_sub=1")
                 if r.status_code == 200:
                     found_ips = set(re.findall(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", r.text))
@@ -262,7 +262,7 @@ class AliveCheckAgent(BaseAgent):
 
         # 2. HackerTarget (Free)
         try:
-            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                 resp = await client.get(
                     f"https://api.hackertarget.com/hostsearch/?q={target}"
                 )
@@ -280,7 +280,7 @@ class AliveCheckAgent(BaseAgent):
         # 3. ViewDNS (Optional, if VIEWDNS_API_KEY configured)
         if VIEWDNS_API_KEY:
             try:
-                async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+                async with httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                     resp = await client.get(
                         f"https://api.viewdns.info/iphistory/?domain={target}&apikey={VIEWDNS_API_KEY}&output=json"
                     )
@@ -350,7 +350,7 @@ class AliveCheckAgent(BaseAgent):
             try:
                 async with httpx.AsyncClient(
                     timeout=3.5, verify=False, follow_redirects=False,
-                    headers={"Host": hostname, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    headers={"Host": hostname, "User-Agent": self.user_agent}
                 ) as client:
                     resp = await client.get(url)
                     text_sample = resp.text[:1000].lower()
@@ -490,7 +490,7 @@ class AliveCheckAgent(BaseAgent):
             async with httpx.AsyncClient(transport=transport, timeout=3.0, follow_redirects=False) as client:
                 for scheme in ("https", "http"):
                     try:
-                        r = await client.head(f"{scheme}://{target}", headers={"Host": target, "User-Agent": "Mozilla/5.0"})
+                        r = await client.head(f"{scheme}://{target}", headers={"Host": target, "User-Agent": self.user_agent})
                         if r.status_code is not None and r.status_code > 0:
                             return True
                     except Exception:

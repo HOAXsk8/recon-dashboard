@@ -1168,7 +1168,7 @@ class DynamicJsCollectorAgent(BaseAgent):
             res = await client.get(
                 probe_url,
                 timeout=8.0,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                headers={"User-Agent": self.user_agent},
                 follow_redirects=True
             )
             result["http_status"] = res.status_code
@@ -2022,7 +2022,7 @@ class DynamicJsCollectorAgent(BaseAgent):
             probed_cloud_assets: List[dict] = []
             if all_cloud_assets:
                 logger.info(f"Active probing {len(all_cloud_assets)} discovered cloud storage assets for {target}...")
-                async with httpx.AsyncClient(verify=False, timeout=10.0) as probe_client:
+                async with httpx.AsyncClient(verify=False, timeout=10.0, headers={"User-Agent": self.user_agent}) as probe_client:
                     probe_tasks = [self.probe_cloud_asset(probe_client, ca) for ca in all_cloud_assets.values()]
                     probed_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
                     for res in probed_results:

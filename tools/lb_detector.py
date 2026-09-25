@@ -213,7 +213,7 @@ class LbDetectorAgent(BaseAgent):
             timeout=self.http_timeout,
             verify=False,
             follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ReconBot/1.0)"}
+            headers={"User-Agent": self.user_agent}
         ) as client:
             for scheme in ["https", "http"]:
                 url = f"{scheme}://{domain}/"
@@ -281,7 +281,7 @@ class LbDetectorAgent(BaseAgent):
 
         for ip in backend_ips[:8]:
             for scheme, port in [("https", 443), ("http", 80)]:
-                cmd = ["curl", "-sI", "-k", "-m", "5", "-H", f"Host: {domain}", f"{scheme}://{ip}:{port}/"]
+                cmd = ["curl", "-sI", "-k", "-m", "5", "-A", self.user_agent, "-H", f"Host: {domain}", f"{scheme}://{ip}:{port}/"]
                 try:
                     stdout, _ = await self.run_command(cmd, timeout=7)
                     if not stdout:

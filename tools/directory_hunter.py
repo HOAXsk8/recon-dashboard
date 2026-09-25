@@ -206,7 +206,7 @@ class DirectoryHunterAgent(BaseAgent):
         candidate_sitemaps = set()
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent
         }
 
         robots_meta = {"present": False, "paths_extracted": 0, "sitemaps_declared": 0}
@@ -470,7 +470,7 @@ class DirectoryHunterAgent(BaseAgent):
         """
         logger.info(f"Phase 0.5: Probing favicon and computing asset hash fingerprints for {base_url}")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent
         }
         candidate_urls = [f"{base_url.rstrip('/')}/favicon.ico"]
 
@@ -661,7 +661,7 @@ class DirectoryHunterAgent(BaseAgent):
         
         url = f"https://api.shodan.io/shodan/host/search?key={api_key}&query=http.favicon.hash:{shodan_hash}"
         try:
-            cmd = ["curl", "-s", "-m", "15", url]
+            cmd = ["curl", "-s", "-m", "15", "-A", self.user_agent, url]
             stdout, stderr = await self.run_command(cmd, timeout=20)
             if not stdout:
                 return None
@@ -714,7 +714,7 @@ class DirectoryHunterAgent(BaseAgent):
         """
         logger.info(f"Phase 0.5: Harvesting enterprise & mobile .well-known configurations on {base_url}")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent
         }
 
         discovered_items = []
@@ -973,7 +973,7 @@ class DirectoryHunterAgent(BaseAgent):
         """
         logger.info(f"Phase 3: Auditing HTTP methods and verbs on {base_url}")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent
         }
 
         # Filter candidate paths: prioritize root, then up to 8 directories
@@ -1182,7 +1182,7 @@ class DirectoryHunterAgent(BaseAgent):
         ]
 
         try:
-            async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                 for token in test_tokens:
                     probe_url = f"{base_url.rstrip('/')}/{token}"
                     resp = await client.get(probe_url)
@@ -1256,6 +1256,7 @@ class DirectoryHunterAgent(BaseAgent):
         # Phase 1: Map directory structure recursively with controlled rate
         cmd = [
             "ffuf", "-w", dir_wl, "-u", f"{base_url}/FUZZ",
+            "-H", f"User-Agent: {self.user_agent}",
             "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic",
             "-recursion", "-recursion-depth", "2", "-t", "10", "-rate", "25"
         ]
@@ -1337,6 +1338,7 @@ class DirectoryHunterAgent(BaseAgent):
 
             cmd_file = [
                 "ffuf", "-w", active_wl, "-u", f"{target_url}/FUZZ",
+                "-H", f"User-Agent: {self.user_agent}",
                 "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic", "-t", "10", "-rate", "25"
             ]
             if dir_baseline:
@@ -1517,7 +1519,8 @@ class DirectoryHunterAgent(BaseAgent):
 
             combined_items = list(all_found_dict.values())
             
-            # Update web_applications in the domains collection
+            # Update web_applications in the domains collection (re-fetch fresh document to avoid clobbering concurrent agent updates)
+            domain_doc = await self.domains_col.find_one({"domain": root_domain})
             if domain_doc:
                 web_apps = domain_doc.get("web_applications", [])
                 app_found = False
@@ -1652,7 +1655,7 @@ class DirectoryHunterAgent(BaseAgent):
                             "openid_configuration": well_known_data.get("openid_configuration", {}) if well_known_data else {}
                         } if well_known_data else {},
                         "http_methods": http_methods_data or {},
-                        "tech_stack": [],
+                        "tech_stack": target_tech or [],
                         "security_headers": {}
                     })
                 

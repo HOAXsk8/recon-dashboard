@@ -3,6 +3,7 @@ FROM python:3.11-slim
 # Install system dependencies
 RUN apt update && apt install -y --no-install-recommends \
     wget \
+    curl \
     ca-certificates \
     nmap \
     ffuf \

@@ -51,7 +51,7 @@ class ArchiveHunterAgent(BaseAgent):
     def __init__(self):
         super().__init__("archive_hunter", "Passive Historical URL Hunter")
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": self.user_agent,
             "Accept": "application/json,text/html,*/*"
         }
 
@@ -61,7 +61,7 @@ class ArchiveHunterAgent(BaseAgent):
 
     def _sync_fetch_alienvault(self, domain: str) -> Set[str]:
         url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list?limit=150"
-        req = urllib.request.Request(url, headers={"User-Agent": "curl/8.7.1", "Accept": "*/*"})
+        req = urllib.request.Request(url, headers={"User-Agent": self.user_agent, "Accept": "*/*"})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 if resp.status == 200:
@@ -78,7 +78,7 @@ class ArchiveHunterAgent(BaseAgent):
 
     def _sync_fetch_wayback(self, domain: str) -> Set[str]:
         cdx_url = f"https://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&collapse=urlkey&limit=150"
-        req = urllib.request.Request(cdx_url, headers={"User-Agent": "curl/8.7.1", "Accept": "*/*"})
+        req = urllib.request.Request(cdx_url, headers={"User-Agent": self.user_agent, "Accept": "*/*"})
         try:
             with urllib.request.urlopen(req, timeout=18) as resp:
                 if resp.status == 200:
@@ -97,7 +97,7 @@ class ArchiveHunterAgent(BaseAgent):
 
     def _sync_fetch_urlscan(self, domain: str) -> Set[str]:
         url = f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100"
-        req = urllib.request.Request(url, headers={"User-Agent": "curl/8.7.1", "Accept": "*/*"})
+        req = urllib.request.Request(url, headers={"User-Agent": self.user_agent, "Accept": "*/*"})
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 if resp.status == 200:
@@ -123,7 +123,7 @@ class ArchiveHunterAgent(BaseAgent):
             collinfo_url = "https://index.commoncrawl.org/collinfo.json"
             req = urllib.request.Request(
                 collinfo_url,
-                headers={"User-Agent": "curl/8.7.1", "Accept": "application/json"}
+                headers={"User-Agent": self.user_agent, "Accept": "application/json"}
             )
             with urllib.request.urlopen(req, timeout=6) as resp:
                 if resp.status == 200:
@@ -145,7 +145,7 @@ class ArchiveHunterAgent(BaseAgent):
                 cc_url = f"https://index.commoncrawl.org/{idx}-index?url=*.{domain}/*&output=json&limit=100"
                 req = urllib.request.Request(
                     cc_url,
-                    headers={"User-Agent": "curl/8.7.1", "Accept": "*/*"}
+                    headers={"User-Agent": self.user_agent, "Accept": "*/*"}
                 )
                 with urllib.request.urlopen(req, timeout=8) as resp:
                     if resp.status == 200:

@@ -69,7 +69,7 @@ class Bypass403Agent(BaseAgent):
 
         results = []
 
-        async with httpx.AsyncClient(verify=False, timeout=10.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(verify=False, timeout=10.0, follow_redirects=False, headers={"User-Agent": self.user_agent}) as client:
             # 1. Header-based IP / origin spoofing
             for header in self.headers_to_test:
                 # Patch path-specific rewrite headers
@@ -245,6 +245,7 @@ class Bypass403Agent(BaseAgent):
             async with httpx.AsyncClient(
                 verify=False, timeout=10.0, follow_redirects=False,
                 http1=True, http2=False,
+                headers={"User-Agent": self.user_agent}
             ) as c10:
                 resp = await c10.get(full_url, headers={"Connection": "close"})
                 if resp.status_code < 400:
@@ -267,6 +268,7 @@ class Bypass403Agent(BaseAgent):
             async with httpx.AsyncClient(
                 verify=False, timeout=10.0, follow_redirects=False,
                 http1=True, http2=False,
+                headers={"User-Agent": self.user_agent}
             ) as ch2c:
                 h2c_headers = {
                     "Upgrade": "h2c",
@@ -294,6 +296,7 @@ class Bypass403Agent(BaseAgent):
                 async with httpx.AsyncClient(
                     verify=False, timeout=10.0, follow_redirects=False,
                     http1=False, http2=True,
+                    headers={"User-Agent": self.user_agent}
                 ) as ch2:
                     resp = await ch2.get(full_url)
                     if resp.status_code < 400:

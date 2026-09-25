@@ -135,7 +135,7 @@ class PortScannerAgent(BaseAgent):
         """Run standard optimized Nmap scan across top 1000 TCP ports with service versioning."""
         logger.info(f"Running optimized Nmap on {target}")
         cmd = [
-            "nmap", "-sT", "--top-ports", "1000", "-sV",
+            "nmap", "-sT", "-Pn", "--top-ports", "1000", "-sV",
             "--max-retries", "1",
             "--max-rtt-timeout", "500ms",
             "--max-rate", "300",
@@ -151,6 +151,51 @@ class PortScannerAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"Nmap scan for {target} timed out or failed ({e}); returning empty XML")
             return "<nmaprun></nmaprun>"
+
+    async def check_web_ports(self, host: str) -> List[Dict[str, Any]]:
+        """
+        Directly verify standard web ports (80, 443, 8080, 8443) using lightweight TCP/HTTP probes.
+        Prevents WAF/CDN rate-limiting and false 'filtered' Nmap results from dropping active web services.
+        """
+        web_services = []
+        for port, proto_name, is_tls in [(443, "https", True), (80, "http", False), (8443, "https", True), (8080, "http", False)]:
+            opened = False
+            # 1. Quick TCP connect
+            try:
+                conn = asyncio.open_connection(host, port)
+                _, writer = await asyncio.wait_for(conn, timeout=2.0)
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                opened = True
+            except Exception:
+                pass
+
+            # 2. HTTP/HTTPS probe fallback for SNI-dependent CDNs/WAFs
+            if not opened and port in (80, 443):
+                try:
+                    import httpx
+                    scheme = "https" if port == 443 else "http"
+                    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", verify=False)
+                    async with httpx.AsyncClient(transport=transport, timeout=2.5, follow_redirects=False) as client:
+                        r = await client.head(f"{scheme}://{host}", headers={"Host": host, "User-Agent": self.user_agent})
+                        if r.status_code is not None and r.status_code > 0:
+                            opened = True
+                except Exception:
+                    pass
+
+            if opened:
+                web_services.append({
+                    "port": port,
+                    "protocol": "tcp",
+                    "service": proto_name,
+                    "software": "",
+                    "version": "",
+                    "is_tls": is_tls
+                })
+        return web_services
 
     async def scan_cloud_ports(self, host: str, extra_ports: List[int]) -> List[Dict[str, Any]]:
         """
@@ -610,6 +655,15 @@ class PortScannerAgent(BaseAgent):
             # 2. Run standard top 1000 Nmap scan
             xml_data = await self.run_nmap(target)
             ip, services = self.parse_nmap_xml(xml_data)
+
+            # Direct Web Port Verification: Nmap top-1000 scan often gets firewalled/dropped by CDNs & WAFs.
+            # Perform direct targeted HTTP/HTTPS handshakes so active web applications are never missed.
+            web_probes = await self.check_web_ports(target)
+            existing_ports = {s['port'] for s in services}
+            for wp in web_probes:
+                if wp['port'] not in existing_ports:
+                    services.append(wp)
+                    logger.info(f"[Web Port Fallback] Discovered active web port {target}:{wp['port']} ({wp['service']})")
 
             # 3. Dynamic Cloud Port Hunting: If cloud target, probe extended DevOps/microservice ports
             if is_cloud:

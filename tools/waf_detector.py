@@ -317,127 +317,246 @@ class WafDetectorAgent(BaseAgent):
     # ---------------------------------------------------------------------------
     # Enhancement #2: WAF Blocking Behavior Profile
     # ---------------------------------------------------------------------------
+    @staticmethod
+    def parse_curl_chain(stdout: str) -> list:
+        """Parses output of curl -sI -L containing one or more HTTP response blocks."""
+        blocks = re.split(r'(?:\r?\n){2,}', (stdout or "").strip())
+        chain = []
+        for b in blocks:
+            lines = [line.strip() for line in b.splitlines() if line.strip()]
+            if not lines:
+                continue
+            first = lines[0]
+            m = re.search(r"HTTP/\S+\s+(\d{3})", first)
+            if not m:
+                continue
+            status_code = int(m.group(1))
+            headers = {}
+            for line in lines[1:]:
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    headers[k.strip().lower()] = v.strip()
+            chain.append({
+                "status_line": first,
+                "status_code": status_code,
+                "headers": headers,
+                "server": headers.get("server", ""),
+                "location": headers.get("location", ""),
+                "via": headers.get("via", "")
+            })
+        return chain
+
     async def profile_waf_blocking_behavior(self, target: str, url: str) -> dict:
         """
         Tests standard attack vectors (SQLi, XSS, Path Traversal, Cmd Injection, SSTI,
-        scanner user-agent) against the endpoint to establish which classes of attacks
-        are actively blocked by the WAF and identify defensive gaps.
+        scanner user-agent, fuzzing) against the endpoint to establish which classes of attacks
+        are actively blocked by the WAF and identify defensive gaps with full evidentiary detail.
         """
         logger.info(f"Profiling WAF blocking behavior on {url}")
-
-        # Baseline probe
-        baseline_status = 200
-        try:
-            cmd = ["curl", "-sI", "-k", "-m", "8", url]
-            stdout, _ = await self.run_command(cmd, timeout=10)
-            if stdout:
-                lines = stdout.splitlines()
-                first = lines[0] if lines else ""
-                m = re.search(r"HTTP/\S+\s+(\d{3})", first)
-                if m:
-                    baseline_status = int(m.group(1))
-        except Exception as e:
-            logger.debug(f"Baseline probe error for {url}: {e}")
 
         test_cases = [
             {
                 "id": "sqli",
                 "name": "SQL Injection",
+                "vector_type": "Query Parameter",
+                "payload": "?id=1' OR '1'='1",
                 "query": "?id=1%27+OR+%271%27%3D%271",
-                "headers": []
+                "headers": [],
+                "description": "Standard SQL boolean tautology injection in URL parameter."
             },
             {
                 "id": "xss",
                 "name": "Cross-Site Scripting (XSS)",
+                "vector_type": "Query Parameter",
+                "payload": "?q=<script>alert(1)</script>",
                 "query": "?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
-                "headers": []
+                "headers": [],
+                "description": "Unsanitized inline script tag payload in search/query parameter."
             },
             {
                 "id": "path_traversal",
                 "name": "Directory / Path Traversal",
+                "vector_type": "Path Parameter",
+                "payload": "?file=../../../../etc/passwd",
                 "query": "?file=..%2F..%2F..%2F..%2Fetc%2Fpasswd",
-                "headers": []
+                "headers": [],
+                "description": "Dot-dot-slash sequence aimed at accessing underlying UNIX files."
             },
             {
                 "id": "cmd_injection",
                 "name": "Command Injection (RCE)",
+                "vector_type": "Command Argument",
+                "payload": "?cmd=;cat /etc/passwd;",
                 "query": "?cmd=%3Bcat+%2Fetc%2Fpasswd%3B",
-                "headers": []
+                "headers": [],
+                "description": "Semicolon shell command separator invoking system shell execution."
             },
             {
                 "id": "ssti",
                 "name": "Server-Side Template Injection",
+                "vector_type": "Template Expression",
+                "payload": "?name={{7*7}}",
                 "query": "?name=%7B%7B7*7%7D%7D",
-                "headers": []
+                "headers": [],
+                "description": "Jinja/Twig/Smarty double-curly template expression evaluation."
             },
             {
                 "id": "scanner_user_agent",
                 "name": "Malicious Scanner User-Agent",
+                "vector_type": "HTTP Request Header",
+                "payload": "User-Agent: sqlmap/1.6#stable (https://sqlmap.org)",
                 "query": "/",
-                "headers": ["-A", "sqlmap/1.6#stable (https://sqlmap.org)"]
+                "headers": ["-A", "sqlmap/1.6#stable (https://sqlmap.org)"],
+                "description": "Well-known automated penetration testing tool user-agent signature."
             },
             {
                 "id": "special_chars",
                 "name": "Protocol Fuzzing / Special Chars",
+                "vector_type": "Query Parameter",
+                "payload": "?fuzz=\\x00\\n\\r'\"<>",
                 "query": "?fuzz=%00%0a%0d%27%22%3c%3e",
-                "headers": []
+                "headers": [],
+                "description": "Null-bytes, CRLF delimiters, quotes, and angle brackets for protocol fuzzing."
             }
         ]
+
+        # Baseline probe
+        base_clean = url.rstrip("/")
+        baseline_status = 200
+        baseline_server = ""
+        baseline_url = url
+
+        candidate_urls = [url]
+        if url.startswith("https://"):
+            candidate_urls.append("http://" + url[len("https://"):])
+        parsed = urllib.parse.urlparse(url)
+        if not parsed.netloc.startswith("www."):
+            candidate_urls.append(f"https://www.{parsed.netloc}")
+
+        for test_url in candidate_urls:
+            try:
+                cmd = ["curl", "-sI", "-k", "-m", "6", "-L", "-A", self.user_agent, test_url]
+                stdout, _ = await self.run_command(cmd, timeout=8)
+                chain = self.parse_curl_chain(stdout)
+                if chain:
+                    final_hop = chain[-1]
+                    baseline_status = final_hop["status_code"]
+                    baseline_server = final_hop.get("server", "")
+                    # If target redirected to a canonical URL on the same domain, adopt it for accurate probing
+                    for hop in chain[:-1]:
+                        loc = hop.get("location", "")
+                        if loc:
+                            if loc.startswith("/"):
+                                p = urllib.parse.urlparse(test_url)
+                                baseline_url = f"{p.scheme}://{p.netloc}{loc}".rstrip("/")
+                            elif any(part in loc for part in [target, "www." + target]):
+                                baseline_url = loc.rstrip("/")
+                    if not any(hop.get("location") for hop in chain[:-1]):
+                        baseline_url = test_url
+                    break
+            except Exception as e:
+                logger.debug(f"Baseline probe error for {test_url}: {e}")
+
+        # Use canonical URL base if redirected (e.g. o2.co.uk -> www.o2.co.uk)
+        target_base = baseline_url.rstrip("/") if baseline_url else base_clean
 
         results = []
         blocked_count = 0
         allowed_count = 0
+        unresponsive_count = 0
         blocked_categories = []
         allowed_categories = []
+        unresponsive_categories = []
 
-        base_clean = url.rstrip("/")
         for tc in test_cases:
-            probe_url = f"{base_clean}/{tc['query'].lstrip('/')}" if not tc['query'].startswith("?") else f"{base_clean}{tc['query']}"
-            cmd = ["curl", "-sI", "-k", "-m", "6"]
+            probe_url = f"{target_base}/{tc['query'].lstrip('/')}" if not tc['query'].startswith("?") else f"{target_base}{tc['query']}"
+            cmd = ["curl", "-sI", "-k", "-m", "10", "-L"]
             if tc["headers"]:
                 cmd.extend(tc["headers"])
+                if not any(h in ["-A", "--user-agent"] for h in tc["headers"]):
+                    cmd.extend(["-A", self.user_agent])
+            else:
+                cmd.extend(["-A", self.user_agent])
             cmd.append(probe_url)
 
             status_code = None
             server_header = ""
-            waf_block_sign = False
+            via_header = ""
+            is_blocked = False
+            is_allowed = False
+            outcome = "UNRESPONSIVE"
+            raw_evidence = ""
 
             try:
-                stdout, _ = await self.run_command(cmd, timeout=8)
-                if stdout:
-                    for line in stdout.splitlines():
-                        if not status_code:
-                            m = re.search(r"HTTP/\S+\s+(\d{3})", line)
-                            if m:
-                                status_code = int(m.group(1))
-                        if line.lower().startswith("server:"):
-                            server_header = line.split(":", 1)[1].strip()
-                        if any(sig in line.lower() for sig in ["cloudflare", "akamaighost", "imperva", "waf", "access denied"]):
-                            waf_block_sign = True
+                stdout, _ = await self.run_command(cmd, timeout=12)
+                raw_evidence = (stdout or "").strip()
+                chain = self.parse_curl_chain(stdout)
+                if chain:
+                    final_hop = chain[-1]
+                    status_code = final_hop["status_code"]
+                    server_header = final_hop.get("server") or ""
+                    via_header = final_hop.get("headers", {}).get("via") or ""
+                    azure_ref = final_hop.get("headers", {}).get("x-azure-ref") or ""
+                    cf_ray = final_hop.get("headers", {}).get("cf-ray") or ""
+
+                    if not server_header:
+                        if azure_ref:
+                            server_header = "Microsoft Azure Front Door / Gateway"
+                        elif cf_ray:
+                            server_header = "Cloudflare Edge"
+                        elif via_header:
+                            server_header = f"Edge Proxy ({via_header})"
+
+                    # Check if ANY hop in the redirect chain returned a WAF block code
+                    block_hops = [h for h in chain if h["status_code"] in (403, 406, 429, 999)]
+                    waf_sign = any(
+                        any(sig in (h.get("headers", {}).get("via", "") + h.get("headers", {}).get("server", "") + h.get("status_line", "")).lower()
+                            for sig in ["cloudflare", "akamaighost", "imperva", "waf", "access denied", "azure-ref"])
+                        for h in chain
+                    )
+
+                    if block_hops:
+                        is_blocked = True
+                        status_code = block_hops[-1]["status_code"]
+                        outcome = f"BLOCKED (HTTP {status_code})"
+                    elif status_code == 403 or (status_code and status_code >= 400 and waf_sign):
+                        is_blocked = True
+                        outcome = f"BLOCKED (HTTP {status_code})"
+                    elif status_code and (status_code == baseline_status or (200 <= status_code < 400)):
+                        is_allowed = True
+                        outcome = f"BYPASSED (HTTP {status_code})"
+                    else:
+                        outcome = f"HTTP {status_code}"
+                else:
+                    outcome = "NO_RESPONSE"
             except Exception as e:
                 logger.debug(f"WAF profile test {tc['id']} error: {e}")
-
-            # Assess whether request was blocked
-            # Typical WAF block statuses: 403, 406, 429, 999, 501
-            is_blocked = False
-            if status_code in (403, 406, 429, 999) and baseline_status != status_code:
-                is_blocked = True
-            elif status_code == 403 or (status_code and status_code >= 400 and waf_block_sign):
-                is_blocked = True
+                outcome = "TIMEOUT"
+                raw_evidence = str(e)
 
             if is_blocked:
                 blocked_count += 1
                 blocked_categories.append(tc["name"])
-            else:
+            elif is_allowed:
                 allowed_count += 1
                 allowed_categories.append(tc["name"])
+            else:
+                unresponsive_count += 1
+                unresponsive_categories.append(tc["name"])
 
             results.append({
                 "category_id": tc["id"],
                 "name": tc["name"],
+                "vector_type": tc["vector_type"],
+                "payload": tc["payload"],
+                "description": tc["description"],
+                "probe_url": probe_url,
                 "status_code": status_code,
                 "blocked": is_blocked,
-                "server": server_header
+                "allowed": is_allowed,
+                "outcome": outcome,
+                "server": server_header,
+                "evidence": raw_evidence[:600]
             })
 
         total = len(test_cases)
@@ -447,14 +566,18 @@ class WafDetectorAgent(BaseAgent):
             "tested_probes_count": total,
             "blocked_count": blocked_count,
             "allowed_count": allowed_count,
+            "unresponsive_count": unresponsive_count,
             "block_rate_percent": block_rate,
             "baseline_status": baseline_status,
+            "baseline_url": baseline_url,
+            "baseline_server": baseline_server,
             "blocked_categories": blocked_categories,
             "allowed_categories": allowed_categories,
+            "unresponsive_categories": unresponsive_categories,
             "detailed_results": results
         }
 
-        # If high-risk attacks like SQLi or Path Traversal are completely allowed, flag alert
+        # Only flag alert if critical attacks genuinely bypassed the WAF
         critical_unblocked = [c for c in ["SQL Injection", "Directory / Path Traversal", "Command Injection (RCE)"] if c in allowed_categories]
         if critical_unblocked:
             await self.create_waf_gap_alert(target, critical_unblocked, profile, url)
@@ -462,25 +585,80 @@ class WafDetectorAgent(BaseAgent):
         return profile
 
     async def create_waf_gap_alert(self, target: str, critical_unblocked: list, profile: dict, url: str):
-        """Create a lead/alert when critical attack vectors are not blocked by the WAF."""
+        """Create a lead/alert when critical attack vectors are not blocked by the WAF with complete test evidence."""
         title = f"WAF Protection Gap: Unblocked Attack Classes on {target}"
         description = f"WAF active but failed to block simulated attack vectors: {', '.join(critical_unblocked)}"
         
+        # Build Markdown Table of all probes
+        table_rows = []
+        for r in profile.get("detailed_results", []):
+            status_str = f"`HTTP {r['status_code']}`" if r.get("status_code") else "`No Response`"
+            server_str = r.get("server") or "Unknown"
+            if r.get("blocked"):
+                badge = f"🛡️ **BLOCKED** ({r.get('outcome')})"
+            elif r.get("allowed"):
+                badge = f"⚠️ **BYPASSED** ({r.get('outcome')})"
+            else:
+                badge = f"⏳ **UNRESPONSIVE**"
+            payload_clean = r.get("payload", "").replace("|", "\\|")
+            table_rows.append(f"| **{r['name']}** | `{r.get('vector_type', 'Param')}` | `{payload_clean}` | {status_str} | {server_str} | {badge} |")
+
+        table_md = (
+            "| Attack Vector | Vector Type | Tested Payload / Vector | Status Code | Edge / Server | Result |\n"
+            "| :--- | :--- | :--- | :--- | :--- | :--- |\n"
+            + "\n".join(table_rows)
+        )
+
+        # Build Deep-Dive section for bypassed vectors
+        bypassed_items = [r for r in profile.get("detailed_results", []) if r.get("allowed")]
+        bypassed_md_list = []
+        for idx, item in enumerate(bypassed_items, 1):
+            evidence_block = f"```http\n{item['evidence']}\n```" if item.get("evidence") else "_No raw HTTP headers recorded_"
+            bypassed_md_list.append(
+                f"#### {idx}. ⚠️ {item['name']} (Bypassed WAF)\n"
+                f"- **Vector Type**: `{item.get('vector_type', 'Parameter')}`\n"
+                f"- **Injected Payload**: `{item.get('payload')}`\n"
+                f"- **Full Target URL**: `{item.get('probe_url')}`\n"
+                f"- **Response Code**: `HTTP {item.get('status_code')}` (Baseline: `HTTP {profile.get('baseline_status')}`)\n"
+                f"- **Edge / Server Identity**: `{item.get('server') or 'Standard Origin Server'}`\n"
+                f"- **Mechanism**: {item.get('description')}\n"
+                f"- **Observed Response Headers / Evidence**:\n{evidence_block}\n"
+            )
+        bypassed_section = "\n".join(bypassed_md_list) if bypassed_md_list else "_None of the tested attack vectors bypassed the WAF._"
+
+        # Build Deep-Dive section for blocked vectors
+        blocked_items = [r for r in profile.get("detailed_results", []) if r.get("blocked")]
+        blocked_md_list = []
+        for item in blocked_items:
+            blocked_md_list.append(
+                f"- 🛡️ **{item['name']}**: Neutralized with `{item.get('outcome')}` by `{item.get('server') or 'WAF Edge'}` (Payload: `{item.get('payload')}`)"
+            )
+        blocked_section = "\n".join(blocked_md_list) if blocked_md_list else "_No attack vectors were blocked by the edge filter._"
+
         details = (
-            f"### WAF Rule Gap Analysis for {url}\n\n"
+            f"### 🛡️ WAF Rule Gap & Bypass Audit for `{url}`\n\n"
+            f"The Web Application Firewall (WAF) was actively audited using industry-standard simulated attack payloads against `{target}`. "
+            f"The inspection engine permitted **{len(critical_unblocked)}** high-severity attack vector(s) to pass through to the origin application server without interception.\n\n"
+            f"- **Target Evaluated**: `{url}`\n"
+            f"- **Canonical Base URL**: `{profile.get('baseline_url', url)}`\n"
+            f"- **Baseline HTTP Status**: `HTTP {profile.get('baseline_status')}`\n"
             f"- **Overall Block Rate**: `{profile['block_rate_percent']}%` ({profile['blocked_count']}/{profile['tested_probes_count']} probes blocked)\n"
-            f"- **Baseline HTTP Status**: `{profile['baseline_status']}`\n\n"
-            f"#### Attack Classes Allowed by WAF:\n"
-            + "\n".join([f"- **{cat}**: Allowed by edge filters" for cat in profile["allowed_categories"]])
-            + f"\n\n#### Attack Classes Blocked:\n"
-            + "\n".join([f"- **{cat}**: Successfully blocked" for cat in profile["blocked_categories"]])
+            f"- **Unblocked / Bypassed Vectors**: `{profile['allowed_count']}`\n"
+            f"- **Unresponsive / Timed Out**: `{profile.get('unresponsive_count', 0)}`\n\n"
+            f"### 📋 Full Probe Test Matrix\n\n"
+            f"{table_md}\n\n"
+            f"### ⚠️ Bypassed Attack Vectors (Evidence of WAF Gap)\n\n"
+            f"{bypassed_section}\n\n"
+            f"### 🛡️ Successfully Blocked Vectors\n\n"
+            f"{blocked_section}\n"
         )
 
         exploitation = (
-            f"### Remediation & WAF Tuning\n\n"
-            f"1. **Enable Strict Managed Rules**: Enable CRS (Core Rule Set) for {', '.join(critical_unblocked)}.\n"
-            f"2. **Verify Detection Mode**: Ensure the WAF rule mode is set to 'Block/Drop' rather than 'Log/Simulate'.\n"
-            f"3. **Custom Firewall Rules**: Deploy path/query filtering for `{target}`."
+            f"### Remediation & WAF Hardening Recommendations\n\n"
+            f"1. **Enable Strict Managed Rules**: Activate Core Rule Set (CRS) or vendor-managed signatures (e.g., Azure Front Door Managed Rules, Cloudflare WAF, AWS WAF CRS) for: **{', '.join(critical_unblocked)}**.\n"
+            f"2. **Verify WAF Action Mode**: Ensure rule sets are set to active **'Block'** or **'Drop'** mode rather than passive 'Count', 'Log', or 'Simulate' mode.\n"
+            f"3. **Payload Normalization & Pre-decoding**: Ensure input strings are URL-decoded and canonicalized prior to regex/signature matching to prevent evasion via percent-encoding.\n"
+            f"4. **Origin Lockdown**: Ensure backend origin IPs do not accept direct connections that bypass the WAF reverse proxy."
         )
 
         await self.create_alert(
@@ -538,6 +716,7 @@ class WafDetectorAgent(BaseAgent):
             for scheme, port in [("https", 443), ("http", 80)]:
                 cmd = [
                     "curl", "-sI", "-k", "-m", "6",
+                    "-A", self.user_agent,
                     "-H", f"Host: {target}",
                     f"{scheme}://{ip}:{port}/"
                 ]
@@ -573,7 +752,7 @@ class WafDetectorAgent(BaseAgent):
                                 "scheme": scheme,
                                 "status_code": status_code,
                                 "server": server_header or "Unknown Web Server",
-                                "curl_command": f"curl -k -H 'Host: {target}' {scheme}://{ip}:{port}/",
+                                "curl_command": f"curl -k -A '{self.user_agent}' -H 'Host: {target}' {scheme}://{ip}:{port}/",
                                 "evidence": f"Responded HTTP {status_code} without {waf_name} edge headers"
                             }
                             origin_findings.append(origin_finding)
@@ -665,7 +844,7 @@ class WafDetectorAgent(BaseAgent):
 
             # Probe baseline headers to extract Edge POP and geographic markers (Enhancement #3)
             try:
-                cmd = ["curl", "-sI", "-k", "-m", "8", resolved_url]
+                cmd = ["curl", "-sI", "-k", "-m", "8", "-A", self.user_agent, resolved_url]
                 stdout, _ = await self.run_command(cmd, timeout=10)
                 if stdout:
                     for line in stdout.splitlines():

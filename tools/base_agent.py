@@ -21,6 +21,10 @@ DB_NAME = "recon_db"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Standard common modern browser user-agent
+COMMON_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = COMMON_USER_AGENT
+
 CHANGE_ALERT_TYPES = {
     "port_scanner_changes",
     "tech_stack_changes",
@@ -32,6 +36,11 @@ class BaseAgent:
         self.agent_key = agent_key
         self.agent_name = agent_name
         self.type = type
+        self.user_agent = COMMON_USER_AGENT
+        self.default_headers = {
+            "User-Agent": COMMON_USER_AGENT,
+            "Accept": "*/*"
+        }
         self.client = AsyncIOMotorClient(MONGO_URI)
         self.db = self.client[DB_NAME]
         self.domains_col = self.db["domains"]

@@ -99,6 +99,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
         # Bounded execution: -t 6 -rate 25 prevents UDP socket exhaustion on host NAT
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{domain}",
+            "-H", f"User-Agent: {self.user_agent}",
             "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "6", "-rate", "25",
             "-timeout", "2", "-maxtime", "180"
         ]
@@ -122,6 +123,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
         logger.info(f"[Recursive ffuf] Brute-forcing FUZZ.{parent_sub}")
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{parent_sub}",
+            "-H", f"User-Agent: {self.user_agent}",
             "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "5", "-rate", "15",
             "-timeout", "2", "-maxtime", "20"
         ]
@@ -156,7 +158,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
         import httpx
         found = set()
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": self.user_agent
         }
 
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
@@ -323,7 +325,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
             if not crt_success:
                 try:
                     stdout, _ = await self.run_command(
-                        ["curl", "-s", "-m", "15", f"https://crt.sh/?q={domain}&output=json"],
+                        ["curl", "-s", "-m", "15", "-A", self.user_agent, f"https://crt.sh/?q={domain}&output=json"],
                         timeout=20
                     )
                     if stdout and "502" not in stdout:

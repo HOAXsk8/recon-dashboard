@@ -44,6 +44,8 @@ app = FastAPI(title="RDash")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+COMMON_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["disable_2fa"] = DISABLE_2FA
 
@@ -5832,7 +5834,7 @@ async def test_shodan_key_endpoint(request: Request, user: dict = Depends(get_cu
     import urllib.error
     url = f"https://api.shodan.io/api-info?key={key}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "RDash/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": COMMON_USER_AGENT})
         loop = asyncio.get_event_loop()
         def _fetch():
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -5869,7 +5871,7 @@ async def test_nvd_key_endpoint(request: Request, user: dict = Depends(get_curre
     import urllib.error
     url = "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1"
     try:
-        req = urllib.request.Request(url, headers={"apiKey": key, "User-Agent": "RDash/1.0"})
+        req = urllib.request.Request(url, headers={"apiKey": key, "User-Agent": COMMON_USER_AGENT})
         loop = asyncio.get_event_loop()
         def _fetch():
             with urllib.request.urlopen(req, timeout=10) as resp:

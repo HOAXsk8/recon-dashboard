@@ -127,6 +127,9 @@ _FUZZ_PAYLOADS: Dict[str, List[str]] = {
 # ===========================================================================
 # Main class
 # ===========================================================================
+COMMON_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
+
 class ApiSchemaDiscovery:
     """
     Automated inspector for REST OpenAPI/Swagger specs, GraphQL schemas,
@@ -136,11 +139,7 @@ class ApiSchemaDiscovery:
     def __init__(self, timeout: float = 6.0):
         self.timeout = timeout
         self.headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": COMMON_USER_AGENT,
             "Accept": "application/json, text/html, */*",
         }
 
