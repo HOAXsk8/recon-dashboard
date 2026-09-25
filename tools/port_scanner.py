@@ -138,14 +138,19 @@ class PortScannerAgent(BaseAgent):
             "nmap", "-sT", "--top-ports", "1000", "-sV",
             "--max-retries", "1",
             "--max-rtt-timeout", "500ms",
-            "--max-rate", "75",
-            "-T3", target, "-oX", "-"
+            "--max-rate", "300",
+            "--host-timeout", "4m",
+            "-T4", target, "-oX", "-"
         ]
 
-        stdout, stderr = await self.run_command(cmd, timeout=600)
-        if stderr:
-            logger.warning(f"Nmap stderr: {stderr}")
-        return stdout
+        try:
+            stdout, stderr = await self.run_command(cmd, timeout=300)
+            if stderr:
+                logger.warning(f"Nmap stderr: {stderr}")
+            return stdout
+        except Exception as e:
+            logger.warning(f"Nmap scan for {target} timed out or failed ({e}); returning empty XML")
+            return "<nmaprun></nmaprun>"
 
     async def scan_cloud_ports(self, host: str, extra_ports: List[int]) -> List[Dict[str, Any]]:
         """

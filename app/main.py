@@ -2409,6 +2409,105 @@ async def get_leads(
         "displayed_count": len(leads)
     }
 
+def is_takeover_lead(lead: dict) -> bool:
+    """Return True if the lead is about a potential subdomain or cloud storage takeover."""
+    if not lead:
+        return False
+    title = (lead.get("title") or "").lower()
+    alert_type = (lead.get("alert_type") or "").lower()
+    return (
+        alert_type in ["dangling_dns_takeover", "subdomain_takeover", "takeover", "cloud_storage_takeover"]
+        or "takeover" in title
+        or "dangling" in title
+    )
+
+async def handle_takeover_status_change(lead: dict, new_status: str):
+    """
+    Synchronize subdomain takeover flags when an alert status changes.
+    When marked as false_positive/benign/muted, removes all red takeover indicators.
+    When reverted back to active, restores the indicators.
+    """
+    target = (lead.get("target") or "").strip()
+    if not target:
+        return
+    target_clean = target.lower()
+
+    if new_status in ["false_positive", "benign", "muted"]:
+        # 1. Clear takeover flags from infrastructure.subdomains
+        await domains_col.update_many(
+            {"infrastructure.subdomains.name": target_clean},
+            {
+                "$set": {
+                    "infrastructure.subdomains.$[elem].dangling_takeover": False,
+                    "infrastructure.subdomains.$[elem].takeover_provider": None,
+                    "infrastructure.subdomains.$[elem].takeover_risk": None,
+                    "infrastructure.subdomains.$[elem].takeover_false_positive": True
+                }
+            },
+            array_filters=[{"elem.name": target_clean}]
+        )
+
+        # 2. Clear takeover flags from root domain if it was set on domain doc
+        await domains_col.update_many(
+            {"domain": target_clean},
+            {
+                "$set": {
+                    "dangling_takeover": False,
+                    "takeover_provider": None,
+                    "takeover_risk": None,
+                    "takeover_false_positive": True
+                }
+            }
+        )
+
+        # 3. Pull dangling takeover detection events from domain history
+        await domains_col.update_many(
+            {},
+            {
+                "$pull": {
+                    "history": {
+                        "event_type": "dangling_takeover_detected",
+                        "target": target_clean
+                    }
+                }
+            }
+        )
+        logger.info(f"[Takeover Sync] Cleared all takeover flags and red indicators for {target_clean} (status={new_status})")
+
+    elif new_status in ["new", "investigating", "true_positive"]:
+        details = lead.get("details") or {}
+        cname = details.get("cname")
+        provider = details.get("provider") or "Unknown Service Provider"
+        risk = details.get("risk") or lead.get("risk_level") or "high"
+
+        await domains_col.update_many(
+            {"infrastructure.subdomains.name": target_clean},
+            {
+                "$set": {
+                    "infrastructure.subdomains.$[elem].dangling_takeover": True,
+                    "infrastructure.subdomains.$[elem].cname": cname,
+                    "infrastructure.subdomains.$[elem].takeover_provider": provider,
+                    "infrastructure.subdomains.$[elem].takeover_risk": risk,
+                    "infrastructure.subdomains.$[elem].takeover_false_positive": False
+                }
+            },
+            array_filters=[{"elem.name": target_clean}]
+        )
+
+        await domains_col.update_many(
+            {"domain": target_clean},
+            {
+                "$set": {
+                    "dangling_takeover": True,
+                    "cname": cname,
+                    "takeover_provider": provider,
+                    "takeover_risk": risk,
+                    "takeover_false_positive": False
+                }
+            }
+        )
+        logger.info(f"[Takeover Reactivation] Restored takeover flags for {target_clean} (status={new_status})")
+
 async def apply_lead_mute(lead: dict, user: dict, request: Request):
     lead_id = lead["_id"]
     fingerprint = lead.get("fingerprint")
@@ -2432,6 +2531,10 @@ async def apply_lead_mute(lead: dict, user: dict, request: Request):
             },
             upsert=True
         )
+
+    # 3. Synchronize takeover indicators if this is a takeover lead
+    if is_takeover_lead(lead):
+        await handle_takeover_status_change(lead, "muted")
     
     await log_audit(user["username"], "MUTE_LEAD", f"Muted/Suppressed lead: {lead['title']} on {lead['target']}", request)
 
@@ -2575,6 +2678,10 @@ async def update_lead_status(lead_id: str, request: Request, status: str = Form(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead ID format")
 
+    lead = await leads_col.find_one({"_id": obj_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
     update_doc = {"status": status}
     if status == "investigating":
         update_doc["investigating_at"] = datetime.utcnow().isoformat()
@@ -2584,8 +2691,7 @@ async def update_lead_status(lead_id: str, request: Request, status: str = Form(
     
     # Reactivate fingerprint suppression if returned back to alerts/new
     if status == "new":
-        lead = await leads_col.find_one({"_id": obj_id})
-        if lead and lead.get("fingerprint"):
+        if lead.get("fingerprint"):
             from app.database import db
             fingerprints_col = db["alert_fingerprints"]
             await fingerprints_col.update_one(
@@ -2595,9 +2701,11 @@ async def update_lead_status(lead_id: str, request: Request, status: str = Form(
     
     # Auto-mute if status is false_positive or benign
     if status in ["false_positive", "benign"]:
-        lead = await leads_col.find_one({"_id": obj_id})
-        if lead:
-            await apply_lead_mute(lead, user, request)
+        await apply_lead_mute(lead, user, request)
+
+    # Synchronize subdomain takeover flags (removes all red takeover icons if false_positive)
+    if is_takeover_lead(lead):
+        await handle_takeover_status_change(lead, status)
             
     return {"status": "success"}
 
@@ -2619,9 +2727,28 @@ async def delete_lead(lead_id: str, request: Request, user: dict = Depends(get_c
         obj_id = ObjectId(lead_id)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid lead ID format")
+
+    lead = await leads_col.find_one({"_id": obj_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
     result = await leads_col.delete_one({"_id": obj_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+    if is_takeover_lead(lead):
+        other_active = await leads_col.count_documents({
+            "_id": {"$ne": obj_id},
+            "target": lead.get("target"),
+            "status": {"$in": ["new", "investigating", "true_positive"]},
+            "$or": [
+                {"alert_type": "dangling_dns_takeover"},
+                {"title": {"$regex": "takeover", "$options": "i"}}
+            ]
+        })
+        if other_active == 0:
+            await handle_takeover_status_change(lead, "false_positive")
+
     await log_audit(user["username"], "DELETE_LEAD", f"Deleted alert {lead_id}", request)
     return {"status": "success", "deleted": True}
 
@@ -2642,8 +2769,27 @@ async def bulk_delete_leads(request: Request, user: dict = Depends(get_current_u
             return {"status": "error", "message": "No IDs provided"}
         query = {"_id": {"$in": ids}}
     
+    cursor = leads_col.find(query)
+    takeover_targets = set()
+    async for lead in cursor:
+        if is_takeover_lead(lead) and lead.get("target"):
+            takeover_targets.add(lead["target"])
+
     count = await leads_col.count_documents(query)
     await leads_col.delete_many(query)
+
+    for target_name in takeover_targets:
+        remaining = await leads_col.count_documents({
+            "target": target_name,
+            "status": {"$in": ["new", "investigating", "true_positive"]},
+            "$or": [
+                {"alert_type": "dangling_dns_takeover"},
+                {"title": {"$regex": "takeover", "$options": "i"}}
+            ]
+        })
+        if remaining == 0:
+            await handle_takeover_status_change({"target": target_name}, "false_positive")
+
     await log_audit(user["username"], "BULK_DELETE_LEADS", f"Deleted {count} alerts", request)
     return {"status": "success", "count": count}
 
@@ -2652,7 +2798,33 @@ async def delete_all_leads(request: Request, user: dict = Depends(get_current_us
     check_analyst(user)
     count = await leads_col.count_documents({})
     await leads_col.delete_many({})
-    await log_audit(user["username"], "DELETE_ALL_LEADS", f"Deleted all {count} alerts", request)
+    # Clear all takeover indicators in domains_col
+    await domains_col.update_many(
+        {"infrastructure.subdomains.dangling_takeover": True},
+        {
+            "$set": {
+                "infrastructure.subdomains.$[elem].dangling_takeover": False,
+                "infrastructure.subdomains.$[elem].takeover_provider": None,
+                "infrastructure.subdomains.$[elem].takeover_risk": None
+            }
+        },
+        array_filters=[{"elem.dangling_takeover": True}]
+    )
+    await domains_col.update_many(
+        {"dangling_takeover": True},
+        {
+            "$set": {
+                "dangling_takeover": False,
+                "takeover_provider": None,
+                "takeover_risk": None
+            }
+        }
+    )
+    await domains_col.update_many(
+        {},
+        {"$pull": {"history": {"event_type": "dangling_takeover_detected"}}}
+    )
+    await log_audit(user["username"], "DELETE_ALL_LEADS", f"Deleted all {count} alerts and cleared takeover indicators", request)
     return {"status": "success"}
 
 @app.post("/api/leads/bulk-status")
@@ -2675,6 +2847,12 @@ async def bulk_status_leads(request: Request, user: dict = Depends(get_current_u
         if not ids:
             return {"status": "error", "message": "No IDs provided"}
         query = {"_id": {"$in": ids}}
+
+    # Sync takeover status for all matching leads
+    cursor = leads_col.find(query)
+    async for lead in cursor:
+        if is_takeover_lead(lead):
+            await handle_takeover_status_change(lead, new_status)
 
     count = await leads_col.count_documents(query)
     await leads_col.update_many(query, {"$set": {"status": new_status}})
@@ -4716,6 +4894,41 @@ async def logs_page(request: Request, user: dict = Depends(get_current_user)):
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return await render_page(request, "logs.html", {}, user)
 
+TASK_TOOL_NAMES = {
+    "scan": "Port Scanner",
+    "port_scan": "Port Scanner",
+    "port_scanner": "Port Scanner",
+    "verification": "Alive Check",
+    "alive_check": "Alive Check",
+    "discovery": "Subdomain Discovery",
+    "subdomain_discovery": "Subdomain Discovery",
+    "tech_fingerprint": "Tech Fingerprinter",
+    "tech_detect": "Tech Fingerprinter",
+    "tech_fingerprinter": "Tech Fingerprinter",
+    "dynamic_js_extract": "Dynamic JS Collector",
+    "dynamic_js_collector": "Dynamic JS Collector",
+    "cloud_storage_audit": "Cloud Storage Auditor",
+    "cloud_storage_auditor": "Cloud Storage Auditor",
+    "waf_detect": "WAF Detector",
+    "waf_detector": "WAF Detector",
+    "lb_detect": "Load Balancer Detector",
+    "lb_detector": "Load Balancer Detector",
+    "osint": "OSINT Collector",
+    "osint_collector": "OSINT Collector",
+    "archive_urls": "Archive Hunter",
+    "archive_hunter": "Archive Hunter",
+    "directory_hunt": "Directory Hunter",
+    "directory_hunter": "Directory Hunter",
+    "bypass_403": "403 Bypasser",
+    "dns_scan": "DNS Scanner",
+    "screenshot": "Screenshot Agent",
+    "screenshot_agent": "Screenshot Agent",
+    "whois": "WHOIS Lookup",
+    "whois_lookup": "WHOIS Lookup",
+    "source_map_unpacker": "Source Map Recovery",
+    "source_code_analyzer": "Source Code Analyzer",
+}
+
 @app.get("/api/tasks")
 async def get_tasks(
     request: Request,
@@ -4744,6 +4957,8 @@ async def get_tasks(
     
     for t in tasks:
         t["_id"] = str(t["_id"])
+        raw_type = t.get("task_type") or t.get("tool") or ""
+        t["tool_name"] = t.get("tool_name") or TASK_TOOL_NAMES.get(raw_type) or (raw_type.replace("_", " ").title() if raw_type else "Task")
         for field in ["created_at", "started_at", "completed_at"]:
             if t.get(field) and isinstance(t[field], datetime):
                 t[field] = t[field].isoformat()

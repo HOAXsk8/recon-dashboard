@@ -582,7 +582,7 @@
                     
                     const isSubdomain = item.subdomain_count === 0 && item.domain.split('.').length > 2;
                     const typeBadge = isSubdomain ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-tech-accent/15 border border-tech-accent/30 text-[8px] text-tech-accent font-bold uppercase tracking-wider">Sub</span>' : '';
-                    const takeoverBadge = item.dangling_takeover ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse inline-flex items-center gap-1" title="Dangling DNS Takeover Identified: ${item.cname || ''} (${item.takeover_provider || ''})">⚠️ TAKEOVER</span>` : '';
+                    const takeoverBadge = (item.dangling_takeover && !item.takeover_false_positive) ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse inline-flex items-center gap-1" title="Dangling DNS Takeover Identified: ${item.cname || ''} (${item.takeover_provider || ''})">⚠️ TAKEOVER</span>` : '';
                     const ptrText = item.ptr ? `<span class="text-slate-500 text-[10px]">(${item.ptr})</span>` : '';
                     const asnBadge = item.asn ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-mono font-semibold" title="${item.as_org || ''} ${item.cidr ? '| ' + item.cidr : ''}">${item.asn}</span>` : '';
 
@@ -1522,10 +1522,10 @@
                                     </thead>
                                     <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
                                         ${subs.map(s => {
-                                            const takeoverFlag = s.dangling_takeover ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse" title="Dangling Takeover: ' + (s.cname || '') + ' (' + (s.takeover_provider || '') + ')">⚠️ TAKEOVER</span>' : '';
+                                            const takeoverFlag = (s.dangling_takeover && !s.takeover_false_positive) ? '<span class="ml-1.5 px-1.5 py-0.5 rounded bg-red-500/20 text-red-500 border border-red-500/40 text-[9px] font-black uppercase tracking-wider font-mono animate-pulse" title="Dangling Takeover: ' + (s.cname || '') + ' (' + (s.takeover_provider || '') + ')">⚠️ TAKEOVER</span>' : '';
                                             const ptrStr = s.ptr ? '<span class="text-slate-400 text-[10px] block font-mono">' + s.ptr + '</span>' : '';
                                             const asnStr = s.asn ? '<span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-mono">' + s.asn + (s.as_org ? ' (' + s.as_org.substring(0, 15) + ')' : '') + '</span>' : '<span class="text-slate-500 font-mono text-xs">N/A</span>';
-                                            const statusBadge = s.alive ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">Alive</span>' : (s.dangling_takeover ? '<span class="px-2 py-0.5 rounded bg-red-500/20 text-red-500 text-[10px] font-black uppercase animate-pulse">Dangling</span>' : '<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 text-[10px] font-bold uppercase">Unresponsive</span>');
+                                            const statusBadge = s.alive ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">Alive</span>' : ((s.dangling_takeover && !s.takeover_false_positive) ? '<span class="px-2 py-0.5 rounded bg-red-500/20 text-red-500 text-[10px] font-black uppercase animate-pulse">Dangling</span>' : '<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 text-[10px] font-bold uppercase">Unresponsive</span>');
                                             return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                                                 <td class="py-2.5 px-2 font-mono text-tech-accent cursor-pointer hover:underline" onclick="showDomainMenu(event, '${s.name}')">
                                                     <div class="flex items-center flex-wrap gap-1"><span>${s.name}</span>${takeoverFlag}</div>
@@ -5685,7 +5685,7 @@
                 const isPrimary = item.isPrimary;
 
                 const isAlive = (sSub && typeof sSub === 'object') ? Boolean(sSub.alive) : true;
-                const isTakeover = Boolean(sSub && (sSub.dangling_takeover || (sSub.takeover_provider && String(sSub.takeover_provider).length > 0)));
+                const isTakeover = Boolean(sSub && sSub.dangling_takeover === true && !sSub.takeover_false_positive);
                 const sWaf = getTargetWaf(sName, sSub, data);
                 const sLb = getTargetLb(sName, sSub, data);
 
@@ -5982,7 +5982,7 @@
                 const { sub, subName } = item;
                 const subId = `sub_${subName}`;
                 const isAlive = (typeof sub === 'object') ? Boolean(sub.alive) : true;
-                const isTakeover = Boolean(sub && (sub.dangling_takeover || (sub.takeover_provider && String(sub.takeover_provider).length > 0)));
+                const isTakeover = Boolean(sub && sub.dangling_takeover === true && !sub.takeover_false_positive);
                 const sWaf = getTargetWaf(subName, sub, data);
                 const sLb = getTargetLb(subName, sub, data);
 

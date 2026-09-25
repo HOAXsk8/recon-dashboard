@@ -135,15 +135,17 @@
                 <option value="discovery">Subdomain Discovery</option>
                 <option value="verification">Alive Check</option>
                 <option value="scan">Port Scanner</option>
-                <option value="tech_fingerprint">Tech Fingerprint</option>
+                <option value="tech_fingerprint">Tech Fingerprinter</option>
                 <option value="dynamic_js_extract">Dynamic JS Collector</option>
                 <option value="cloud_storage_audit">Cloud Storage Auditor</option>
                 <option value="waf_detect">WAF Detector</option>
                 <option value="lb_detect">Load Balancer Detector</option>
                 <option value="osint">OSINT Collector</option>
                 <option value="archive_urls">Archive Hunter</option>
-                <option value="directory_hunt">Directory Hunt</option>
+                <option value="directory_hunt">Directory Hunter</option>
                 <option value="bypass_403">403 Bypasser</option>
+                <option value="screenshot">Screenshot Agent</option>
+                <option value="whois_lookup">WHOIS Lookup</option>
             </select>
         </div>
         <div class="space-y-1.5">
@@ -340,6 +342,79 @@
             return;
         }
 
+    const TOOL_META = {
+        'scan': { name: 'Port Scanner', dot: 'bg-amber-400', shadow: 'rgba(251,191,36,0.5)', text: 'text-amber-300' },
+        'port_scan': { name: 'Port Scanner', dot: 'bg-amber-400', shadow: 'rgba(251,191,36,0.5)', text: 'text-amber-300' },
+        'port_scanner': { name: 'Port Scanner', dot: 'bg-amber-400', shadow: 'rgba(251,191,36,0.5)', text: 'text-amber-300' },
+        'verification': { name: 'Alive Check', dot: 'bg-emerald-400', shadow: 'rgba(52,211,153,0.5)', text: 'text-emerald-300' },
+        'alive_check': { name: 'Alive Check', dot: 'bg-emerald-400', shadow: 'rgba(52,211,153,0.5)', text: 'text-emerald-300' },
+        'discovery': { name: 'Subdomain Discovery', dot: 'bg-sky-400', shadow: 'rgba(56,189,248,0.5)', text: 'text-sky-300' },
+        'subdomain_discovery': { name: 'Subdomain Discovery', dot: 'bg-sky-400', shadow: 'rgba(56,189,248,0.5)', text: 'text-sky-300' },
+        'tech_fingerprint': { name: 'Tech Fingerprinter', dot: 'bg-indigo-400', shadow: 'rgba(129,140,248,0.5)', text: 'text-indigo-300' },
+        'tech_detect': { name: 'Tech Fingerprinter', dot: 'bg-indigo-400', shadow: 'rgba(129,140,248,0.5)', text: 'text-indigo-300' },
+        'tech_fingerprinter': { name: 'Tech Fingerprinter', dot: 'bg-indigo-400', shadow: 'rgba(129,140,248,0.5)', text: 'text-indigo-300' },
+        'dynamic_js_extract': { name: 'Dynamic JS Collector', dot: 'bg-yellow-400', shadow: 'rgba(250,204,21,0.5)', text: 'text-yellow-300' },
+        'dynamic_js_collector': { name: 'Dynamic JS Collector', dot: 'bg-yellow-400', shadow: 'rgba(250,204,21,0.5)', text: 'text-yellow-300' },
+        'cloud_storage_audit': { name: 'Cloud Storage Auditor', dot: 'bg-teal-400', shadow: 'rgba(45,212,191,0.5)', text: 'text-teal-300' },
+        'cloud_storage_auditor': { name: 'Cloud Storage Auditor', dot: 'bg-teal-400', shadow: 'rgba(45,212,191,0.5)', text: 'text-teal-300' },
+        'waf_detect': { name: 'WAF Detector', dot: 'bg-rose-400', shadow: 'rgba(251,113,133,0.5)', text: 'text-rose-300' },
+        'waf_detector': { name: 'WAF Detector', dot: 'bg-rose-400', shadow: 'rgba(251,113,133,0.5)', text: 'text-rose-300' },
+        'lb_detect': { name: 'Load Balancer Detector', dot: 'bg-cyan-400', shadow: 'rgba(34,211,238,0.5)', text: 'text-cyan-300' },
+        'lb_detector': { name: 'Load Balancer Detector', dot: 'bg-cyan-400', shadow: 'rgba(34,211,238,0.5)', text: 'text-cyan-300' },
+        'osint': { name: 'OSINT Collector', dot: 'bg-violet-400', shadow: 'rgba(167,139,250,0.5)', text: 'text-violet-300' },
+        'osint_collector': { name: 'OSINT Collector', dot: 'bg-violet-400', shadow: 'rgba(167,139,250,0.5)', text: 'text-violet-300' },
+        'archive_urls': { name: 'Archive Hunter', dot: 'bg-fuchsia-400', shadow: 'rgba(232,121,249,0.5)', text: 'text-fuchsia-300' },
+        'archive_hunter': { name: 'Archive Hunter', dot: 'bg-fuchsia-400', shadow: 'rgba(232,121,249,0.5)', text: 'text-fuchsia-300' },
+        'directory_hunt': { name: 'Directory Hunter', dot: 'bg-orange-400', shadow: 'rgba(251,146,60,0.5)', text: 'text-orange-300' },
+        'directory_hunter': { name: 'Directory Hunter', dot: 'bg-orange-400', shadow: 'rgba(251,146,60,0.5)', text: 'text-orange-300' },
+        'bypass_403': { name: '403 Bypasser', dot: 'bg-red-400', shadow: 'rgba(248,113,113,0.5)', text: 'text-red-300' },
+        'screenshot': { name: 'Screenshot Agent', dot: 'bg-pink-400', shadow: 'rgba(244,114,182,0.5)', text: 'text-pink-300' },
+        'screenshot_agent': { name: 'Screenshot Agent', dot: 'bg-pink-400', shadow: 'rgba(244,114,182,0.5)', text: 'text-pink-300' },
+        'whois': { name: 'WHOIS Lookup', dot: 'bg-blue-400', shadow: 'rgba(96,165,250,0.5)', text: 'text-blue-300' },
+        'whois_lookup': { name: 'WHOIS Lookup', dot: 'bg-blue-400', shadow: 'rgba(96,165,250,0.5)', text: 'text-blue-300' },
+        'dns_scan': { name: 'DNS Scanner', dot: 'bg-lime-400', shadow: 'rgba(163,230,53,0.5)', text: 'text-lime-300' },
+        'source_map_unpacker': { name: 'Source Map Recovery', dot: 'bg-purple-400', shadow: 'rgba(192,132,252,0.5)', text: 'text-purple-300' },
+        'source_code_analyzer': { name: 'Source Code Analyzer', dot: 'bg-emerald-400', shadow: 'rgba(52,211,153,0.5)', text: 'text-emerald-300' },
+        'loop_orchestrator': { name: 'Loop Orchestrator', dot: 'bg-tech-accent', shadow: 'rgba(56,189,248,0.5)', text: 'text-tech-accent' }
+    };
+
+    function getToolMeta(task) {
+        const rawKey = (task.task_type || task.tool || '').toLowerCase();
+        const meta = TOOL_META[rawKey];
+        if (meta) {
+            return meta;
+        }
+        if (task.tool_name && task.tool_name !== 'TASK' && task.tool_name !== 'Task') {
+            return {
+                name: task.tool_name,
+                dot: 'bg-tech-accent',
+                shadow: 'rgba(56,189,248,0.5)',
+                text: 'text-slate-200'
+            };
+        }
+        const formatted = rawKey ? rawKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'System Task';
+        return {
+            name: formatted,
+            dot: 'bg-tech-accent',
+            shadow: 'rgba(56,189,248,0.5)',
+            text: 'text-slate-200'
+        };
+    }
+
+    function renderTasks(tasks) {
+        const container = document.getElementById('logs-container');
+        if (!container) return;
+        if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
+            container.innerHTML = `
+                <tr>
+                    <td colspan="5" class="px-6 py-20 text-center text-slate-600 font-mono text-[10px] uppercase tracking-widest">
+                        No tasks matching the current filters.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
         container.innerHTML = tasks.map(t => {
             let statusBadge = '';
             switch(t.status) {
@@ -356,7 +431,8 @@
                     statusBadge = '<span class="px-2.5 py-1 bg-slate-800 text-slate-500 rounded-lg text-[9px] font-black uppercase border border-slate-700">Pending</span>';
             }
 
-            const toolName = (t.task_type || 'TASK').replace(/_/g, ' ').toUpperCase();
+            const toolMeta = getToolMeta(t);
+            const toolName = toolMeta.name;
             const started = t.started_at ? new Date(t.started_at).toLocaleTimeString() : '--:--:--';
             const finished = t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : (t.status === 'processing' ? 'ACTIVE' : '--:--:--');
             
@@ -364,9 +440,33 @@
             if (t.error) {
                 details = `<span class="text-tech-danger truncate max-w-xs inline-block" title="${t.error}">${t.error}</span>`;
             } else if (t.status === 'completed') {
-                if (t.task_type === 'scan') details = 'Ports analyzed';
-                else if (t.task_type === 'verification') details = t.alive ? 'Target ALIVE' : 'Target DEAD';
-                else details = 'Task successful';
+                const type = (t.task_type || t.tool || '').toLowerCase();
+                if (type === 'scan' || type === 'port_scanner' || type === 'port_scan') {
+                    const openCount = Array.isArray(t.open_ports) ? t.open_ports.length : (t.open_ports || 0);
+                    details = openCount ? `<span class="text-amber-400 font-bold">${openCount} ports open</span>` : 'Ports analyzed';
+                } else if (type === 'verification' || type === 'alive_check') {
+                    details = t.alive ? '<span class="text-tech-success font-bold">Target ALIVE</span>' : '<span class="text-slate-500">Target DEAD</span>';
+                } else if (type === 'discovery' || type === 'subdomain_discovery') {
+                    details = t.subdomains_found !== undefined ? `<span class="text-sky-400 font-bold">${t.subdomains_found} subdomains</span>` : 'Subdomains discovered';
+                } else if (type === 'directory_hunt' || type === 'directory_hunter') {
+                    details = t.paths_found !== undefined ? `<span class="text-orange-400 font-bold">${t.paths_found} paths</span>` : 'Directories crawled';
+                } else if (type === 'archive_urls' || type === 'archive_hunter') {
+                    details = t.urls_found !== undefined ? `<span class="text-fuchsia-400 font-bold">${t.urls_found} URLs</span>` : 'Archive URLs scraped';
+                } else if (type === 'waf_detect' || type === 'waf_detector') {
+                    details = t.waf_detected ? `<span class="text-rose-400 font-bold">WAF: ${t.waf_detected}</span>` : 'WAF analyzed';
+                } else if (type === 'lb_detect' || type === 'lb_detector') {
+                    details = t.lb_detected ? `<span class="text-cyan-400 font-bold">LB: ${t.lb_detected}</span>` : 'LB analyzed';
+                } else if (type === 'cloud_storage_audit' || type === 'cloud_storage_auditor') {
+                    details = t.buckets_found !== undefined ? `<span class="text-teal-400 font-bold">${t.buckets_found} buckets</span>` : 'Storage audited';
+                } else if (type === 'tech_fingerprint' || type === 'tech_fingerprinter') {
+                    details = t.technologies_count !== undefined ? `<span class="text-indigo-400 font-bold">${t.technologies_count} techs</span>` : 'Tech fingerprinted';
+                } else if (type === 'dynamic_js_extract' || type === 'dynamic_js_collector') {
+                    details = t.endpoints_found !== undefined ? `<span class="text-yellow-400 font-bold">${t.endpoints_found} endpoints</span>` : 'JS analyzed';
+                } else if (type === 'bypass_403') {
+                    details = t.bypassed ? '<span class="text-amber-400 font-bold">403 Bypassed</span>' : '403 tested';
+                } else {
+                    details = t.summary || t.result_summary || 'Task successful';
+                }
             } else if (t.status === 'processing') {
                 details = '<span class="text-tech-accent italic">Working...</span>';
             }
@@ -375,8 +475,8 @@
                 <tr class="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors group">
                     <td class="px-6 py-4">
                         <div class="flex items-center space-x-3">
-                            <div class="w-2 h-2 rounded-full bg-tech-accent shadow-[0_0_8px_rgba(56,189,248,0.4)]"></div>
-                            <span class="text-xs font-black text-slate-300 tracking-tight">${toolName}</span>
+                            <div class="w-2.5 h-2.5 rounded-full ${toolMeta.dot} shadow-[0_0_8px_${toolMeta.shadow}]"></div>
+                            <span class="text-xs font-black ${toolMeta.text} tracking-tight">${toolName}</span>
                         </div>
                     </td>
                     <td class="px-6 py-4">

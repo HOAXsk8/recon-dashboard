@@ -160,26 +160,104 @@ class SubdomainDiscoveryAgent(BaseAgent):
         }
 
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
-            # 1. CertSpotter (Free public CT issuances)
+            # 1. Subdomain Center (Free, fast public subdomain lookup)
             try:
-                cs_url = f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names"
-                resp = await client.get(cs_url)
+                sc_url = f"https://api.subdomain.center/?domain={domain}"
+                resp = await client.get(sc_url, timeout=12.0)
                 if resp.status_code == 200:
-                    for item in resp.json():
+                    subs = resp.json()
+                    if isinstance(subs, list):
+                        for s in subs:
+                            clean = str(s).strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                logger.info(f"[Free Sources - Subdomain Center] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[Subdomain Center] Error querying {domain}: {e}")
+
+            # 2. AlienVault OTX URL List (Unthrottled public indicator endpoint)
+            try:
+                av_url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list?limit=500"
+                resp = await client.get(av_url, timeout=12.0)
+                if resp.status_code == 200:
+                    av_data = resp.json()
+                    for u in av_data.get("url_list", []):
+                        h = u.get("hostname", "").strip().lower().lstrip("*.")
+                        if h and self.is_in_scope(h, domain):
+                            found.add(h)
+                logger.info(f"[Free Sources - AlienVault OTX] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[AlienVault OTX] Error querying {domain}: {e}")
+
+            # 3. CertSpotter (Free public CT issuances with pagination and rate pacing)
+            try:
+                after_id = None
+                for _ in range(8):
+                    cs_url = f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names"
+                    if after_id:
+                        cs_url += f"&after={after_id}"
+                    resp = await client.get(cs_url)
+                    if resp.status_code == 429:
+                        break
+                    if resp.status_code != 200:
+                        break
+                    items = resp.json()
+                    if not isinstance(items, list) or not items:
+                        break
+                    for item in items:
                         for name in item.get("dns_names", []):
                             clean = name.strip().lower().lstrip("*.")
                             if clean and self.is_in_scope(clean, domain):
                                 found.add(clean)
+                    after_id = items[-1].get("id")
+                    if len(items) < 100:
+                        break
+                    await asyncio.sleep(0.6)
                 logger.info(f"[Free Sources - CertSpotter] Total unique subdomains so far: {len(found)}")
             except Exception as e:
                 logger.debug(f"[CertSpotter] Error querying {domain}: {e}")
 
-            # 2. RapidDNS (Free historical DNS)
+            # 4. URLScan.io (Free public scan index)
             try:
-                rd_url = f"https://rapiddns.io/s/{domain}?same_sub=1"
-                resp = await client.get(rd_url)
+                us_url = f"https://urlscan.io/api/v1/search/?q=domain:{domain}&size=100"
+                resp = await client.get(us_url)
                 if resp.status_code == 200:
-                    for match in re.findall(rf"([a-zA-Z0-9_\-\.]+\.{re.escape(domain)})", resp.text):
+                    data = resp.json()
+                    for r in data.get("results", []):
+                        page_domain = r.get("page", {}).get("domain", "")
+                        clean = page_domain.strip().lower().lstrip("*.")
+                        if clean and self.is_in_scope(clean, domain):
+                            found.add(clean)
+                logger.info(f"[Free Sources - URLScan] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[URLScan] Error querying {domain}: {e}")
+
+            # 5. Anubis / JLDC
+            try:
+                an_url = f"https://jldc.me/anubis/subdomains/{domain}"
+                resp = await client.get(an_url)
+                if resp.status_code == 200:
+                    names = resp.json()
+                    if isinstance(names, list):
+                        for name in names:
+                            clean = str(name).strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                logger.info(f"[Free Sources - Anubis] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[Anubis] Error querying {domain}: {e}")
+
+            # 4. RapidDNS (Free historical DNS with multi-page support)
+            try:
+                for p in range(1, 5):
+                    rd_url = f"https://rapiddns.io/s/{domain}?page={p}&same_sub=1"
+                    resp = await client.get(rd_url)
+                    if resp.status_code != 200:
+                        break
+                    matches = set(re.findall(rf"([a-zA-Z0-9_\-\.]+\.{re.escape(domain)})", resp.text))
+                    if not matches:
+                        break
+                    for match in matches:
                         clean = match.strip().lower().lstrip("*.")
                         if clean and self.is_in_scope(clean, domain):
                             found.add(clean)
@@ -187,7 +265,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
             except Exception as e:
                 logger.debug(f"[RapidDNS] Error querying {domain}: {e}")
 
-            # 3. HackerTarget (Free host search)
+            # 5. HackerTarget (Free host search)
             try:
                 ht_url = f"https://api.hackertarget.com/hostsearch/?q={domain}"
                 resp = await client.get(ht_url)
@@ -202,22 +280,20 @@ class SubdomainDiscoveryAgent(BaseAgent):
             except Exception as e:
                 logger.debug(f"[HackerTarget] Error querying {domain}: {e}")
 
-            # 4. crt.sh (Certificate Transparency logs)
+            # 6. crt.sh (Certificate Transparency logs)
             crt_success = False
             for q in (domain, f"%.{domain}"):
                 try:
-                    crt_url = f"https://crt.sh/?q={q}&output=json"
-                    resp = await client.get(crt_url)
-                    if resp.status_code == 200:
+                    crt_url = f"https://crt.sh/?q={q}&exclude=expired&output=json"
+                    resp = await client.get(crt_url, timeout=12.0)
+                    if resp.status_code == 200 and "502" not in resp.text[:100]:
                         certs = resp.json()
                         for cert in certs:
-                            # Extract common_name
                             cn = cert.get("common_name", "")
                             if cn:
                                 clean_cn = cn.strip().lower().lstrip("*.")
                                 if clean_cn and self.is_in_scope(clean_cn, domain):
                                     found.add(clean_cn)
-                            # Extract name_value (can contain multiple SANs separated by newlines)
                             nv = cert.get("name_value", "")
                             if nv:
                                 for name in nv.splitlines():
@@ -225,10 +301,25 @@ class SubdomainDiscoveryAgent(BaseAgent):
                                     if clean_name and self.is_in_scope(clean_name, domain):
                                         found.add(clean_name)
                         crt_success = True
+                        break
                 except Exception as ce:
-                    logger.debug(f"[crt.sh] Error querying {q}: {ce}")
+                    logger.debug(f"[crt.sh JSON] Error querying {q}: {ce}")
 
-            # If httpx crt.sh query failed or returned 502, run curl fallback
+            # If JSON crt.sh query failed, scrape HTML table from crt.sh
+            if not crt_success:
+                try:
+                    html_resp = await client.get(f"https://crt.sh/?q={domain}", timeout=15.0)
+                    if html_resp.status_code == 200 and "502" not in html_resp.text[:100]:
+                        matches = set(re.findall(rf"([a-zA-Z0-9_\-\.]+\.{re.escape(domain)})", html_resp.text))
+                        for m in matches:
+                            clean = m.strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                        crt_success = True
+                except Exception as he:
+                    logger.debug(f"[crt.sh HTML] Error: {he}")
+
+            # Curl fallback as last resort
             if not crt_success:
                 try:
                     stdout, _ = await self.run_command(
@@ -267,18 +358,22 @@ class SubdomainDiscoveryAgent(BaseAgent):
         """
         import dns.asyncresolver
         import dns.exception
+        import collections
 
-        # Extract unique single-label prefixes from found subdomains (e.g. "api" from "api.target.com")
-        labels = set()
+        # Extract top 25 most frequent single-label prefixes from found subdomains
+        label_counts = collections.Counter()
         for sub in found_subdomains:
             parts = sub.replace(f".{root_domain}", "").split(".")
             for part in parts:
-                if part and len(part) >= 2:
-                    labels.add(part.lower())
+                clean_p = part.strip().lower()
+                if clean_p and 2 <= len(clean_p) <= 15 and clean_p.isalnum():
+                    label_counts[clean_p] += 1
+
+        top_labels = [label for label, _ in label_counts.most_common(25)]
 
         # Generate candidates
         candidates = set()
-        for label in labels:
+        for label in top_labels:
             for prefix in PERM_PREFIXES:
                 candidates.add(f"{prefix}.{root_domain}")
                 candidates.add(f"{prefix}-{label}.{root_domain}")
@@ -296,8 +391,8 @@ class SubdomainDiscoveryAgent(BaseAgent):
         resolver.lifetime = 2.5
 
         resolved = set()
-        batch_size = 15
-        sem = asyncio.Semaphore(15)
+        batch_size = 40
+        sem = asyncio.Semaphore(40)
 
         async def resolve_candidate(name: str):
             async with sem:
@@ -315,10 +410,51 @@ class SubdomainDiscoveryAgent(BaseAgent):
                 if r and self.is_in_scope(r, root_domain):
                     resolved.add(r)
             if i + batch_size < len(candidate_list):
-                await asyncio.sleep(0.04)
+                await asyncio.sleep(0.02)
 
         logger.info(f"[Permutations] Resolved {len(resolved)} live candidates from {len(candidates)} generated for {root_domain}")
         return resolved
+
+    async def _queue_subdomains(self, targets, root_domain: str):
+        """Helper to deduplicate, scope-check, and queue discovered subdomains for alive verification."""
+        d_curr = await self.domains_col.find_one({"domain": root_domain}, {"infrastructure.subdomains": 1})
+        already_scanned_set = set()
+        if d_curr and d_curr.get("infrastructure", {}).get("subdomains"):
+            for s in d_curr["infrastructure"]["subdomains"]:
+                if isinstance(s, dict):
+                    if s.get("alive") is True and (s.get("scanned", False) or bool(s.get("last_scanned"))):
+                        already_scanned_set.add(s.get("name", "").strip().lower())
+
+        queued_count = 0
+        for sub in targets:
+            clean_sub = sub.strip().lower().rstrip(".")
+            if not clean_sub or not self.is_in_scope(clean_sub, root_domain):
+                continue
+            if clean_sub in already_scanned_set:
+                continue
+
+            exists = await self.tasks_col.find_one({
+                "root_domain": root_domain,
+                "target": clean_sub,
+                "task_type": "verification"
+            })
+            if not exists:
+                await self.tasks_col.insert_one({
+                    "root_domain": root_domain,
+                    "target": clean_sub,
+                    "task_type": "verification",
+                    "status": "pending",
+                    "created_at": datetime.datetime.utcnow()
+                })
+                queued_count += 1
+            elif exists.get("status") in ["failed", "cancelled"] or (exists.get("status") == "completed" and exists.get("alive") is not True):
+                await self.tasks_col.update_one(
+                    {"_id": exists["_id"]},
+                    {"$set": {"status": "pending", "error": None, "completed_at": None}}
+                )
+                queued_count += 1
+        logger.info(f"Queued {queued_count} targets for verification under {root_domain}")
+        return queued_count
 
     async def process_tasks(self):
         # 1. Check for new domains that need discovery
@@ -385,56 +521,25 @@ class SubdomainDiscoveryAgent(BaseAgent):
                 f"{len(ct_results)} CT logs"
             )
 
+            # Immediately queue passive discovery results so alive verification starts concurrently
+            await self._queue_subdomains(passive, root_domain)
+
             # Active: Run bounded ffuf only if no wildcard is detected
             active = []
             if not wildcard_check:
                 active = await self.run_ffuf(target)
+                if active:
+                    await self._queue_subdomains(active, root_domain)
 
             # Permutation engine — uses the combined passive+active results as seed
             perm_results = await self.run_permutations(root_domain, passive + active)
+            if perm_results:
+                await self._queue_subdomains(list(perm_results), root_domain)
 
             raw_found = set(passive + active) | perm_results
             raw_found.add(target)
             raw_found.add(root_domain)
-
-            # Strict scope enforcement: only include targets that strictly belong to root_domain
-            all_found = set()
-            for sub in raw_found:
-                cleaned_sub = sub.strip().lower().rstrip(".")
-                if self.is_in_scope(cleaned_sub, root_domain):
-                    all_found.add(cleaned_sub)
-                else:
-                    logger.warning(f"Discarding out-of-scope subdomain discovery result: {sub} for {root_domain}")
-
-
-            # Fetch already scanned subdomains so each subdomain is strictly scanned once
-            d_curr = await self.domains_col.find_one({"domain": root_domain}, {"infrastructure.subdomains": 1})
-            already_scanned_set = set()
-            if d_curr and d_curr.get("infrastructure", {}).get("subdomains"):
-                for s in d_curr["infrastructure"]["subdomains"]:
-                    if isinstance(s, dict):
-                        if s.get("scanned", False) or bool(s.get("last_scanned")):
-                            already_scanned_set.add(s.get("name", "").strip().lower())
-
-            for sub in all_found:
-                clean_target = sub.strip().lower()
-                if clean_target in already_scanned_set:
-                    continue
-
-                # Add to verification queue
-                exists = await self.tasks_col.find_one({
-                    "root_domain": root_domain,
-                    "target": sub,
-                    "task_type": "verification"
-                })
-                if not exists:
-                    await self.tasks_col.insert_one({
-                        "root_domain": root_domain,
-                        "target": sub,
-                        "task_type": "verification",
-                        "status": "pending",
-                        "created_at": datetime.datetime.utcnow()
-                    })
+            await self._queue_subdomains(list(raw_found), root_domain)
 
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},
@@ -442,7 +547,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
             )
             await self.check_completion(root_domain)
 
-            logger.info(f"Completed discovery for {target} (Found {len(all_found)} in-scope targets)")
+            logger.info(f"Completed discovery for {target} (Found {len(raw_found)} in-scope targets)")
 
         except Exception as e:
             logger.error(f"Error in discovery for {target}: {e}")

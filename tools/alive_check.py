@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import hashlib
 import logging
 import os
 import re
@@ -446,24 +447,29 @@ class AliveCheckAgent(BaseAgent):
         ip = await self.get_ip(random_sub)
         return ip
 
-    async def _check_single_port(self, target, port, timeout=3.0):
+    async def _check_single_port(self, target, port, timeout=3.0, target_ip=None):
+        # Prefer connecting to resolved target_ip directly to bypass IPv6 routing blackholes
+        host = target_ip if target_ip else target
         try:
-            conn = asyncio.open_connection(target, port)
+            conn = asyncio.open_connection(host, port)
             _, writer = await asyncio.wait_for(conn, timeout=timeout)
-            writer.close()
-            await writer.wait_closed()
+            try:
+                writer.close()
+                await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
+            except Exception:
+                pass
             return True
         except Exception:
             return False
 
-    async def is_alive(self, target):
+    async def is_alive(self, target, target_ip=None):
         """
-        Verify if a target is alive using tiered port checking.
-        Checks primary web ports (80, 443) first to short-circuit in milliseconds
-        without flooding local sockets.
+        Verify if a target is alive using tiered port checking with HTTP/HTTPS fallback.
+        Checks primary web ports (80, 443) first, using direct IPv4 connect when available.
         """
+        # Tier 1: Primary web ports (80, 443)
         tier1_ports = [80, 443]
-        tasks1 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5)) for p in tier1_ports]
+        tasks1 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5, target_ip=target_ip)) for p in tier1_ports]
         try:
             for coro in asyncio.as_completed(tasks1):
                 if await coro:
@@ -476,9 +482,25 @@ class AliveCheckAgent(BaseAgent):
                 if not t.done():
                     t.cancel()
 
+        # HTTP/HTTPS probe fallback via httpx (handles HTTP redirects, CloudFront, Fastly, WAFs)
+        # Using local_address="0.0.0.0" forces IPv4 and prevents IPv6 routing timeouts
+        try:
+            import httpx
+            transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", verify=False)
+            async with httpx.AsyncClient(transport=transport, timeout=3.0, follow_redirects=False) as client:
+                for scheme in ("https", "http"):
+                    try:
+                        r = await client.head(f"{scheme}://{target}", headers={"Host": target, "User-Agent": "Mozilla/5.0"})
+                        if r.status_code is not None and r.status_code > 0:
+                            return True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         # Tier 2: Common alternate web ports
         tier2_ports = [8080, 8443, 8000, 8888]
-        tasks2 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5)) for p in tier2_ports]
+        tasks2 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5, target_ip=target_ip)) for p in tier2_ports]
         try:
             for coro in asyncio.as_completed(tasks2):
                 if await coro:
@@ -493,7 +515,7 @@ class AliveCheckAgent(BaseAgent):
 
         # Tier 3: Other auxiliary services
         tier3_ports = [22, 21, 25, 53, 3389, 8081, 8088, 3000, 5000, 9000]
-        tasks3 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.0)) for p in tier3_ports]
+        tasks3 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.0, target_ip=target_ip)) for p in tier3_ports]
         try:
             for coro in asyncio.as_completed(tasks3):
                 if await coro:
@@ -508,9 +530,7 @@ class AliveCheckAgent(BaseAgent):
 
         return False
 
-    async def process_tasks(self):
-        task = await self.get_next_task("verification")
-
+    async def process_single_task(self, task):
         if not task:
             return
 
@@ -534,7 +554,7 @@ class AliveCheckAgent(BaseAgent):
                 logger.info(f"Target {target} matches wildcard IP {wildcard_ip}. Requiring open port.")
 
             # 2. Parallel alive check across common ports
-            alive = await self.is_alive(target)
+            alive = await self.is_alive(target, target_ip=target_ip)
 
             # If it's a potential FP and no ports are open, mark as not alive
             if is_potential_fp and not alive:
@@ -584,27 +604,59 @@ class AliveCheckAgent(BaseAgent):
 
             # 4. Autonomous Subdomain Takeover & Dangling DNS check
             takeover_res = None
+            is_takeover_suppressed = False
             try:
                 takeover_res = await self.takeover_detector.audit_subdomain_takeover(target)
                 if takeover_res:
-                    logger.warning(f"DANGLING DNS / TAKEOVER DETECTED on {target} -> {takeover_res.get('cname')} ({takeover_res.get('provider')})")
-                    await self.create_alert(
-                        title=f"Subdomain Takeover Risk: Dangling CNAME on {target}",
-                        description=(
-                            f"The subdomain {target} points via CNAME to {takeover_res.get('cname')} ({takeover_res.get('provider')}). "
-                            f"The canonical service appears unallocated or de-provisioned (Evidence: {takeover_res.get('fingerprint')}), "
-                            f"allowing an adversary to claim the resource and hijack the domain."
-                        ),
-                        target=target,
-                        risk_level=takeover_res.get("risk", "high"),
-                        details=takeover_res,
-                        exploitation_suggestions=[
-                            f"Attempt to claim/register the {takeover_res.get('provider')} resource ({takeover_res.get('cname')}) in your cloud account to verify ownership.",
-                            f"If the service was decommissioned, remove the dangling CNAME DNS record for {target} immediately.",
-                            "Audit DNS zones for other dangling aliases pointing to obsolete cloud services."
-                        ],
-                        alert_type="dangling_dns_takeover"
-                    )
+                    # Check if takeover on this target was marked as False Positive, muted, or suppressed
+                    fp_title = f"Subdomain Takeover Risk: Dangling CNAME on {target}"
+                    fp_hash = hashlib.sha256(f"{target}|{fp_title}".encode()).hexdigest()
+                    suppressed_fp = await self.fingerprints_col.find_one({"fingerprint": fp_hash, "status": "suppressed"})
+                    if suppressed_fp:
+                        is_takeover_suppressed = True
+                    else:
+                        fp_lead = await self.leads_col.find_one({
+                            "target": target,
+                            "status": {"$in": ["false_positive", "benign", "muted"]},
+                            "$or": [
+                                {"alert_type": {"$in": ["dangling_dns_takeover", "subdomain_takeover", "takeover", "cloud_storage_takeover"]}},
+                                {"title": {"$regex": "takeover|dangling", "$options": "i"}}
+                            ]
+                        })
+                        if fp_lead:
+                            is_takeover_suppressed = True
+                        else:
+                            dom_chk = await self.domains_col.find_one({
+                                "$or": [
+                                    {"infrastructure.subdomains": {"$elemMatch": {"name": target, "takeover_false_positive": True}}},
+                                    {"domain": target, "takeover_false_positive": True}
+                                ]
+                            })
+                            if dom_chk:
+                                is_takeover_suppressed = True
+
+                    if is_takeover_suppressed:
+                        logger.info(f"[Takeover Suppressed] Subdomain takeover on {target} is marked as False Positive/suppressed. Skipping alert and clearing indicators.")
+                        takeover_res = None
+                    else:
+                        logger.warning(f"DANGLING DNS / TAKEOVER DETECTED on {target} -> {takeover_res.get('cname')} ({takeover_res.get('provider')})")
+                        await self.create_alert(
+                            title=f"Subdomain Takeover Risk: Dangling CNAME on {target}",
+                            description=(
+                                f"The subdomain {target} points via CNAME to {takeover_res.get('cname')} ({takeover_res.get('provider')}). "
+                                f"The canonical service appears unallocated or de-provisioned (Evidence: {takeover_res.get('fingerprint')}), "
+                                f"allowing an adversary to claim the resource and hijack the domain."
+                            ),
+                            target=target,
+                            risk_level=takeover_res.get("risk", "high"),
+                            details=takeover_res,
+                            exploitation_suggestions=[
+                                f"Attempt to claim/register the {takeover_res.get('provider')} resource ({takeover_res.get('cname')}) in your cloud account to verify ownership.",
+                                f"If the service was decommissioned, remove the dangling CNAME DNS record for {target} immediately.",
+                                "Audit DNS zones for other dangling aliases pointing to obsolete cloud services."
+                            ],
+                            alert_type="dangling_dns_takeover"
+                        )
             except Exception as te:
                 logger.error(f"Error auditing takeover for {target}: {te}")
 
@@ -651,9 +703,9 @@ class AliveCheckAgent(BaseAgent):
                 except Exception as da:
                     logger.debug(f"[IPv6 Bypass] ASN comparison failed for {target}: {da}")
 
-            # 6. Historical IP uncloaking — run for root domain and subdomains alike
+            # 6. Historical IP uncloaking — run for root domain and www portal
             historical_ips = []
-            if (alive or bool(target_ip)) and target_ip:
+            if (target == root_domain or target == f"www.{root_domain}") and target_ip:
                 try:
                     historical_ips = await self.fetch_historical_ips(target, target_ip)
                     if target == root_domain and historical_ips:
@@ -779,7 +831,12 @@ class AliveCheckAgent(BaseAgent):
             if asn_info.get("ptr"):
                 sub_update_fields["infrastructure.subdomains.$.ptr"] = asn_info.get("ptr")
 
-            if takeover_res:
+            if is_takeover_suppressed:
+                sub_update_fields["infrastructure.subdomains.$.dangling_takeover"] = False
+                sub_update_fields["infrastructure.subdomains.$.takeover_provider"] = None
+                sub_update_fields["infrastructure.subdomains.$.takeover_risk"] = None
+                sub_update_fields["infrastructure.subdomains.$.takeover_false_positive"] = True
+            elif takeover_res:
                 sub_update_fields["infrastructure.subdomains.$.dangling_takeover"] = True
                 sub_update_fields["infrastructure.subdomains.$.cname"] = takeover_res.get("cname")
                 sub_update_fields["infrastructure.subdomains.$.takeover_provider"] = takeover_res.get("provider")
@@ -811,7 +868,12 @@ class AliveCheckAgent(BaseAgent):
                         new_sub_doc["cidr"] = asn_info.get("cidr")
                     if asn_info.get("ptr"):
                         new_sub_doc["ptr"] = asn_info.get("ptr")
-                    if takeover_res:
+                    if is_takeover_suppressed:
+                        new_sub_doc["dangling_takeover"] = False
+                        new_sub_doc["takeover_provider"] = None
+                        new_sub_doc["takeover_risk"] = None
+                        new_sub_doc["takeover_false_positive"] = True
+                    elif takeover_res:
                         new_sub_doc["dangling_takeover"] = True
                         new_sub_doc["cname"] = takeover_res.get("cname")
                         new_sub_doc["takeover_provider"] = takeover_res.get("provider")
@@ -852,6 +914,27 @@ class AliveCheckAgent(BaseAgent):
                         {"domain": root_domain, "infrastructure.subdomains.name": target},
                         {"$set": sub_update_fields}
                     )
+                else:
+                    if is_takeover_suppressed:
+                        await self.domains_col.update_one(
+                            {"domain": root_domain},
+                            {"$set": {
+                                "dangling_takeover": False,
+                                "takeover_provider": None,
+                                "takeover_risk": None,
+                                "takeover_false_positive": True
+                            }}
+                        )
+                    elif takeover_res:
+                        await self.domains_col.update_one(
+                            {"domain": root_domain},
+                            {"$set": {
+                                "dangling_takeover": True,
+                                "cname": takeover_res.get("cname"),
+                                "takeover_provider": takeover_res.get("provider"),
+                                "takeover_risk": takeover_res.get("risk")
+                            }}
+                        )
 
                 logger.info(f"Target {target} processed (alive={alive}, ipv6={target_ipv6}, valid_asset=True, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
             else:
@@ -878,6 +961,35 @@ class AliveCheckAgent(BaseAgent):
                 {"_id": task["_id"]},
                 {"$set": {"status": "failed", "error": str(e)}}
             )
+
+    async def process_tasks(self):
+        """Fetch and process up to 10 verification tasks concurrently."""
+        tasks = []
+        for _ in range(10):
+            t = await self.get_next_task("verification")
+            if not t:
+                break
+            tasks.append(t)
+
+        if not tasks:
+            return False
+
+        await asyncio.gather(*[self.process_single_task(t) for t in tasks])
+        return True
+
+    async def main_loop(self):
+        asyncio.create_task(self.update_heartbeat())
+        while True:
+            await self.pause_event.wait()
+            try:
+                had_tasks = await self.process_tasks()
+                if not had_tasks:
+                    await asyncio.sleep(2)
+                else:
+                    await asyncio.sleep(0.05)
+            except Exception as e:
+                logger.error(f"Alive-check main loop error: {e}")
+                await asyncio.sleep(2)
 
 if __name__ == "__main__":
     agent = AliveCheckAgent()
