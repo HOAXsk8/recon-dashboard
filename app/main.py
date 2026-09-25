@@ -961,11 +961,33 @@ async def get_active_workspace(user: Optional[dict], request: Optional[Request] 
         
     return ws
 
-def workspace_match_clause(ws_id: str, is_default: bool = False) -> dict:
-    """Builds a query clause to match records belonging to ws_id."""
+def workspace_match_clause(ws_id, is_default: bool = False) -> dict:
+    """Builds a query clause to match records belonging to ws_id (as string or ObjectId)."""
+    ws_str = str(ws_id)
+    valid_obj_id = None
+    try:
+        valid_obj_id = ObjectId(ws_str)
+    except Exception:
+        pass
+
+    ws_matches = [{"workspace_id": ws_str}]
+    if valid_obj_id:
+        ws_matches.append({"workspace_id": valid_obj_id})
+
     if is_default:
-        return {"$or": [{"workspace_id": ws_id}, {"workspace_id": {"$exists": False}}, {"workspace_id": None}, {"workspace_id": ""}]}
-    return {"workspace_id": ws_id}
+        return {"$or": ws_matches + [{"workspace_id": {"$exists": False}}, {"workspace_id": None}, {"workspace_id": ""}]}
+    return {"$or": ws_matches}
+
+async def task_workspace_match_clause(ws_id: str, is_default: bool = False) -> dict:
+    """Matches tasks belonging to the workspace either directly by workspace_id or via their root_domain."""
+    ws_c = workspace_match_clause(ws_id, is_default)
+    try:
+        ws_domains = await domains_col.distinct("domain", ws_c)
+        if ws_domains:
+            return {"$or": [ws_c, {"root_domain": {"$in": ws_domains}}]}
+    except Exception:
+        pass
+    return ws_c
 
 async def render_page(request: Request, template_name: str, context: dict, user: dict):
     active_ws = await get_active_workspace(user, request)
@@ -4666,7 +4688,8 @@ async def get_tasks(
     active_ws = await get_active_workspace(user, request)
     ws_id = str(active_ws["_id"])
     is_def = bool(active_ws.get("is_default"))
-    query = workspace_match_clause(ws_id, is_def).copy()
+    task_ws_filter = await task_workspace_match_clause(ws_id, is_def)
+    query = task_ws_filter.copy()
     if task_type and task_type != "all":
         query["task_type"] = task_type
     if status and status != "all":
@@ -4693,10 +4716,11 @@ async def get_tasks_stats(request: Request, user: dict = Depends(get_current_use
     ws_id = str(active_ws["_id"])
     is_def = bool(active_ws.get("is_default"))
     ws_c = workspace_match_clause(ws_id, is_def)
+    task_ws_filter = await task_workspace_match_clause(ws_id, is_def)
 
     # 1. Task counts by status
     task_pipeline = [
-        {"$match": ws_c},
+        {"$match": task_ws_filter},
         {"$group": {"_id": "$status", "count": {"$sum": 1}}}
     ]
     task_agg = await tasks_col.aggregate(task_pipeline).to_list(length=20)

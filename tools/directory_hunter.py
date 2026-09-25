@@ -1253,11 +1253,11 @@ class DirectoryHunterAgent(BaseAgent):
         # Pre-flight probe for root soft-404 baseline lengths
         root_baseline = await self.probe_soft_404_lengths(base_url)
 
-        # Phase 1: Map directory structure recursively
+        # Phase 1: Map directory structure recursively with controlled rate
         cmd = [
             "ffuf", "-w", dir_wl, "-u", f"{base_url}/FUZZ",
             "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic",
-            "-recursion", "-recursion-depth", "2", "-t", "40"
+            "-recursion", "-recursion-depth", "2", "-t", "10", "-rate", "25"
         ]
         if root_baseline:
             cmd.extend(["-fs", ",".join(str(l) for l in root_baseline)])
@@ -1337,7 +1337,7 @@ class DirectoryHunterAgent(BaseAgent):
 
             cmd_file = [
                 "ffuf", "-w", active_wl, "-u", f"{target_url}/FUZZ",
-                "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic", "-t", "40"
+                "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic", "-t", "10", "-rate", "25"
             ]
             if dir_baseline:
                 cmd_file.extend(["-fs", ",".join(str(l) for l in dir_baseline)])

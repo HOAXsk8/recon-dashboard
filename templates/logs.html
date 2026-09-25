@@ -220,18 +220,34 @@
     }
 
     async function fetchTasks() {
-        const tool = document.getElementById('filter-tool').value;
-        const status = document.getElementById('filter-status').value;
+        const toolEl = document.getElementById('filter-tool');
+        const statusEl = document.getElementById('filter-status');
+        const tool = toolEl ? toolEl.value : 'all';
+        const status = statusEl ? statusEl.value : 'all';
         
         try {
             fetchStats();
             const resp = await fetch(`/api/tasks?task_type=${tool}&status=${status}&limit=50`);
-            if (!resp.ok) throw new Error('API Error');
+            if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
             const data = await resp.json();
-            renderTasks(data.tasks);
-            document.getElementById('task-count').textContent = `${data.total} TASKS IN VIEW`;
+            renderTasks(data.tasks || []);
+            const countEl = document.getElementById('task-count');
+            if (countEl) countEl.textContent = `${data.total || 0} TASKS IN VIEW`;
         } catch (e) {
             console.error('Fetch Error:', e);
+            const container = document.getElementById('logs-container');
+            if (container) {
+                container.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="px-6 py-16 text-center">
+                            <div class="flex flex-col items-center justify-center space-y-2">
+                                <span class="text-xs font-mono text-rose-400">Failed to load tasks: ${e.message}</span>
+                                <span class="text-[10px] text-slate-500">Retrying automatically...</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
         }
     }
 
@@ -312,7 +328,8 @@
 
     function renderTasks(tasks) {
         const container = document.getElementById('logs-container');
-        if (tasks.length === 0) {
+        if (!container) return;
+        if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
             container.innerHTML = `
                 <tr>
                     <td colspan="5" class="px-6 py-20 text-center text-slate-600 font-mono text-[10px] uppercase tracking-widest">
@@ -339,7 +356,7 @@
                     statusBadge = '<span class="px-2.5 py-1 bg-slate-800 text-slate-500 rounded-lg text-[9px] font-black uppercase border border-slate-700">Pending</span>';
             }
 
-            const toolName = t.task_type.replace('_', ' ').toUpperCase();
+            const toolName = (t.task_type || 'TASK').replace(/_/g, ' ').toUpperCase();
             const started = t.started_at ? new Date(t.started_at).toLocaleTimeString() : '--:--:--';
             const finished = t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : (t.status === 'processing' ? 'ACTIVE' : '--:--:--');
             
@@ -364,7 +381,7 @@
                     </td>
                     <td class="px-6 py-4">
                         <div class="flex flex-col">
-                            <span class="text-xs font-mono font-bold text-white">${t.target}</span>
+                            <span class="text-xs font-mono font-bold text-white">${t.target || ''}</span>
                             <span class="text-[9px] font-mono text-slate-500 uppercase tracking-tighter">${t.root_domain || ''}</span>
                         </div>
                     </td>

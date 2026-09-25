@@ -135,10 +135,11 @@ class PortScannerAgent(BaseAgent):
         """Run standard optimized Nmap scan across top 1000 TCP ports with service versioning."""
         logger.info(f"Running optimized Nmap on {target}")
         cmd = [
-            "nmap", "-sS", "--top-ports", "1000", "-sV",
+            "nmap", "-sT", "--top-ports", "1000", "-sV",
             "--max-retries", "1",
             "--max-rtt-timeout", "500ms",
-            "-T4", target, "-oX", "-"
+            "--max-rate", "75",
+            "-T3", target, "-oX", "-"
         ]
 
         stdout, stderr = await self.run_command(cmd, timeout=600)

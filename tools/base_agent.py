@@ -103,9 +103,10 @@ class BaseAgent:
         or out-of-scope targets.
         """
         while True:
+            now = datetime.datetime.utcnow()
             task = await self.tasks_col.find_one_and_update(
                 {"task_type": task_type, "status": "pending"},
-                {"$set": {"status": "processing", "started_at": datetime.datetime.utcnow()}},
+                {"$set": {"status": "processing", "started_at": now, "last_activity": now}},
                 sort=[("priority", -1), ("created_at", 1)]
             )
             if not task:
@@ -151,6 +152,15 @@ class BaseAgent:
                     {"$set": {"status": "cancelled", "error": f"Target {target} out of scope for {root_domain}", "completed_at": datetime.datetime.utcnow()}}
                 )
                 continue
+
+            # 4. Ensure task inherits workspace_id from active domain document if missing
+            ws_id = domain_doc.get("workspace_id")
+            if ws_id and not task.get("workspace_id"):
+                task["workspace_id"] = str(ws_id)
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"workspace_id": str(ws_id)}}
+                )
 
             return task
 

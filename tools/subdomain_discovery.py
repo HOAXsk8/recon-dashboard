@@ -13,7 +13,7 @@ try:
 except ImportError:
     from tools.base_agent import BaseAgent, logger
 
-WORDLIST_PATH = "/app/wordlists/subdomains-top5000.txt"
+WORDLIST_PATH = "/app/wordlists/subdomains-top5000.txt" if os.path.exists("/app/wordlists/subdomains-top5000.txt") else "/app/wordlists/subdomains-top500.txt"
 
 # Permutation mutations to apply to each discovered subdomain label
 PERM_PREFIXES = [
@@ -92,11 +92,11 @@ class SubdomainDiscoveryAgent(BaseAgent):
         # Bounded execution: -timeout 2, -maxtime 60 prevents hanging on slow network/DNS
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{domain}",
-            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "50",
-            "-timeout", "2", "-maxtime", "60"
+            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "8", "-rate", "35",
+            "-timeout", "2", "-maxtime", "180"
         ]
         try:
-            stdout, stderr = await self.run_command(cmd, timeout=75)
+            stdout, stderr = await self.run_command(cmd, timeout=210)
             found = []
             for line in stdout.splitlines():
                 sub = line.strip()
@@ -110,13 +110,13 @@ class SubdomainDiscoveryAgent(BaseAgent):
     async def run_recursive_ffuf(self, parent_sub: str, root_domain: str):
         """
         Run a focused mini-brute-force on a confirmed alive subdomain to enumerate
-        one level deeper (e.g. FUZZ.api.target.com). Bounded to 30s/25 threads.
+        one level deeper (e.g. FUZZ.api.target.com). Bounded to 20s/5 threads.
         """
         logger.info(f"[Recursive ffuf] Brute-forcing FUZZ.{parent_sub}")
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{parent_sub}",
-            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "25",
-            "-timeout", "2", "-maxtime", "30"
+            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "5", "-rate", "15",
+            "-timeout", "2", "-maxtime", "20"
         ]
         try:
             stdout, stderr = await self.run_command(cmd, timeout=40)

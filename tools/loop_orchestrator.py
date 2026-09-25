@@ -138,10 +138,13 @@ class ContinuousLoopAgent(BaseAgent):
                 should_recover = True
                 recovery_reason = "missing timestamp"
             elif agent_alive:
-                # Agent is alive and heartbeating. Only recover if hard-stalled with zero activity for 45+ mins
-                if last_activity < hard_stall_cutoff:
+                # Fast tasks (verification, waf, lb, osint) shouldn't hang for more than 5 minutes
+                fast_tasks = {"verification", "waf_detect", "lb_detect", "osint", "archive_urls"}
+                stall_limit_mins = 5 if task_type in fast_tasks else 25
+                stall_cutoff = now - datetime.timedelta(minutes=stall_limit_mins)
+                if last_activity < stall_cutoff:
                     should_recover = True
-                    recovery_reason = f"hard stall (no activity for 45+ minutes since {last_activity})"
+                    recovery_reason = f"task stall (no activity for {stall_limit_mins}+ minutes since {last_activity})"
             else:
                 # Agent appears dead or offline
                 if last_activity < agent_dead_cutoff:

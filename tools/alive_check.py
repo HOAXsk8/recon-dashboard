@@ -448,26 +448,54 @@ class AliveCheckAgent(BaseAgent):
 
     async def is_alive(self, target):
         """
-        Verify if a target is alive by checking 16 common ports in parallel.
-        Short-circuits immediately as soon as any single port completes a connection.
+        Verify if a target is alive using tiered port checking.
+        Checks primary web ports (80, 443) first to short-circuit in milliseconds
+        without flooding local sockets.
         """
-        ports = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000, 8081, 22, 21, 25, 53, 3389, 8088]
-        tasks = [asyncio.create_task(self._check_single_port(target, p, timeout=3.0)) for p in ports]
-
+        tier1_ports = [80, 443]
+        tasks1 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5)) for p in tier1_ports]
         try:
-            for coro in asyncio.as_completed(tasks):
-                res = await coro
-                if res:
-                    for t in tasks:
+            for coro in asyncio.as_completed(tasks1):
+                if await coro:
+                    for t in tasks1:
                         if not t.done():
                             t.cancel()
                     return True
-        except Exception as e:
-            logger.debug(f"is_alive check exception for {target}: {e}")
         finally:
-            for t in tasks:
+            for t in tasks1:
                 if not t.done():
                     t.cancel()
+
+        # Tier 2: Common alternate web ports
+        tier2_ports = [8080, 8443, 8000, 8888]
+        tasks2 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.5)) for p in tier2_ports]
+        try:
+            for coro in asyncio.as_completed(tasks2):
+                if await coro:
+                    for t in tasks2:
+                        if not t.done():
+                            t.cancel()
+                    return True
+        finally:
+            for t in tasks2:
+                if not t.done():
+                    t.cancel()
+
+        # Tier 3: Other auxiliary services
+        tier3_ports = [22, 21, 25, 53, 3389, 8081, 8088, 3000, 5000, 9000]
+        tasks3 = [asyncio.create_task(self._check_single_port(target, p, timeout=2.0)) for p in tier3_ports]
+        try:
+            for coro in asyncio.as_completed(tasks3):
+                if await coro:
+                    for t in tasks3:
+                        if not t.done():
+                            t.cancel()
+                    return True
+        finally:
+            for t in tasks3:
+                if not t.done():
+                    t.cancel()
+
         return False
 
     async def process_tasks(self):
