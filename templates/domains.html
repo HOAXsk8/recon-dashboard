@@ -14,7 +14,7 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span>Reset & Rescan All</span>
             </button>
-            <button onclick="document.getElementById('add-domain-modal').classList.remove('hidden')" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2 text-sm">
+            <button onclick="openAddDomainModal()" class="px-4 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2 text-sm">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                 <span>Add Domain</span>
             </button>
@@ -173,7 +173,7 @@
     <div class="bg-white dark:bg-tech-panel w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
             <h3 class="text-xl font-bold">Add Domains</h3>
-            <button onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
+            <button onclick="closeAddDomainModal()" class="text-slate-500 hover:text-white transition-colors">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
@@ -203,19 +203,25 @@
                     <label class="block text-sm font-medium mb-1">Scanning Scope</label>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label class="flex items-start p-3 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:border-tech-accent/50 transition-colors bg-slate-50/50 dark:bg-tech-bg/50">
-                            <input type="radio" name="scope_mode" value="full" checked class="mt-0.5 text-tech-accent focus:ring-tech-accent">
+                            <input type="radio" id="scope-mode-full" name="scope_mode" value="full" checked class="mt-0.5 text-tech-accent focus:ring-tech-accent">
                             <div class="ml-2.5">
                                 <span class="block text-xs font-bold text-slate-800 dark:text-slate-200">Full Scope (Default)</span>
                                 <span class="block text-[11px] text-slate-500">Discover all subdomains and scan entire attack surface</span>
                             </div>
                         </label>
                         <label class="flex items-start p-3 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:border-indigo-500/50 transition-colors bg-slate-50/50 dark:bg-tech-bg/50">
-                            <input type="radio" name="scope_mode" value="single" class="mt-0.5 text-indigo-500 focus:ring-indigo-500">
+                            <input type="radio" id="scope-mode-single" name="scope_mode" value="single" class="mt-0.5 text-indigo-500 focus:ring-indigo-500">
                             <div class="ml-2.5">
                                 <span class="block text-xs font-bold text-indigo-400">Single Target Only</span>
                                 <span class="block text-[11px] text-slate-500">Strictly scan this host; skip subdomain discovery</span>
                             </div>
                         </label>
+                    </div>
+                    <div id="subdomain-auto-notice" class="hidden mt-2.5 p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-lg text-xs text-indigo-400 flex items-start space-x-2.5">
+                        <svg class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <div>
+                            <span class="font-bold">Subdomain Detected:</span> Auto-selected <strong>Single Target Only</strong>. All pipeline tools (alive check, historical IP uncloaking, Nmap port scanning, directory hunting, tech fingerprinting, WAF/LB detection, archive URLs) will run on this subdomain while skipping recursive subdomain discovery.
+                        </div>
                     </div>
                 </div>
 
@@ -230,7 +236,7 @@
             </div>
 
             <div class="flex justify-end pt-4 space-x-3">
-                <button type="button" onclick="document.getElementById('add-domain-modal').classList.add('hidden')" class="px-6 py-2 border border-slate-700 text-slate-400 font-bold rounded-lg hover:bg-slate-800 transition-all">
+                <button type="button" onclick="closeAddDomainModal()" class="px-6 py-2 border border-slate-700 text-slate-400 font-bold rounded-lg hover:bg-slate-800 transition-all">
                     Cancel
                 </button>
                 <button type="submit" id="submit-add-domains" class="px-6 py-2 bg-tech-accent text-tech-bg font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center space-x-2">
@@ -461,6 +467,103 @@ function resetAndFetch() {
     loadDomains();
 }
 
+// Subdomain auto-detection & scope selection
+const MULTI_PART_SUFFIXES = new Set([
+    'co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'me.uk', 'net.uk', 'ltd.uk', 'plc.uk', 'sch.uk',
+    'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au',
+    'co.nz', 'net.nz', 'org.nz',
+    'co.jp', 'ne.jp', 'or.jp',
+    'co.kr', 'ne.kr', 're.kr',
+    'co.za', 'org.za',
+    'com.br', 'net.br', 'org.br',
+    'com.mx', 'org.mx',
+    'com.sg', 'edu.sg',
+    'co.in', 'net.in', 'org.in', 'gen.in', 'ind.in',
+    'com.tr', 'org.tr',
+    'com.tw', 'org.tw',
+    'com.hk', 'org.hk',
+    'com.ar', 'com.co'
+]);
+
+function isSubdomain(domain) {
+    if (!domain) return false;
+    let d = domain.trim().toLowerCase();
+    if (d.includes('://')) d = d.split('://')[1];
+    d = d.split('/')[0].split('?')[0].split('#')[0].split(':')[0].replace(/^\*\./, '').replace(/\.+$/, '');
+    if (!d || !d.includes('.')) return false;
+
+    const parts = d.split('.');
+    for (const suffix of MULTI_PART_SUFFIXES) {
+        if (d.endsWith('.' + suffix)) {
+            const suffixParts = suffix.split('.').length;
+            return parts.length > (suffixParts + 1);
+        }
+    }
+    return parts.length > 2;
+}
+
+let userManuallyToggledScope = false;
+
+function openAddDomainModal() {
+    userManuallyToggledScope = false;
+    document.getElementById('add-domain-modal').classList.remove('hidden');
+    evaluateScopeAutoDetection(document.getElementById('bulk-domains')?.value || '');
+}
+
+function closeAddDomainModal() {
+    document.getElementById('add-domain-modal').classList.add('hidden');
+    userManuallyToggledScope = false;
+    const noticeEl = document.getElementById('subdomain-auto-notice');
+    if (noticeEl) noticeEl.classList.add('hidden');
+    const fullRadio = document.getElementById('scope-mode-full');
+    if (fullRadio) fullRadio.checked = true;
+}
+
+function evaluateScopeAutoDetection(text) {
+    if (userManuallyToggledScope) return;
+    const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const hasSubdomain = lines.some(l => isSubdomain(l));
+    const noticeEl = document.getElementById('subdomain-auto-notice');
+    const singleRadio = document.getElementById('scope-mode-single');
+    const fullRadio = document.getElementById('scope-mode-full');
+
+    if (hasSubdomain) {
+        if (singleRadio) singleRadio.checked = true;
+        if (noticeEl) noticeEl.classList.remove('hidden');
+    } else {
+        if (fullRadio) fullRadio.checked = true;
+        if (noticeEl) noticeEl.classList.add('hidden');
+    }
+}
+
+document.querySelectorAll('input[name="scope_mode"]').forEach(radio => {
+    radio.addEventListener('click', () => {
+        userManuallyToggledScope = true;
+        const noticeEl = document.getElementById('subdomain-auto-notice');
+        if (noticeEl) noticeEl.classList.add('hidden');
+    });
+});
+
+const bulkDomainsInput = document.getElementById('bulk-domains');
+if (bulkDomainsInput) {
+    bulkDomainsInput.addEventListener('input', (e) => evaluateScopeAutoDetection(e.target.value));
+    bulkDomainsInput.addEventListener('paste', () => setTimeout(() => evaluateScopeAutoDetection(bulkDomainsInput.value), 50));
+}
+
+const domainFileInput = document.getElementById('domain-file');
+if (domainFileInput) {
+    domainFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                evaluateScopeAutoDetection(evt.target.result || '');
+            };
+            reader.readAsText(file.slice(0, 50000));
+        }
+    });
+}
+
 document.getElementById('add-domain-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const bulkDomains = document.getElementById('bulk-domains').value;
@@ -515,7 +618,7 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
         }
 
         if (response.ok && result.status === 'success') {
-            document.getElementById('add-domain-modal').classList.add('hidden');
+            closeAddDomainModal();
             document.getElementById('bulk-domains').value = '';
             document.getElementById('domain-file').value = '';
             alert(`Success: ${result.added} domains added, ${result.skipped} skipped.`);

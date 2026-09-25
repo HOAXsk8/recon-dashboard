@@ -492,23 +492,24 @@ class ArchiveHunterAgent(BaseAgent):
         ]
 
         queued_count = 0
-        for sub in new_historical_subs:
-            # Check if verification task already exists
-            exists = await self.tasks_col.find_one({
-                "root_domain": domain,
-                "target": sub,
-                "task_type": "verification"
-            })
-            if not exists:
-                await self.tasks_col.insert_one({
+        if not doc.get("single_domain_only"):
+            for sub in new_historical_subs:
+                # Check if verification task already exists
+                exists = await self.tasks_col.find_one({
                     "root_domain": domain,
                     "target": sub,
-                    "task_type": "verification",
-                    "status": "pending",
-                    "source": "archive_hunter",
-                    "created_at": datetime.datetime.utcnow()
+                    "task_type": "verification"
                 })
-                queued_count += 1
+                if not exists:
+                    await self.tasks_col.insert_one({
+                        "root_domain": domain,
+                        "target": sub,
+                        "task_type": "verification",
+                        "status": "pending",
+                        "source": "archive_hunter",
+                        "created_at": datetime.datetime.utcnow()
+                    })
+                    queued_count += 1
 
         if historical_subs:
             await self.domains_col.update_one(

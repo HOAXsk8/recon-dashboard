@@ -72,11 +72,11 @@ class AliveCheckAgent(BaseAgent):
         except Exception:
             pass
 
-        # 2. Async DNS resolver (Google + Cloudflare IPv4 & IPv6 nameservers)
+        # 2. Async DNS resolver (Google + Cloudflare IPv4 nameservers to query AAAA)
         try:
             import dns.asyncresolver
             resolver = dns.asyncresolver.Resolver()
-            resolver.nameservers = ["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "2606:4700:4700::1111"]
+            resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
             resolver.timeout = 2.5
             resolver.lifetime = 3.0
             ans = await resolver.resolve(target, "AAAA")
@@ -91,6 +91,16 @@ class AliveCheckAgent(BaseAgent):
         Probe common web and management ports on an IPv6 address in parallel.
         Returns a list of open port numbers.
         """
+        import socket
+        # Test if host network stack can route IPv6 traffic before attempting connections
+        try:
+            test_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+            test_sock.settimeout(0.5)
+            test_sock.connect((ipv6_addr, 80))
+            test_sock.close()
+        except OSError:
+            return []
+
         candidate_ports = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 22]
 
         async def check_port(p):
@@ -641,11 +651,16 @@ class AliveCheckAgent(BaseAgent):
                 except Exception as da:
                     logger.debug(f"[IPv6 Bypass] ASN comparison failed for {target}: {da}")
 
-            # 6. Historical IP uncloaking — only for alive targets with a current IP
+            # 6. Historical IP uncloaking — run for root domain and subdomains alike
             historical_ips = []
             if (alive or bool(target_ip)) and target_ip:
                 try:
                     historical_ips = await self.fetch_historical_ips(target, target_ip)
+                    if target == root_domain and historical_ips:
+                        await self.domains_col.update_one(
+                            {"domain": root_domain},
+                            {"$set": {"infrastructure.historical_ips": historical_ips}}
+                        )
                     exposed_origins = [h for h in historical_ips if h.get("responds_directly")]
                     if exposed_origins:
                         await self.create_alert(
@@ -666,7 +681,8 @@ class AliveCheckAgent(BaseAgent):
                                 f"Test direct HTTP/HTTPS access to {h['ip']} with Host: {target} header."
                                 for h in exposed_origins
                             ],
-                            alert_type="origin_ip_exposed"
+                            alert_type="origin_ip_exposed",
+                            root_domain=root_domain
                         )
                 except Exception as he:
                     logger.debug(f"[HistoricalIPs] Error for {target}: {he}")
@@ -812,23 +828,6 @@ class AliveCheckAgent(BaseAgent):
                             }
                         }
                     )
-
-                # Add discovery task for recursion (depth < 2) only if responsive
-                depth = target.count(".") - root_domain.count(".")
-                if depth < 2 and alive:
-                    exists_disc = await self.tasks_col.find_one({
-                        "root_domain": root_domain,
-                        "target": target,
-                        "task_type": "discovery"
-                    })
-                    if not exists_disc:
-                        await self.tasks_col.insert_one({
-                            "root_domain": root_domain,
-                            "target": target,
-                            "task_type": "discovery",
-                            "status": "pending",
-                            "created_at": datetime.datetime.utcnow()
-                        })
 
                 # Queue Nmap port scan task (top 1000 ports) for all verified IP assets
                 if target_ip or alive:

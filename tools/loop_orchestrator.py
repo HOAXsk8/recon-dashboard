@@ -68,7 +68,8 @@ class ContinuousLoopAgent(BaseAgent):
             {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.datetime.utcnow()}
         ]
         if is_single:
-            cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.datetime.utcnow()})
+            cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "verification", "status": "pending", "created_at": datetime.datetime.utcnow()})
+            cycle_tasks.insert(1, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.datetime.utcnow()})
         else:
             cycle_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.datetime.utcnow()})
 
@@ -138,8 +139,8 @@ class ContinuousLoopAgent(BaseAgent):
                 should_recover = True
                 recovery_reason = "missing timestamp"
             elif agent_alive:
-                # Fast tasks (verification, waf, lb, osint) shouldn't hang for more than 5 minutes
-                fast_tasks = {"verification", "waf_detect", "lb_detect", "osint", "archive_urls"}
+                # Fast tasks (discovery, verification, waf, lb, osint) shouldn't hang for more than 5 minutes
+                fast_tasks = {"discovery", "verification", "waf_detect", "lb_detect", "osint", "archive_urls"}
                 stall_limit_mins = 5 if task_type in fast_tasks else 25
                 stall_cutoff = now - datetime.timedelta(minutes=stall_limit_mins)
                 if last_activity < stall_cutoff:

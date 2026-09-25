@@ -40,7 +40,7 @@ class SubdomainDiscoveryAgent(BaseAgent):
     async def run_subfinder(self, domain):
         logger.info(f"Running Subfinder on {domain}")
         try:
-            stdout, stderr = await self.run_command(["subfinder", "-d", domain, "-silent"], timeout=180)
+            stdout, stderr = await self.run_command(["subfinder", "-d", domain, "-silent", "-duc"], timeout=180)
             if stderr:
                 logger.warning(f"Subfinder stderr: {stderr}")
             return [line.strip() for line in stdout.splitlines() if line.strip()]
@@ -51,20 +51,27 @@ class SubdomainDiscoveryAgent(BaseAgent):
     async def run_amass(self, domain):
         """Run OWASP Amass in passive mode for subdomain enumeration.
         
-        Uses only public data sources (CT logs, DNS datasets, APIs) —
-        makes no direct connections to the target's infrastructure.
+        Uses trusted resolvers (-tr) and capped QPS to prevent UDP socket exhaustion in Lima/macOS.
         """
         logger.info(f"[Amass] Running passive enumeration on {domain}")
         cmd = [
             "amass", "enum",
-            "-passive",       # passive only — no active probing
-            "-norecursive",   # stay focused on the root domain
+            "-passive",
+            "-norecursive",
+            "-tr", "1.1.1.1",
+            "-tr", "8.8.8.8",
+            "-dns-qps", "15",
+            "-silent",
             "-d", domain,
-            "-timeout", "5"   # minutes; amass timeout flag
+            "-timeout", "2"
         ]
         try:
-            stdout, stderr = await self.run_command(cmd, timeout=360)
-            found = [line.strip() for line in stdout.splitlines() if line.strip()]
+            stdout, stderr = await self.run_command(cmd, timeout=140)
+            found = []
+            for line in stdout.splitlines():
+                sub = line.strip().lower()
+                if sub and self.is_in_scope(sub, domain):
+                    found.append(sub)
             logger.info(f"[Amass] Found {len(found)} candidates for {domain}")
             return found
         except Exception as e:
@@ -89,10 +96,10 @@ class SubdomainDiscoveryAgent(BaseAgent):
 
     async def run_ffuf(self, domain):
         logger.info(f"Running ffuf on {domain}")
-        # Bounded execution: -timeout 2, -maxtime 60 prevents hanging on slow network/DNS
+        # Bounded execution: -t 6 -rate 25 prevents UDP socket exhaustion on host NAT
         cmd = [
             "ffuf", "-w", WORDLIST_PATH, "-u", f"http://FUZZ.{domain}",
-            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "8", "-rate", "35",
+            "-mc", "200,204,301,302,307,401,403", "-s", "-ac", "-t", "6", "-rate", "25",
             "-timeout", "2", "-maxtime", "180"
         ]
         try:
@@ -134,42 +141,119 @@ class SubdomainDiscoveryAgent(BaseAgent):
             return []
 
     # ------------------------------------------------------------------
-    # NEW: Certificate Transparency Log Harvesting (crt.sh)
+    # Free, Unauthenticated, Unlimited Sources (CertSpotter, RapidDNS, HackerTarget, crt.sh)
     # ------------------------------------------------------------------
-    async def fetch_ct_logs(self, domain: str) -> set:
+    async def fetch_free_sources(self, domain: str) -> set:
         """
-        Query crt.sh Certificate Transparency logs for all historical and current
-        certificates issued for *.{domain}. Extracts Subject Alternative Names (SANs)
-        and CN values to surface staging, pre-production, and internal subdomains
-        that may not appear in active DNS or search-engine indexes.
+        Harvest subdomains strictly from 100% free, unauthenticated, non-rate-limited sources:
+        1. crt.sh (Certificate Transparency logs): extracts both common_name and name_value (SANs).
+           Includes curl fallback matching the command:
+           curl -s https://crt.sh/?q=$domain&output=json | grep common_name | cut -d ":" -f2 | tr -d '",'
+        2. CertSpotter (Free CT log issuance API): extracts all dns_names.
+        3. RapidDNS (Free historical DNS database): extracts regex matches for *.{domain}.
+        4. HackerTarget (Free host search): extracts hostname entries.
         """
         import httpx
         found = set()
-        urls = [
-            f"https://crt.sh/?q=%25.{domain}&output=json",
-            f"https://crt.sh/?q={domain}&output=json",
-        ]
-        try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                for url in urls:
-                    try:
-                        resp = await client.get(url, headers={"Accept": "application/json"})
-                        if resp.status_code != 200:
-                            continue
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
+            # 1. CertSpotter (Free public CT issuances)
+            try:
+                cs_url = f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names"
+                resp = await client.get(cs_url)
+                if resp.status_code == 200:
+                    for item in resp.json():
+                        for name in item.get("dns_names", []):
+                            clean = name.strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                logger.info(f"[Free Sources - CertSpotter] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[CertSpotter] Error querying {domain}: {e}")
+
+            # 2. RapidDNS (Free historical DNS)
+            try:
+                rd_url = f"https://rapiddns.io/s/{domain}?same_sub=1"
+                resp = await client.get(rd_url)
+                if resp.status_code == 200:
+                    for match in re.findall(rf"([a-zA-Z0-9_\-\.]+\.{re.escape(domain)})", resp.text):
+                        clean = match.strip().lower().lstrip("*.")
+                        if clean and self.is_in_scope(clean, domain):
+                            found.add(clean)
+                logger.info(f"[Free Sources - RapidDNS] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[RapidDNS] Error querying {domain}: {e}")
+
+            # 3. HackerTarget (Free host search)
+            try:
+                ht_url = f"https://api.hackertarget.com/hostsearch/?q={domain}"
+                resp = await client.get(ht_url)
+                if resp.status_code == 200 and "error" not in resp.text.lower():
+                    for line in resp.text.splitlines():
+                        parts = line.split(",")
+                        if parts:
+                            clean = parts[0].strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                logger.info(f"[Free Sources - HackerTarget] Total unique subdomains so far: {len(found)}")
+            except Exception as e:
+                logger.debug(f"[HackerTarget] Error querying {domain}: {e}")
+
+            # 4. crt.sh (Certificate Transparency logs)
+            crt_success = False
+            for q in (domain, f"%.{domain}"):
+                try:
+                    crt_url = f"https://crt.sh/?q={q}&output=json"
+                    resp = await client.get(crt_url)
+                    if resp.status_code == 200:
                         certs = resp.json()
                         for cert in certs:
-                            name_value = cert.get("name_value", "")
-                            # name_value can contain multiple SANs separated by newlines
-                            for name in name_value.splitlines():
-                                name = name.strip().lower().lstrip("*.")
-                                if name and self.is_in_scope(name, domain):
-                                    found.add(name)
-                    except Exception as ce:
-                        logger.debug(f"[CT Logs] Error querying {url}: {ce}")
-            logger.info(f"[CT Logs] Found {len(found)} hostnames for {domain}")
-        except Exception as e:
-            logger.warning(f"[CT Logs] crt.sh query failed for {domain}: {e}")
+                            # Extract common_name
+                            cn = cert.get("common_name", "")
+                            if cn:
+                                clean_cn = cn.strip().lower().lstrip("*.")
+                                if clean_cn and self.is_in_scope(clean_cn, domain):
+                                    found.add(clean_cn)
+                            # Extract name_value (can contain multiple SANs separated by newlines)
+                            nv = cert.get("name_value", "")
+                            if nv:
+                                for name in nv.splitlines():
+                                    clean_name = name.strip().lower().lstrip("*.")
+                                    if clean_name and self.is_in_scope(clean_name, domain):
+                                        found.add(clean_name)
+                        crt_success = True
+                except Exception as ce:
+                    logger.debug(f"[crt.sh] Error querying {q}: {ce}")
+
+            # If httpx crt.sh query failed or returned 502, run curl fallback
+            if not crt_success:
+                try:
+                    stdout, _ = await self.run_command(
+                        ["curl", "-s", "-m", "15", f"https://crt.sh/?q={domain}&output=json"],
+                        timeout=20
+                    )
+                    if stdout and "502" not in stdout:
+                        for cn in re.findall(r'"common_name"\s*:\s*"([^"]+)"', stdout):
+                            clean = cn.strip().lower().lstrip("*.")
+                            if clean and self.is_in_scope(clean, domain):
+                                found.add(clean)
+                        for nv in re.findall(r'"name_value"\s*:\s*"([^"]+)"', stdout):
+                            for name in nv.split(r"\n"):
+                                clean = name.strip().lower().lstrip("*.")
+                                if clean and self.is_in_scope(clean, domain):
+                                    found.add(clean)
+                except Exception as fe:
+                    logger.debug(f"[crt.sh fallback] Error: {fe}")
+
+        logger.info(f"[Free Sources] Harvested {len(found)} total unique hostnames for {domain}")
         return found
+
+    async def fetch_ct_logs(self, domain: str) -> set:
+        """Backwards compatibility alias for fetch_free_sources."""
+        return await self.fetch_free_sources(domain)
 
     # ------------------------------------------------------------------
     # NEW: Permutation & Alteration Engine
@@ -205,23 +289,23 @@ class SubdomainDiscoveryAgent(BaseAgent):
         for prefix in PERM_PREFIXES:
             candidates.add(f"{prefix}.{root_domain}")
 
-        # Resolve all candidates concurrently in batches
+        # Resolve candidates safely without flooding Lima usernet
         resolver = dns.asyncresolver.Resolver()
         resolver.nameservers = ["8.8.8.8", "1.1.1.1"]
         resolver.timeout = 2.0
         resolver.lifetime = 2.5
 
         resolved = set()
-        batch_size = 50
+        batch_size = 15
+        sem = asyncio.Semaphore(15)
 
         async def resolve_candidate(name: str):
-            for rtype in ("A", "AAAA"):
+            async with sem:
                 try:
-                    await resolver.resolve(name, rtype)
+                    await resolver.resolve(name, "A")
                     return name
                 except Exception:
-                    pass
-            return None
+                    return None
 
         candidate_list = list(candidates)
         for i in range(0, len(candidate_list), batch_size):
@@ -230,6 +314,8 @@ class SubdomainDiscoveryAgent(BaseAgent):
             for r in results:
                 if r and self.is_in_scope(r, root_domain):
                     resolved.add(r)
+            if i + batch_size < len(candidate_list):
+                await asyncio.sleep(0.04)
 
         logger.info(f"[Permutations] Resolved {len(resolved)} live candidates from {len(candidates)} generated for {root_domain}")
         return resolved
@@ -274,48 +360,42 @@ class SubdomainDiscoveryAgent(BaseAgent):
             return
         
         try:
-            is_recursive = (target != root_domain)
-
-            if is_recursive:
-                # -------------------------------------------------------
-                # Recursive task: focused ffuf on a confirmed alive subdomain
-                # -------------------------------------------------------
-                wildcard_check = await self.has_wildcard_dns(target)
-                recursive_results = []
-                if not wildcard_check:
-                    recursive_results = await self.run_recursive_ffuf(target, root_domain)
-                raw_found = set(recursive_results)
-                logger.info(f"[Recursive Discovery] {target}: {len(raw_found)} candidates found")
-
-            else:
-                # -------------------------------------------------------
-                # Root domain pass: Subfinder + Amass + CT logs + Permutations + ffuf
-                # -------------------------------------------------------
-                wildcard_check, subfinder_results, amass_results, ct_results = await asyncio.gather(
-                    self.has_wildcard_dns(target),
-                    self.run_subfinder(target),
-                    self.run_amass(target),
-                    self.fetch_ct_logs(target),
+            if target != root_domain:
+                logger.info(f"Skipping discovery for subdomain {target}: Subdomain lookups to public sources only occur for the root domain ({root_domain}).")
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow()}}
                 )
-                passive = subfinder_results + amass_results + list(ct_results)
-                logger.info(
-                    f"Passive discovery complete for {target}: "
-                    f"{len(subfinder_results)} Subfinder, "
-                    f"{len(amass_results)} Amass, "
-                    f"{len(ct_results)} CT logs"
-                )
+                return
 
-                # Active: Run bounded ffuf only if no wildcard is detected
-                active = []
-                if not wildcard_check:
-                    active = await self.run_ffuf(target)
+            # -------------------------------------------------------
+            # Root domain pass: Subfinder + Amass + CT logs + Permutations + ffuf
+            # -------------------------------------------------------
+            wildcard_check, subfinder_results, amass_results, ct_results = await asyncio.gather(
+                self.has_wildcard_dns(target),
+                self.run_subfinder(target),
+                self.run_amass(target),
+                self.fetch_ct_logs(target),
+            )
+            passive = subfinder_results + amass_results + list(ct_results)
+            logger.info(
+                f"Passive discovery complete for {target}: "
+                f"{len(subfinder_results)} Subfinder, "
+                f"{len(amass_results)} Amass, "
+                f"{len(ct_results)} CT logs"
+            )
 
-                # Permutation engine — uses the combined passive+active results as seed
-                perm_results = await self.run_permutations(root_domain, passive + active)
+            # Active: Run bounded ffuf only if no wildcard is detected
+            active = []
+            if not wildcard_check:
+                active = await self.run_ffuf(target)
 
-                raw_found = set(passive + active) | perm_results
-                raw_found.add(target)
-                raw_found.add(root_domain)
+            # Permutation engine — uses the combined passive+active results as seed
+            perm_results = await self.run_permutations(root_domain, passive + active)
+
+            raw_found = set(passive + active) | perm_results
+            raw_found.add(target)
+            raw_found.add(root_domain)
 
             # Strict scope enforcement: only include targets that strictly belong to root_domain
             all_found = set()

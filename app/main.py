@@ -3865,6 +3865,37 @@ def normalize_and_validate_domain(raw: str) -> Optional[str]:
         return d
     return None
 
+MULTI_PART_SUFFIXES = {
+    "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "net.uk", "ltd.uk", "plc.uk", "sch.uk",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au",
+    "co.nz", "net.nz", "org.nz",
+    "co.jp", "ne.jp", "or.jp",
+    "co.kr", "ne.kr", "re.kr",
+    "co.za", "org.za",
+    "com.br", "net.br", "org.br",
+    "com.mx", "org.mx",
+    "com.sg", "edu.sg",
+    "co.in", "net.in", "org.in", "gen.in", "ind.in",
+    "com.tr", "org.tr",
+    "com.tw", "org.tw",
+    "com.hk", "org.hk",
+    "com.ar", "com.co"
+}
+
+def is_subdomain(domain: str) -> bool:
+    """Return True if domain is a subdomain (has more labels than the apex/root domain)."""
+    if not domain:
+        return False
+    d = domain.strip().lower().rstrip(".")
+    parts = d.split(".")
+    if len(parts) < 2:
+        return False
+    for suffix in MULTI_PART_SUFFIXES:
+        if d.endswith(f".{suffix}"):
+            suffix_parts = len(suffix.split("."))
+            return len(parts) > (suffix_parts + 1)
+    return len(parts) > 2
+
 @app.post("/api/domains/add")
 async def add_domain(
     request: Request,
@@ -3889,7 +3920,9 @@ async def add_domain(
     if not cleaned_domain:
         return {"status": "error", "message": "Invalid domain format"}
 
-    is_single = single_domain_only is True or str(single_domain_only).lower() in ["true", "1", "yes"]
+    # Automatically enforce single target only for subdomains so all security tools run on it without recursive discovery
+    is_sub = is_subdomain(cleaned_domain)
+    is_single = (single_domain_only is True or str(single_domain_only).lower() in ["true", "1", "yes"]) or is_sub
 
     active_ws = await get_active_workspace(user, request)
     ws_id = str(active_ws["_id"])
@@ -3913,15 +3946,17 @@ async def add_domain(
         "scan_cycle_count": 0
     })
     
-    # Queue initial tasks
+    # Queue initial tasks: for single targets (including subdomains), run alive verification and port scan
     initial_tasks = [
         {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "osint", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
         {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
         {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
-        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+        {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
     ]
     if is_single:
-        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
+        initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "verification", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
+        initial_tasks.insert(1, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
     else:
         initial_tasks.insert(0, {"root_domain": cleaned_domain, "target": cleaned_domain, "task_type": "discovery", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
 
@@ -4018,13 +4053,14 @@ async def bulk_add_domains(
             continue
             
         added_count += 1
+        domain_is_single = is_single or is_subdomain(domain)
         domains_to_insert.append({
             "domain": domain,
             "workspace_id": ws_id,
             "scanned": scanned_val,
             "on_hold": on_hold_val,
             "blacklisted": False,
-            "single_domain_only": is_single,
+            "single_domain_only": domain_is_single,
             "scan_interval": 168,
             "notes": "",
             "added_at": now_str,
@@ -4037,10 +4073,12 @@ async def bulk_add_domains(
                 {"root_domain": domain, "target": domain, "task_type": "osint", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
                 {"root_domain": domain, "target": domain, "task_type": "archive_urls", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
                 {"root_domain": domain, "target": domain, "task_type": "waf_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
-                {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
+                {"root_domain": domain, "target": domain, "task_type": "lb_detect", "status": "pending", "created_at": now_dt, "workspace_id": ws_id},
+                {"root_domain": domain, "target": domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now_dt, "workspace_id": ws_id}
             ]
-            if is_single:
-                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
+            if domain_is_single:
+                initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "verification", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
+                initial_tasks.insert(1, {"root_domain": domain, "target": domain, "task_type": "scan", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
             else:
                 initial_tasks.insert(0, {"root_domain": domain, "target": domain, "task_type": "discovery", "status": "pending", "created_at": now_dt, "workspace_id": ws_id})
             tasks_to_insert.extend(initial_tasks)
@@ -4298,7 +4336,8 @@ async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_cu
         {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.utcnow()}
     ]
     if is_single:
-        fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+        fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "verification", "status": "pending", "created_at": datetime.utcnow()})
+        fresh_tasks.insert(1, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
     else:
         fresh_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
         
@@ -4352,13 +4391,15 @@ async def scan_single_domain(domain_id: str, request: Request, user: dict = Depe
     # 2. Clear old tasks for this domain
     await tasks_col.delete_many({"root_domain": root_domain})
     
-    # 3. Immediately queue ONLY single-domain tasks (scan, osint, archive_urls, waf_detect, lb_detect)
+    # 3. Immediately queue ONLY single-domain tasks (verification, scan, osint, archive_urls, waf_detect, lb_detect, cloud_storage_audit)
     await tasks_col.insert_many([
+        {"root_domain": root_domain, "target": root_domain, "task_type": "verification", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "osint", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "archive_urls", "status": "pending", "created_at": datetime.utcnow()},
         {"root_domain": root_domain, "target": root_domain, "task_type": "waf_detect", "status": "pending", "created_at": datetime.utcnow()},
-        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()}
+        {"root_domain": root_domain, "target": root_domain, "task_type": "lb_detect", "status": "pending", "created_at": datetime.utcnow()},
+        {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.utcnow()}
     ])
     
     await log_audit(user["username"], "SCAN_SINGLE_DOMAIN", f"Triggered single-target scan for {root_domain} (subdomain discovery bypassed)", request)
@@ -4430,7 +4471,8 @@ async def bulk_scan_now(request: Request, user: dict = Depends(get_current_user)
             {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": datetime.utcnow()}
         ]
         if is_single:
-            tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
+            tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "verification", "status": "pending", "created_at": datetime.utcnow()})
+            tasks_to_insert.insert(1, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": datetime.utcnow()})
         else:
             tasks_to_insert.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": datetime.utcnow()})
             
@@ -4515,7 +4557,8 @@ async def rescan_all(request: Request, user: dict = Depends(get_current_user)):
             {"root_domain": root_domain, "target": root_domain, "task_type": "cloud_storage_audit", "status": "pending", "created_at": now, "workspace_id": domain_ws_id}
         ]
         if is_single:
-            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
+            domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "verification", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
+            domain_tasks.insert(1, {"root_domain": root_domain, "target": root_domain, "task_type": "scan", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
         else:
             domain_tasks.insert(0, {"root_domain": root_domain, "target": root_domain, "task_type": "discovery", "status": "pending", "created_at": now, "workspace_id": domain_ws_id})
             
