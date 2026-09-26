@@ -32,8 +32,8 @@ class ContinuousLoopAgent(BaseAgent):
         super().__init__("loop_orchestrator", "Continuous Loop Orchestrator")
         # Check loop interval in seconds
         self.check_interval = int(os.getenv("CHECK_INTERVAL", "15"))
-        # Default rescan interval for completed domains (hours) - 1 week (168 hours)
-        self.rescan_interval = float(os.getenv("RESCAN_INTERVAL_HOURS", "168.0"))
+        # Default rescan interval for completed domains (hours) - 1 month (720 hours / 30 days)
+        self.rescan_interval = float(os.getenv("RESCAN_INTERVAL_HOURS", "720.0"))
         # Idle cooldown before restarting a completed domain in continuous mode (minutes)
         self.completion_cooldown_minutes = float(os.getenv("RESCAN_COOLDOWN_MINUTES", "2.0"))
 
@@ -198,10 +198,20 @@ class ContinuousLoopAgent(BaseAgent):
                 # Scanning is actively in progress
                 continue
 
-            # Nothing is processing for this domain!
-            is_scanned = domain.get("scanned", False)
-            last_scanned_str = domain.get("last_scanned")
-            interval_hours = domain.get("scan_interval", self.rescan_interval)
+            # Check if domain's workspace is paused
+            ws_id = domain.get("workspace_id")
+            if ws_id:
+                try:
+                    from bson import ObjectId
+                    ws_query = {"_id": ObjectId(ws_id)} if isinstance(ws_id, str) and len(ws_id) == 24 else {"_id": ws_id}
+                    ws_doc = await self.workspaces_col.find_one(ws_query)
+                    if ws_doc and ws_doc.get("scan_paused"):
+                        # Workspace is paused - skip watchdog auto-restart
+                        continue
+                except Exception:
+                    pass
+
+            effective_interval_hours = await self.get_effective_scan_interval(domain)
 
             if not is_scanned:
                 # Unscanned or interrupted domain with 0 active tasks
@@ -220,15 +230,9 @@ class ContinuousLoopAgent(BaseAgent):
                         logger.warning(f"Loop Orchestrator Watchdog: Domain {root_domain} stalled with 0 active tasks. Restarting pipeline.")
                         await self.start_domain_scan(domain, reason="stalled_restart")
             else:
-                # Domain is marked completed (scanned: True). Check if it is time to restart.
+                # Domain is marked completed (scanned: True). Check if it is time to restart based on effective interval.
                 should_restart = False
-                custom_interval = domain.get("scan_interval")
-                if custom_interval is not None and float(custom_interval) > 0:
-                    # User specified an explicit schedule interval (hours)
-                    restart_threshold_seconds = float(custom_interval) * 3600
-                else:
-                    # Default rescan interval: 1 week (168 hours)
-                    restart_threshold_seconds = self.rescan_interval * 3600
+                restart_threshold_seconds = effective_interval_hours * 3600.0
 
                 if not last_scanned_str:
                     should_restart = True
@@ -239,7 +243,7 @@ class ContinuousLoopAgent(BaseAgent):
                         if elapsed_seconds >= restart_threshold_seconds:
                             logger.info(
                                 f"Loop Orchestrator Watchdog: Domain {root_domain} idle for {int(elapsed_seconds)}s "
-                                f"(threshold: {int(restart_threshold_seconds)}s). Restarting cycle."
+                                f"(threshold: {int(restart_threshold_seconds)}s / {effective_interval_hours}h). Restarting cycle."
                             )
                             should_restart = True
                     except Exception as e:
@@ -286,13 +290,128 @@ class ContinuousLoopAgent(BaseAgent):
             # 2. Recover any truly dead/hung tasks
             await self.recover_stale_tasks()
 
-            # 3. Watchdog: check whether domains are running; restart if idle/stopped (unless paused)
+            # 3. Automated Circuit Breaker: check system load and halt offending workspace if limit reached
+            await self.check_resource_circuit_breaker()
+
+            # 4. Watchdog: check whether domains are running; restart if idle/stopped (unless paused)
             await self.watchdog_ensure_running()
 
         except Exception as e:
             logger.error(f"Loop Orchestrator error: {e}", exc_info=True)
 
         await asyncio.sleep(self.check_interval)
+
+    async def get_effective_scan_interval(self, domain: dict) -> float:
+        """
+        Hierarchy:
+        1. Domain-level override (if set and > 0)
+        2. Workspace-level default_scan_interval (if set and > 0)
+        3. Global default (self.rescan_interval = 720.0 hours / 1 month)
+        """
+        custom_interval = domain.get("scan_interval")
+        if custom_interval is not None and float(custom_interval) > 0:
+            return float(custom_interval)
+
+        ws_id = domain.get("workspace_id")
+        if ws_id:
+            try:
+                from bson import ObjectId
+                ws_query = {"_id": ObjectId(ws_id)} if isinstance(ws_id, str) and len(ws_id) == 24 else {"_id": ws_id}
+                ws_doc = await self.workspaces_col.find_one(ws_query)
+                if ws_doc and ws_doc.get("default_scan_interval") is not None and float(ws_doc.get("default_scan_interval")) > 0:
+                    return float(ws_doc["default_scan_interval"])
+            except Exception as e:
+                logger.debug(f"Error fetching workspace scan interval: {e}")
+
+        return self.rescan_interval
+
+    async def check_resource_circuit_breaker(self):
+        """
+        Circuit Breaker: monitors system CPU and RAM.
+        If system load is >= 92% CPU or RAM, auto-pauses the most recently active
+        workspace to prevent host crashes/dropped packets and sends an alert.
+        """
+        try:
+            # Check RAM from /proc/meminfo
+            ram_percent = 0.0
+            with open("/proc/meminfo", "r") as f:
+                raw_mem = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        raw_mem[parts[0].strip()] = int(parts[1].split()[0])
+                total = raw_mem.get("MemTotal", 1)
+                avail = raw_mem.get("MemAvailable", raw_mem.get("MemFree", 0))
+                ram_percent = round(((total - avail) / total) * 100.0, 1)
+
+            # Check CPU from /proc/stat
+            cpu_percent = 0.0
+            if hasattr(self, "_last_cb_cpu") and self._last_cb_cpu:
+                with open("/proc/stat", "r") as f:
+                    fields = [float(x) for x in f.readline().split()[1:8]]
+                idle = fields[3] + fields[4]
+                total_cpu = sum(fields)
+                d_idle = idle - self._last_cb_cpu["idle"]
+                d_total = total_cpu - self._last_cb_cpu["total"]
+                if d_total > 0:
+                    cpu_percent = round((1.0 - (d_idle / d_total)) * 100.0, 1)
+                self._last_cb_cpu = {"idle": idle, "total": total_cpu}
+            else:
+                with open("/proc/stat", "r") as f:
+                    fields = [float(x) for x in f.readline().split()[1:8]]
+                self._last_cb_cpu = {"idle": fields[3] + fields[4], "total": sum(fields)}
+
+            if cpu_percent >= 92.0 or ram_percent >= 92.0:
+                logger.critical(
+                    f"CIRCUIT BREAKER TRIGGERED: System resources critical (CPU: {cpu_percent}%, RAM: {ram_percent}%). "
+                    f"Identifying offending workspace to halt."
+                )
+                active_ws_ids = await self.tasks_col.distinct("workspace_id", {"status": "processing"})
+                active_unpaused = []
+                for wid in active_ws_ids:
+                    if wid:
+                        from bson import ObjectId
+                        ws_doc = await self.workspaces_col.find_one({"_id": ObjectId(wid)} if len(wid) == 24 else {"_id": wid})
+                        if ws_doc and not ws_doc.get("scan_paused"):
+                            active_unpaused.append(ws_doc)
+
+                if active_unpaused:
+                    ws_to_halt = sorted(active_unpaused, key=lambda w: str(w.get("_id")), reverse=True)[0]
+                    ws_id_str = str(ws_to_halt["_id"])
+                    ws_name = ws_to_halt.get("name", "Unknown")
+
+                    logger.warning(f"Circuit Breaker: Auto-halting scanning for workspace '{ws_name}' ({ws_id_str}).")
+                    await self.workspaces_col.update_one(
+                        {"_id": ws_to_halt["_id"]},
+                        {"$set": {
+                            "scan_paused": True,
+                            "paused_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "pause_reason": f"Automated circuit breaker: resource exhaustion limit reached (CPU: {cpu_percent}%, RAM: {ram_percent}%)"
+                        }}
+                    )
+                    reset_res = await self.tasks_col.update_many(
+                        {"workspace_id": ws_id_str, "status": "processing"},
+                        {"$set": {"status": "pending", "paused": True}}
+                    )
+                    logger.info(f"Circuit Breaker: Reset {reset_res.modified_count} processing tasks for {ws_name} back to pending.")
+
+                    await self.leads_col.insert_one({
+                        "domain": ws_name,
+                        "workspace_id": ws_id_str,
+                        "title": f"Resource Exhaustion: Scanning Halted on {ws_name}",
+                        "severity": "high",
+                        "status": "new",
+                        "category": "system",
+                        "details": {
+                            "workspace": ws_name,
+                            "cpu_percent": cpu_percent,
+                            "ram_percent": ram_percent,
+                            "message": f"Scanning was automatically paused on workspace '{ws_name}' to protect host system stability."
+                        },
+                        "created_at": datetime.datetime.utcnow()
+                    })
+        except Exception as e:
+            logger.debug(f"Circuit breaker monitor error: {e}")
 
 if __name__ == "__main__":
     agent = ContinuousLoopAgent()

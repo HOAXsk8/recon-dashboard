@@ -1,0 +1,473 @@
+{% extends "base.html" %}
+
+{% block title %}System Resources & Capacity | RDash{% endblock %}
+
+{% block container_class %}w-full px-4 sm:px-6 lg:px-10 py-8{% endblock %}
+
+{% block content %}
+<div class="w-full space-y-8">
+    <!-- Header & Status Bar -->
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-2 border-b border-slate-800/80">
+        <div>
+            <div class="flex items-center space-x-3">
+                <h1 class="text-3xl font-black tracking-tight text-white">SYSTEM <span class="text-tech-accent">RESOURCES</span></h1>
+                <span id="circuit-breaker-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    CIRCUIT BREAKER: ARMED (92%)
+                </span>
+            </div>
+            <p class="text-slate-400 mt-1 font-medium text-sm">Real-time system vitals, fair-share workspace pipeline capacity, and automated circuit-breaker protection.</p>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center space-x-2 bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-400">
+                <span class="w-2 h-2 rounded-full bg-tech-accent animate-ping"></span>
+                <span>Auto-refresh: <strong id="refresh-timer" class="text-white">3s</strong></span>
+            </div>
+
+            <button onclick="fetchResources(true)" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700 shadow-md">
+                <svg id="refresh-spinner" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>Refresh Now</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Circuit Breaker Alert Banner (Hidden by default, shown when triggered) -->
+    <div id="circuit-breaker-banner" class="hidden rounded-2xl bg-rose-500/10 border-2 border-rose-500/40 p-5 shadow-2xl shadow-rose-950/40 animate-pulse">
+        <div class="flex items-start gap-4">
+            <div class="p-3 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/30">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-base font-black text-rose-400 uppercase tracking-wide">Automated Circuit-Breaker Triggered</h3>
+                <p id="circuit-breaker-msg" class="text-sm text-slate-300 mt-1 font-medium leading-relaxed"></p>
+                <div class="mt-3 flex items-center gap-3">
+                    <span class="text-xs font-mono text-rose-300/80">Scanning has been paused automatically to safeguard host stability. You can resume scanning once resource levels normalize.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Vitals Metric Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <!-- CPU Card -->
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                    </div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">CPU Utilization</span>
+                </div>
+                <span id="cpu-cores" class="text-[11px] font-mono font-bold text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded">-- Cores</span>
+            </div>
+            <div class="py-4">
+                <div class="flex items-baseline space-x-2">
+                    <span id="cpu-percent" class="text-4xl font-black text-white font-mono tracking-tight">--%</span>
+                    <span id="cpu-status" class="text-xs font-bold text-emerald-400 uppercase">NORMAL</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 mt-3 overflow-hidden">
+                    <div id="cpu-bar" class="bg-sky-400 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono text-slate-400">
+                <span>Load Avg (1/5/15m):</span>
+                <span id="cpu-loadavg" class="text-slate-200 font-bold">-- / -- / --</span>
+            </div>
+        </div>
+
+        <!-- RAM Card -->
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    </div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Memory (RAM)</span>
+                </div>
+                <span id="ram-used-total" class="text-[11px] font-mono font-bold text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded">-- / -- GB</span>
+            </div>
+            <div class="py-4">
+                <div class="flex items-baseline space-x-2">
+                    <span id="ram-percent" class="text-4xl font-black text-white font-mono tracking-tight">--%</span>
+                    <span id="ram-status" class="text-xs font-bold text-emerald-400 uppercase">HEALTHY</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 mt-3 overflow-hidden">
+                    <div id="ram-bar" class="bg-indigo-400 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono text-slate-400">
+                <span>Available RAM:</span>
+                <span id="ram-available" class="text-slate-200 font-bold">-- MB</span>
+            </div>
+        </div>
+
+        <!-- Storage Card -->
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zM9 9h6M9 13h6M9 17h2"></path></svg>
+                    </div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Disk Storage</span>
+                </div>
+                <span id="disk-total" class="text-[11px] font-mono font-bold text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded">-- GB Total</span>
+            </div>
+            <div class="py-4">
+                <div class="flex items-baseline space-x-2">
+                    <span id="disk-percent" class="text-4xl font-black text-white font-mono tracking-tight">--%</span>
+                    <span id="disk-status" class="text-xs font-bold text-emerald-400 uppercase">GOOD</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 mt-3 overflow-hidden">
+                    <div id="disk-bar" class="bg-emerald-400 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono text-slate-400">
+                <span>Free Space:</span>
+                <span id="disk-free" class="text-slate-200 font-bold">-- GB Free</span>
+            </div>
+        </div>
+
+        <!-- Network Sockets & Pipeline Queue -->
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800/60">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Network & Queues</span>
+                </div>
+                <span id="active-tasks-badge" class="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">-- ACTIVE</span>
+            </div>
+            <div class="py-4">
+                <div class="flex items-baseline space-x-2">
+                    <span id="tcp-sockets" class="text-4xl font-black text-white font-mono tracking-tight">--</span>
+                    <span class="text-xs font-bold text-slate-400 uppercase">TCP ESTAB</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 mt-3 overflow-hidden">
+                    <div id="socket-bar" class="bg-amber-400 h-2.5 rounded-full transition-all duration-500" style="width: 15%"></div>
+                </div>
+            </div>
+            <div class="pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono text-slate-400">
+                <span>Pending Task Queue:</span>
+                <span id="pending-tasks-count" class="text-tech-accent font-bold">-- tasks</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workspaces Concurrent Resource Breakdown -->
+    <div class="space-y-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-tech-accent"></span>
+                <h2 class="text-sm font-black uppercase tracking-[0.25em] text-white">Workspace Concurrent Pipelines</h2>
+            </div>
+            <span class="text-xs font-mono text-slate-400">Fair-Share Round-Robin Dispatching Enabled</span>
+        </div>
+
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="bg-slate-950/70 text-[11px] font-mono font-black uppercase text-slate-400 border-b border-slate-800 tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4">Workspace</th>
+                            <th class="px-6 py-4">Scan Status</th>
+                            <th class="px-6 py-4">Active Running</th>
+                            <th class="px-6 py-4">Queued Pending</th>
+                            <th class="px-6 py-4">Default Interval</th>
+                            <th class="px-6 py-4">Estimated Load</th>
+                            <th class="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="workspaces-table-body" class="divide-y divide-slate-800 font-medium">
+                        <tr>
+                            <td colspan="7" class="px-6 py-8 text-center text-slate-500 font-mono text-xs">Loading workspace resource allocations...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reconnaissance Engines Containers Status -->
+    <div class="space-y-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                <h2 class="text-sm font-black uppercase tracking-[0.25em] text-white">Reconnaissance Engine Processes & Memory Footprint</h2>
+            </div>
+            <span id="containers-count" class="text-xs font-mono text-slate-400">0 Containers Detected</span>
+        </div>
+
+        <div class="bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="bg-slate-950/70 text-[11px] font-mono font-black uppercase text-slate-400 border-b border-slate-800 tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4">Engine / Container</th>
+                            <th class="px-6 py-4">Heartbeat Status</th>
+                            <th class="px-6 py-4">Process PID</th>
+                            <th class="px-6 py-4">Memory (RSS)</th>
+                            <th class="px-6 py-4">Last Reported</th>
+                        </tr>
+                    </thead>
+                    <tbody id="containers-table-body" class="divide-y divide-slate-800 font-medium font-mono text-xs">
+                        <tr>
+                            <td colspan="5" class="px-6 py-8 text-center text-slate-500">Loading engine container telemetry...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let refreshCountdown = 3;
+let autoRefreshTimer = null;
+
+async function fetchResources(manual = false) {
+    const spinner = document.getElementById('refresh-spinner');
+    if (manual && spinner) spinner.classList.add('animate-spin');
+
+    try {
+        const res = await fetch('/api/system/resources');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderResources(data);
+    } catch (err) {
+        console.error('Failed to fetch system resources:', err);
+    } finally {
+        if (spinner) spinner.classList.remove('animate-spin');
+        refreshCountdown = 3;
+    }
+}
+
+function renderResources(data) {
+    const vitals = data.vitals || {};
+    const cpu = vitals.cpu || {};
+    const mem = vitals.memory || {};
+    const disk = vitals.disk || {};
+    const net = vitals.network || {};
+
+    // 1. Circuit Breaker Banner & Badge
+    const cbBanner = document.getElementById('circuit-breaker-banner');
+    const cbBadge = document.getElementById('circuit-breaker-badge');
+    const cbMsg = document.getElementById('circuit-breaker-msg');
+
+    if (data.circuit_breaker_triggered) {
+        cbBanner.classList.remove('hidden');
+        cbMsg.textContent = data.circuit_breaker_reason || 'Resource limits exceeded safe thresholds. Scanning paused.';
+        cbBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center gap-1.5 animate-pulse';
+        cbBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> CIRCUIT BREAKER: TRIGGERED';
+    } else {
+        cbBanner.classList.add('hidden');
+        cbBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5';
+        cbBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> CIRCUIT BREAKER: ARMED (92%)';
+    }
+
+    // 2. CPU Vitals
+    const cpuPct = Math.round(cpu.percent || 0);
+    document.getElementById('cpu-percent').textContent = cpuPct + '%';
+    document.getElementById('cpu-cores').textContent = (cpu.cores || 1) + ' Cores';
+    const cpuBar = document.getElementById('cpu-bar');
+    cpuBar.style.width = Math.min(100, Math.max(0, cpuPct)) + '%';
+
+    const cpuStatus = document.getElementById('cpu-status');
+    if (cpuPct >= 90) {
+        cpuStatus.textContent = 'CRITICAL';
+        cpuStatus.className = 'text-xs font-bold text-rose-400 uppercase';
+        cpuBar.className = 'bg-rose-500 h-2.5 rounded-full transition-all duration-500';
+    } else if (cpuPct >= 70) {
+        cpuStatus.textContent = 'HIGH';
+        cpuStatus.className = 'text-xs font-bold text-amber-400 uppercase';
+        cpuBar.className = 'bg-amber-400 h-2.5 rounded-full transition-all duration-500';
+    } else {
+        cpuStatus.textContent = 'NORMAL';
+        cpuStatus.className = 'text-xs font-bold text-emerald-400 uppercase';
+        cpuBar.className = 'bg-sky-400 h-2.5 rounded-full transition-all duration-500';
+    }
+
+    if (cpu.loadavg && cpu.loadavg.length >= 3) {
+        document.getElementById('cpu-loadavg').textContent = cpu.loadavg.map(v => v.toFixed(2)).join(' / ');
+    }
+
+    // 3. RAM Vitals
+    const ramPct = Math.round(mem.percent || 0);
+    document.getElementById('ram-percent').textContent = ramPct + '%';
+    const usedGb = (mem.used_mb / 1024).toFixed(1);
+    const totalGb = (mem.total_mb / 1024).toFixed(1);
+    document.getElementById('ram-used-total').textContent = usedGb + ' / ' + totalGb + ' GB';
+    document.getElementById('ram-available').textContent = (mem.available_mb || 0).toLocaleString() + ' MB';
+    
+    const ramBar = document.getElementById('ram-bar');
+    ramBar.style.width = Math.min(100, Math.max(0, ramPct)) + '%';
+    const ramStatus = document.getElementById('ram-status');
+    if (ramPct >= 90) {
+        ramStatus.textContent = 'CRITICAL';
+        ramStatus.className = 'text-xs font-bold text-rose-400 uppercase';
+        ramBar.className = 'bg-rose-500 h-2.5 rounded-full transition-all duration-500';
+    } else if (ramPct >= 75) {
+        ramStatus.textContent = 'ELEVATED';
+        ramStatus.className = 'text-xs font-bold text-amber-400 uppercase';
+        ramBar.className = 'bg-amber-400 h-2.5 rounded-full transition-all duration-500';
+    } else {
+        ramStatus.textContent = 'HEALTHY';
+        ramStatus.className = 'text-xs font-bold text-emerald-400 uppercase';
+        ramBar.className = 'bg-indigo-400 h-2.5 rounded-full transition-all duration-500';
+    }
+
+    // 4. Disk Vitals
+    const diskPct = Math.round(disk.percent || 0);
+    document.getElementById('disk-percent').textContent = diskPct + '%';
+    document.getElementById('disk-total').textContent = (disk.total_gb || 0).toFixed(0) + ' GB Total';
+    document.getElementById('disk-free').textContent = (disk.free_gb || 0).toFixed(1) + ' GB Free';
+    const diskBar = document.getElementById('disk-bar');
+    diskBar.style.width = Math.min(100, Math.max(0, diskPct)) + '%';
+    const diskStatus = document.getElementById('disk-status');
+    if (diskPct >= 90) {
+        diskStatus.textContent = 'LOW SPACE';
+        diskStatus.className = 'text-xs font-bold text-rose-400 uppercase';
+        diskBar.className = 'bg-rose-500 h-2.5 rounded-full transition-all duration-500';
+    } else {
+        diskStatus.textContent = 'GOOD';
+        diskStatus.className = 'text-xs font-bold text-emerald-400 uppercase';
+        diskBar.className = 'bg-emerald-400 h-2.5 rounded-full transition-all duration-500';
+    }
+
+    // 5. Network & Queues
+    document.getElementById('tcp-sockets').textContent = net.tcp_established || 0;
+    document.getElementById('active-tasks-badge').textContent = (data.total_active_tasks || 0) + ' ACTIVE';
+    document.getElementById('pending-tasks-count').textContent = (data.total_pending_tasks || 0) + ' queued';
+
+    // 6. Workspaces Table
+    const wsBody = document.getElementById('workspaces-table-body');
+    const workspaces = data.workspaces || [];
+    if (workspaces.length === 0) {
+        wsBody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500 font-mono text-xs">No workspaces configured.</td></tr>`;
+    } else {
+        wsBody.innerHTML = workspaces.map(ws => {
+            const isPaused = ws.scan_paused;
+            const statusBadge = isPaused 
+                ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                     <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> PAUSED
+                   </span>`
+                : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ACTIVE
+                   </span>`;
+
+            const intervalDisplay = ws.default_scan_interval 
+                ? `${ws.default_scan_interval}h (${(ws.default_scan_interval/24).toFixed(0)}d)` 
+                : '720h (30d)';
+
+            const actionBtn = isPaused
+                ? `<button onclick="resumeWorkspace('${ws.workspace_id}', '${ws.workspace_name}')" class="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold border border-emerald-500/30 transition-all flex items-center space-x-1.5 ml-auto cursor-pointer">
+                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                     <span>Resume</span>
+                   </button>`
+                : `<button onclick="pauseWorkspace('${ws.workspace_id}', '${ws.workspace_name}')" class="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs font-bold border border-rose-500/30 transition-all flex items-center space-x-1.5 ml-auto cursor-pointer">
+                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                     <span>Pause</span>
+                   </button>`;
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="px-6 py-4">
+                        <div class="font-bold text-white">${ws.workspace_name}</div>
+                        <div class="text-[11px] font-mono text-slate-500">${ws.workspace_id}</div>
+                        ${ws.pause_reason ? `<div class="text-[10px] text-rose-400 mt-1 font-mono">${ws.pause_reason}</div>` : ''}
+                    </td>
+                    <td class="px-6 py-4">${statusBadge}</td>
+                    <td class="px-6 py-4 font-mono font-bold text-amber-400">${ws.active_tasks || 0}</td>
+                    <td class="px-6 py-4 font-mono text-slate-300">${ws.pending_tasks || 0}</td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-400">${intervalDisplay}</td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-400">
+                        <span class="text-sky-400 font-bold">~${ws.est_cpu_pct || 0}% CPU</span> / 
+                        <span class="text-indigo-400 font-bold">${ws.est_ram_mb || 0} MB</span>
+                    </td>
+                    <td class="px-6 py-4 text-right">${actionBtn}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 7. Containers Table
+    const cBody = document.getElementById('containers-table-body');
+    const containers = data.containers || [];
+    document.getElementById('containers-count').textContent = containers.length + ' Engines Online';
+    if (containers.length === 0) {
+        cBody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">No active engine processes found.</td></tr>`;
+    } else {
+        cBody.innerHTML = containers.map(c => {
+            const rssDisplay = c.rss_mb ? `${c.rss_mb} MB` : 'N/A';
+            const statusBadge = c.status === 'healthy' || c.status === 'active' || c.status === 'running'
+                ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ONLINE</span>`
+                : `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">IDLE</span>`;
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="px-6 py-3 font-bold text-white flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-tech-accent"></span>
+                        <span>${c.name || c.engine}</span>
+                    </td>
+                    <td class="px-6 py-3">${statusBadge}</td>
+                    <td class="px-6 py-3 text-slate-400">${c.pid || '--'}</td>
+                    <td class="px-6 py-3 text-indigo-300 font-bold">${rssDisplay}</td>
+                    <td class="px-6 py-3 text-slate-500">${c.updated_at || 'Just now'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+}
+
+async function pauseWorkspace(id, name) {
+    if (!confirm(`Pause all active scanning for workspace "${name}"? Running tasks will be safely halted and queued tasks kept on hold.`)) return;
+    try {
+        const res = await fetch(`/api/workspaces/${id}/pause`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Manually paused by operator via Resource Monitor' })
+        });
+        if (res.ok) {
+            fetchResources();
+        } else {
+            alert('Failed to pause workspace: ' + res.statusText);
+        }
+    } catch (e) {
+        alert('Error pausing workspace: ' + e);
+    }
+}
+
+async function resumeWorkspace(id, name) {
+    try {
+        const res = await fetch(`/api/workspaces/${id}/resume`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+            fetchResources();
+        } else {
+            alert('Failed to resume workspace: ' + res.statusText);
+        }
+    } catch (e) {
+        alert('Error resuming workspace: ' + e);
+    }
+}
+
+// Countdown timer loop
+setInterval(() => {
+    refreshCountdown--;
+    if (refreshCountdown <= 0) {
+        fetchResources();
+    } else {
+        const t = document.getElementById('refresh-timer');
+        if (t) t.textContent = refreshCountdown + 's';
+    }
+}, 1000);
+
+// Initial load
+document.addEventListener('DOMContentLoaded', () => {
+    fetchResources();
+});
+</script>
+{% endblock %}

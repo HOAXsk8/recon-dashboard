@@ -138,7 +138,7 @@
         <div class="flex flex-col">
             <span class="text-[10px] uppercase font-bold text-slate-500 mb-1">Set Interval (hrs)</span>
             <div class="flex space-x-2">
-                <input type="number" id="bulk-interval-input" value="168" min="0" placeholder="168=1 week" class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent" title="Set interval in hours. Default is 168 (1 week). Use 0 for continuous scanning.">
+                <input type="number" id="bulk-interval-input" value="720" min="0" placeholder="720=30 days" class="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white outline-none focus:ring-1 focus:ring-tech-accent" title="Set interval in hours. Default is 720 (30 days / 1 month). Use 0 for continuous scanning.">
                 <button onclick="bulkUpdateInterval()" class="px-3 py-1 bg-tech-accent text-tech-bg text-[10px] font-bold rounded hover:opacity-90 transition-all">SET</button>
             </div>
         </div>
@@ -274,8 +274,106 @@
     </div>
 </div>
 
+<!-- Resource Pre-Check Warning Modal -->
+<div id="resource-warning-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[110] hidden flex items-center justify-center p-4 animate-fade-in" onclick="if(event.target === this) cancelResourceWarning()">
+    <div class="bg-tech-panel w-full max-w-lg rounded-2xl shadow-2xl border-2 border-amber-500/50 overflow-hidden p-6 space-y-5" onclick="event.stopPropagation()">
+        <div class="flex items-center space-x-3 border-b border-slate-800 pb-4">
+            <div class="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <div>
+                <h3 class="text-base font-black uppercase text-amber-400 tracking-wide">High Resource Load Warning</h3>
+                <p class="text-xs text-slate-400">Pre-Scan System Capacity Estimation</p>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <p class="text-xs text-slate-300">
+                Starting this scanning pipeline is estimated to elevate host resource utilization near or beyond safe limits:
+            </p>
+
+            <div class="grid grid-cols-2 gap-3 p-3 bg-slate-900 rounded-xl border border-slate-800">
+                <div>
+                    <span class="text-[10px] uppercase font-bold text-slate-500 block">Projected CPU</span>
+                    <span id="res-warn-cpu" class="text-xl font-black font-mono text-amber-400">--%</span>
+                </div>
+                <div>
+                    <span class="text-[10px] uppercase font-bold text-slate-500 block">Projected RAM</span>
+                    <span id="res-warn-ram" class="text-xl font-black font-mono text-amber-400">--%</span>
+                </div>
+            </div>
+
+            <div id="res-warn-reasons" class="space-y-1.5 text-xs text-slate-300 font-mono bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                <!-- Warnings injected dynamically -->
+            </div>
+
+            <p class="text-[11px] text-slate-400 italic">
+                Safety Note: If system utilization reaches 92%, the automated circuit-breaker will pause scanning for this workspace and alert you to prevent system instability.
+            </p>
+        </div>
+
+        <div class="flex items-center justify-end space-x-3 pt-2 border-t border-slate-800">
+            <button type="button" onclick="cancelResourceWarning()" class="px-4 py-2 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 font-bold rounded-xl text-xs transition-all">
+                Cancel
+            </button>
+            <button type="button" id="res-warn-proceed-btn" onclick="proceedResourceWarning()" class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-lg shadow-amber-500/20">
+                Proceed Anyway
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 const USER_ROLE = '{{ user.role }}';
+const CURRENT_WS_ID = '{{ active_workspace.id if active_workspace else "" }}';
+let pendingScanAction = null;
+
+async function checkResourcePreFlight(domainCount, onApproved) {
+    if (!CURRENT_WS_ID) {
+        onApproved();
+        return;
+    }
+    try {
+        const res = await fetch(`/api/workspaces/${CURRENT_WS_ID}/estimate-resources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain_count: domainCount, tools: ['all'] })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.warning_required) {
+                document.getElementById('res-warn-cpu').textContent = Math.round(data.projected_vitals?.projected_cpu_pct || 0) + '%';
+                document.getElementById('res-warn-ram').textContent = Math.round(data.projected_vitals?.projected_ram_pct || 0) + '%';
+                const reasonsContainer = document.getElementById('res-warn-reasons');
+                if (reasonsContainer) {
+                    reasonsContainer.innerHTML = (data.warning_reasons || []).map(r => `<div class="flex items-center gap-1.5 text-amber-300"><span>⚠️</span><span>${r}</span></div>`).join('');
+                }
+                pendingScanAction = onApproved;
+                document.getElementById('resource-warning-modal').classList.remove('hidden');
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('Resource pre-check request failed:', e);
+    }
+    onApproved();
+}
+
+function cancelResourceWarning() {
+    pendingScanAction = null;
+    const modal = document.getElementById('resource-warning-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function proceedResourceWarning() {
+    const modal = document.getElementById('resource-warning-modal');
+    if (modal) modal.classList.add('hidden');
+    if (pendingScanAction) {
+        const action = pendingScanAction;
+        pendingScanAction = null;
+        action();
+    }
+}
 let currentPage = 1;
 let limit = 10;
 let totalMatchingCount = 0;
@@ -638,17 +736,19 @@ document.getElementById('add-domain-form').addEventListener('submit', async (e) 
 async function scanSingleDomain(id, domain) {
     if (!confirm(`Trigger immediate SINGLE DOMAIN scan for ${domain}?\n(Subdomain discovery will be skipped).`)) return;
     
-    try {
-        const response = await fetch(`/api/domains/${id}/scan-single`, { method: 'POST' });
-        const result = await response.json();
-        if (result.status === 'success') {
-            loadDomains();
-        } else {
-            alert(result.message || 'Error triggering single scan');
+    checkResourcePreFlight(1, async () => {
+        try {
+            const response = await fetch(`/api/domains/${id}/scan-single`, { method: 'POST' });
+            const result = await response.json();
+            if (result.status === 'success') {
+                loadDomains();
+            } else {
+                alert(result.message || 'Error triggering single scan');
+            }
+        } catch (error) {
+            console.error('Error triggering single domain scan:', error);
         }
-    } catch (error) {
-        console.error('Error triggering single domain scan:', error);
-    }
+    });
 }
 
 async function toggleBlacklist(id) {
@@ -680,22 +780,26 @@ async function deleteDomain(id, domain) {
 async function scanNow(id, domain) {
     if (!confirm(`Trigger immediate scan for ${domain}?`)) return;
     
-    try {
-        const response = await fetch(`/api/domains/${id}/scan-now`, { method: 'POST' });
-        const result = await response.json();
-        if (result.status === 'success') {
-            loadDomains();
+    checkResourcePreFlight(1, async () => {
+        try {
+            const response = await fetch(`/api/domains/${id}/scan-now`, { method: 'POST' });
+            const result = await response.json();
+            if (result.status === 'success') {
+                loadDomains();
+            }
+        } catch (error) {
+            console.error('Error triggering scan:', error);
         }
-    } catch (error) {
-        console.error('Error triggering scan:', error);
-    }
+    });
 }
 
 async function bulkScanNow() {
     let body = {};
     let confirmMsg = "";
+    let count = 0;
 
     if (isGlobalSelectionActive) {
+        count = totalMatchingCount;
         confirmMsg = `Are you sure you want to trigger an immediate scan for ALL ${totalMatchingCount} matching domains?`;
         body.apply_to_all = true;
         body.q = document.getElementById('domain-search').value;
@@ -704,28 +808,31 @@ async function bulkScanNow() {
     } else {
         const selected = Array.from(document.querySelectorAll('input[name="domain-checkbox"]:checked')).map(cb => cb.value);
         if (!selected.length) return;
+        count = selected.length;
         confirmMsg = `Trigger immediate scan for ${selected.length} domains?`;
         body.ids = selected;
     }
 
     if (!confirm(confirmMsg)) return;
     
-    try {
-        const response = await fetch('/api/domains/bulk-scan-now', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        const result = await response.json();
-        if (result.status === 'success') {
-            clearSelection();
-            loadDomains();
-        } else {
-            alert(result.message || 'Error triggering scan');
+    checkResourcePreFlight(count, async () => {
+        try {
+            const response = await fetch('/api/domains/bulk-scan-now', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                clearSelection();
+                loadDomains();
+            } else {
+                alert(result.message || 'Error triggering scan');
+            }
+        } catch (error) {
+            console.error('Bulk scan error:', error);
         }
-    } catch (error) {
-        console.error('Bulk scan error:', error);
-    }
+    });
 }
 
 function openNotesModal(id, name, notes) {
@@ -1022,31 +1129,34 @@ async function rescanAllDomains() {
     if (!confirm("Are you sure you want to reset ALL domains and subdomains to unscanned (Pending) and start a complete scan across the entire scope?")) {
         return;
     }
-    const btn = document.getElementById("btn-rescan-all");
-    const originalHtml = btn ? btn.innerHTML : "";
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Starting Rescan...</span>`;
-    }
-    try {
-        const response = await fetch('/api/domains/rescan-all', { method: 'POST' });
-        const result = await response.json();
-        if (response.ok && result.status === 'success') {
-            alert(result.message || "Global rescan started successfully!");
-            clearSelection();
-            loadDomains();
-        } else {
-            alert(result.detail || result.message || "Failed to start global rescan");
-        }
-    } catch (error) {
-        console.error('Rescan all error:', error);
-        alert('Network or server error while starting global rescan.');
-    } finally {
+    
+    checkResourcePreFlight(totalMatchingCount || 50, async () => {
+        const btn = document.getElementById("btn-rescan-all");
+        const originalHtml = btn ? btn.innerHTML : "";
         if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Starting Rescan...</span>`;
         }
-    }
+        try {
+            const response = await fetch('/api/domains/rescan-all', { method: 'POST' });
+            const result = await response.json();
+            if (response.ok && result.status === 'success') {
+                alert(result.message || "Global rescan started successfully!");
+                clearSelection();
+                loadDomains();
+            } else {
+                alert(result.detail || result.message || "Failed to start global rescan");
+            }
+        } catch (error) {
+            console.error('Rescan all error:', error);
+            alert('Network or server error while starting global rescan.');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+    });
 }
 
 // Initial load

@@ -1942,6 +1942,11 @@
                     <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Live Logs</span>
                     <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Live Logs</div>
                 </a>
+                <a href="/system-resources" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="System Resources">
+                    <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                    <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Resources</span>
+                    <div class="sidebar-tooltip hidden absolute left-full ml-3 px-2.5 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-xl border border-slate-700 whitespace-nowrap z-50 pointer-events-none items-center uppercase">Resources</div>
+                </a>
                 <a href="/settings" class="sidebar-link flex items-center space-x-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800 group relative" title="Settings">
                     <svg class="w-5 h-5 flex-shrink-0 text-slate-400 group-hover:text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     <span class="sidebar-text text-sm font-bold text-slate-300 group-hover:text-white uppercase whitespace-nowrap">Settings</span>
@@ -3848,6 +3853,7 @@
             e.preventDefault();
             const name = document.getElementById('ws-new-name').value.trim();
             const description = document.getElementById('ws-new-desc').value.trim();
+            const intervalVal = document.getElementById('ws-new-interval') ? parseFloat(document.getElementById('ws-new-interval').value) : 720;
             if (!name) return;
 
             const btn = document.getElementById('ws-submit-btn');
@@ -3857,7 +3863,11 @@
                 const res = await fetch('/api/workspaces', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description })
+                    body: JSON.stringify({ 
+                        name, 
+                        description,
+                        default_scan_interval: isNaN(intervalVal) || intervalVal <= 0 ? 720 : intervalVal
+                    })
                 });
                 if (res.ok) {
                     window.location.reload();
@@ -3891,20 +3901,21 @@
         async function refreshManageWorkspacesTable() {
             const tbody = document.getElementById('manage-workspaces-tbody');
             if (!tbody) return;
-            tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-slate-500">Loading workspaces...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">Loading workspaces...</td></tr>';
             try {
                 const res = await fetch('/api/workspaces');
                 const data = await res.json();
                 const list = Array.isArray(data) ? data : (data.workspaces || []);
                 if (!Array.isArray(list) || list.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-slate-500">No workspaces found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">No workspaces found.</td></tr>';
                     return;
                 }
                 tbody.innerHTML = list.map(ws => {
                     const activeBadge = ws.is_active ? '<span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/40">Active</span>' : '';
                     const defaultBadge = ws.is_default ? '<span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-300">Default</span>' : '';
                     const switchBtn = !ws.is_active ? `<button onclick="switchWorkspace('${ws.id}')" class="px-2.5 py-1 rounded-lg bg-tech-accent/15 text-tech-accent hover:bg-tech-accent hover:text-slate-950 font-bold transition-all text-xs">Switch</button>` : '';
-                    const editBtn = `<button onclick="promptEditWorkspace('${ws.id}', '${encodeURIComponent(ws.name)}', '${encodeURIComponent(ws.description || '')}')" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors" title="Edit name & description"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>`;
+                    const intervalVal = ws.default_scan_interval || 720;
+                    const editBtn = `<button onclick="promptEditWorkspace('${ws.id}', '${encodeURIComponent(ws.name)}', '${encodeURIComponent(ws.description || '')}', ${intervalVal})" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors" title="Edit name, description & interval"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>`;
                     const dCount = ws.domains_count !== undefined ? ws.domains_count : (ws.domain_count || 0);
                     const lCount = ws.leads_count !== undefined ? ws.leads_count : 0;
                     const deleteBtn = !ws.is_default ? `<button onclick="confirmDeleteWorkspace('${ws.id}', '${ws.name.replace(/'/g, "\\'")}', ${dCount})" class="p-1 rounded-lg hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors" title="Delete workspace"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>` : '';
@@ -3921,6 +3932,7 @@
                             </td>
                             <td class="py-3 px-3 font-mono text-slate-300">${dCount}</td>
                             <td class="py-3 px-3 font-mono text-slate-300">${lCount}</td>
+                            <td class="py-3 px-3 font-mono text-xs text-tech-accent">${intervalVal}h <span class="text-slate-500">(${Math.round(intervalVal/24)}d)</span></td>
                             <td class="py-3 px-3 text-right">
                                 <div class="flex items-center justify-end space-x-1.5">
                                     ${switchBtn}
@@ -3932,22 +3944,28 @@
                     `;
                 }).join('');
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-rose-400">Failed to load workspaces.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-rose-400">Failed to load workspaces.</td></tr>';
             }
         }
 
-        async function promptEditWorkspace(id, encName, encDesc) {
+        async function promptEditWorkspace(id, encName, encDesc, curInterval) {
             const currentName = decodeURIComponent(encName);
             const currentDesc = decodeURIComponent(encDesc);
-            const newName = prompt('Enter new workspace name:', currentName);
+            const newName = prompt('Enter workspace name:', currentName);
             if (!newName || newName.trim() === '') return;
             const newDesc = prompt('Enter workspace description (optional):', currentDesc);
+            const newIntervalStr = prompt('Enter default scan interval in hours (default: 720 = 30 days):', curInterval || 720);
+            const newInterval = parseFloat(newIntervalStr);
             
             try {
                 const res = await fetch(`/api/workspaces/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: newName.trim(), description: (newDesc || '').trim() })
+                    body: JSON.stringify({ 
+                        name: newName.trim(), 
+                        description: (newDesc || '').trim(),
+                        default_scan_interval: isNaN(newInterval) || newInterval <= 0 ? 720 : newInterval
+                    })
                 });
                 if (res.ok) {
                     await refreshManageWorkspacesTable();
@@ -4023,6 +4041,14 @@
                     <label class="block text-xs font-bold uppercase text-slate-400 mb-1.5" for="ws-new-desc">Description (Optional)</label>
                     <textarea id="ws-new-desc" rows="2" placeholder="Brief notes or client scope details..." class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent text-sm transition-colors"></textarea>
                 </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-400 mb-1.5" for="ws-new-interval">Default Scan Interval (Hours)</label>
+                    <div class="relative">
+                        <input type="number" id="ws-new-interval" value="720" min="1" placeholder="720 (30 days / 1 month)" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-tech-accent text-sm transition-colors" />
+                        <span class="absolute right-3 top-2.5 text-xs font-mono text-slate-500">720h = 30d</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">Global rescan recurrence interval for domains in this workspace (default is 720h / 30 days).</p>
+                </div>
                 <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400 flex items-start space-x-2">
                     <svg class="w-4 h-4 text-tech-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <span>All domains, leads, alerts, and findings added while in this workspace will be completely isolated from other workspaces.</span>
@@ -4066,6 +4092,7 @@
                             <th class="py-2.5 px-3">Workspace</th>
                             <th class="py-2.5 px-3">Domains</th>
                             <th class="py-2.5 px-3">Leads/Alerts</th>
+                            <th class="py-2.5 px-3">Interval</th>
                             <th class="py-2.5 px-3 text-right">Actions</th>
                         </tr>
                     </thead>

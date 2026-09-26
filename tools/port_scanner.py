@@ -631,6 +631,7 @@ class PortScannerAgent(BaseAgent):
 
         target = task["target"]
         root_domain = task["root_domain"]
+        ws_id = task.get("workspace_id")
 
         try:
             # 1. Fetch ASN and infrastructure context for cloud-aware port hunting
@@ -834,7 +835,7 @@ class PortScannerAgent(BaseAgent):
                         if not exists_dh or svc['port'] in changed_ports:
                             if exists_dh:
                                 await self.tasks_col.delete_one({"_id": exists_dh["_id"]})
-                            await self.tasks_col.insert_one({
+                            dh_task = {
                                 "root_domain": root_domain,
                                 "target": target,
                                 "protocol": proto,
@@ -842,7 +843,10 @@ class PortScannerAgent(BaseAgent):
                                 "task_type": "directory_hunt",
                                 "status": "pending",
                                 "created_at": datetime.datetime.utcnow()
-                            })
+                            }
+                            if ws_id:
+                                dh_task["workspace_id"] = ws_id
+                            await self.tasks_col.insert_one(dh_task)
                             logger.info(f"Queued directory hunt for {target}:{svc['port']}")
 
                         # Queue tech fingerprinting
@@ -853,7 +857,7 @@ class PortScannerAgent(BaseAgent):
                             "task_type": "tech_fingerprint"
                         })
                         if not exists_tf:
-                            await self.tasks_col.insert_one({
+                            tf_task = {
                                 "root_domain": root_domain,
                                 "target": target,
                                 "protocol": proto,
@@ -861,7 +865,10 @@ class PortScannerAgent(BaseAgent):
                                 "task_type": "tech_fingerprint",
                                 "status": "pending",
                                 "created_at": datetime.datetime.utcnow()
-                            })
+                            }
+                            if ws_id:
+                                tf_task["workspace_id"] = ws_id
+                            await self.tasks_col.insert_one(tf_task)
                             logger.info(f"Queued tech fingerprint for {target}:{svc['port']}")
 
                 # Trigger WAF & Load Balancer detection once per target
@@ -872,13 +879,16 @@ class PortScannerAgent(BaseAgent):
                         "task_type": "waf_detect"
                     })
                     if not exists_waf:
-                        await self.tasks_col.insert_one({
+                        waf_task = {
                             "root_domain": root_domain,
                             "target": target,
                             "task_type": "waf_detect",
                             "status": "pending",
                             "created_at": datetime.datetime.utcnow()
-                        })
+                        }
+                        if ws_id:
+                            waf_task["workspace_id"] = ws_id
+                        await self.tasks_col.insert_one(waf_task)
 
                     exists_lb = await self.tasks_col.find_one({
                         "root_domain": root_domain,
@@ -886,13 +896,16 @@ class PortScannerAgent(BaseAgent):
                         "task_type": "lb_detect"
                     })
                     if not exists_lb:
-                        await self.tasks_col.insert_one({
+                        lb_task = {
                             "root_domain": root_domain,
                             "target": target,
                             "task_type": "lb_detect",
                             "status": "pending",
                             "created_at": datetime.datetime.utcnow()
-                        })
+                        }
+                        if ws_id:
+                            lb_task["workspace_id"] = ws_id
+                        await self.tasks_col.insert_one(lb_task)
 
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

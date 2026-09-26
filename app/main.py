@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 import re
 import ipaddress
 
+from app.resource_monitor import read_system_vitals, estimate_pipeline_footprint
+
 logger = logging.getLogger(__name__)
 
 from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col, workspaces_col
@@ -180,7 +182,7 @@ def get_flattened_pipeline(
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
                 "single_domain_only": {"$ifNull": ["$single_domain_only", False]},
-                "scan_interval": {"$ifNull": ["$scan_interval", 168]},
+                "scan_interval": {"$ifNull": ["$scan_interval", 720]},
                 "subdomain_count": 1,
                 "recon_date": {"$ifNull": ["$targets.added_at", "$added_at"]},
                 "asn": {"$ifNull": ["$targets.asn", "$infrastructure.asn_data.primary_asn"]},
@@ -1056,7 +1058,10 @@ async def list_workspaces(request: Request, user: dict = Depends(get_current_use
             "created_at": w.get("created_at"),
             "created_by": w.get("created_by"),
             "domains_count": dom_count,
-            "leads_count": lead_count
+            "leads_count": lead_count,
+            "default_scan_interval": w.get("default_scan_interval", 720),
+            "scan_paused": bool(w.get("scan_paused", False)),
+            "pause_reason": w.get("pause_reason", "")
         })
     return {"workspaces": workspaces, "active_workspace_id": active_ws_id}
 
@@ -1086,10 +1091,18 @@ async def create_workspace(
     if existing:
         raise HTTPException(status_code=400, detail="A workspace with this name already exists")
         
+    default_scan_interval = body.get("default_scan_interval")
+    try:
+        default_scan_interval = int(default_scan_interval) if default_scan_interval is not None else 720
+    except (ValueError, TypeError):
+        default_scan_interval = 720
+
     ws_doc = {
         "name": name_clean,
         "description": description,
         "is_default": False,
+        "default_scan_interval": default_scan_interval,
+        "scan_paused": False,
         "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "created_by": user.get("username", "admin")
     }
@@ -1176,9 +1189,24 @@ async def update_workspace(
     if existing:
         raise HTTPException(status_code=400, detail="Another workspace with this name already exists")
         
+    update_fields = {
+        "name": name_clean,
+        "description": description,
+        "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    }
+    if "default_scan_interval" in body:
+        try:
+            update_fields["default_scan_interval"] = int(body["default_scan_interval"])
+        except (ValueError, TypeError):
+            pass
+    if "scan_paused" in body:
+        update_fields["scan_paused"] = bool(body["scan_paused"])
+        if not update_fields["scan_paused"]:
+            update_fields["pause_reason"] = ""
+
     await workspaces_col.update_one(
         {"_id": ObjectId(workspace_id)},
-        {"$set": {"name": name_clean, "description": description, "updated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}}
+        {"$set": update_fields}
     )
     await log_audit(user["username"], "UPDATE_WORKSPACE", f"Updated workspace: {name_clean} (ID: {workspace_id})", request)
     return {
@@ -1186,7 +1214,9 @@ async def update_workspace(
         "workspace": {
             "id": workspace_id,
             "name": name_clean,
-            "description": description
+            "description": description,
+            "default_scan_interval": update_fields.get("default_scan_interval", ws.get("default_scan_interval", 720)),
+            "scan_paused": update_fields.get("scan_paused", ws.get("scan_paused", False))
         }
     }
 
@@ -3964,7 +3994,7 @@ async def get_domains(
             "last_scanned": last_scanned,
             "is_root": d.get("is_root", False),
             "single_domain_only": d.get("single_domain_only", False),
-            "scan_interval": d.get("scan_interval", 168),
+            "scan_interval": d.get("scan_interval", 720),
             "source": d.get("source"),
             "is_permutated": False,
             "asn": d.get("asn"),
@@ -4112,6 +4142,10 @@ async def add_domain(
     if existing:
         return {"status": "error", "message": "Domain already exists in this workspace"}
     
+    # Inherit default scan interval from workspace
+    ws_doc = await workspaces_col.find_one({"_id": ObjectId(ws_id)}) if ws_id and len(ws_id) == 24 else None
+    dom_scan_interval = ws_doc.get("default_scan_interval", 720) if ws_doc else 720
+
     now_dt = datetime.utcnow()
     await domains_col.insert_one({
         "domain": cleaned_domain,
@@ -4119,7 +4153,7 @@ async def add_domain(
         "scanned": False,
         "blacklisted": False,
         "single_domain_only": is_single,
-        "scan_interval": 168,
+        "scan_interval": dom_scan_interval,
         "notes": "",
         "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "initial_scan_completed": False,
@@ -4232,6 +4266,10 @@ async def bulk_add_domains(
             skipped_count += 1
             continue
             
+        # Inherit default scan interval from workspace
+        ws_doc = await workspaces_col.find_one({"_id": ObjectId(ws_id)}) if ws_id and len(ws_id) == 24 else None
+        bulk_scan_interval = ws_doc.get("default_scan_interval", 720) if ws_doc else 720
+
         added_count += 1
         domain_is_single = is_single or is_subdomain(domain)
         domains_to_insert.append({
@@ -4241,7 +4279,7 @@ async def bulk_add_domains(
             "on_hold": on_hold_val,
             "blacklisted": False,
             "single_domain_only": domain_is_single,
-            "scan_interval": 168,
+            "scan_interval": bulk_scan_interval,
             "notes": "",
             "added_at": now_str,
             "initial_scan_completed": True if scanned_val else False,
@@ -4883,6 +4921,182 @@ async def statistics_page(request: Request, user: dict = Depends(get_current_use
     if not user:
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     return await render_page(request, "statistics.html", {}, user)
+
+@app.get("/system-resources", response_class=HTMLResponse)
+async def system_resources_page(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return await render_page(request, "resources.html", {}, user)
+
+@app.get("/api/system/resources")
+async def get_system_resources_api(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    vitals_raw = read_system_vitals()
+    vitals = {
+        "status": vitals_raw.get("status", "Normal"),
+        "is_warning": vitals_raw.get("is_warning", False),
+        "is_critical": vitals_raw.get("is_critical", False),
+        "circuit_breaker_threshold": 92.0,
+        "cpu": {
+            "percent": vitals_raw.get("cpu_percent", 0.0),
+            "cores": os.cpu_count() or 1,
+            "loadavg": vitals_raw.get("load_average", [0.0, 0.0, 0.0])
+        },
+        "memory": vitals_raw.get("memory", {}),
+        "disk": vitals_raw.get("disk", {}),
+        "network": {
+            "tcp_established": vitals_raw.get("open_sockets", 0)
+        }
+    }
+    
+    # 1. Fetch scanner container heartbeat and RSS memory stats from scanners_col
+    containers = []
+    async for s in scanners_col.find({}).sort("name", 1):
+        hb = s.get("last_heartbeat")
+        containers.append({
+            "key": s.get("key"),
+            "name": s.get("name"),
+            "engine": s.get("key"),
+            "status": s.get("status", "running"),
+            "rss_mb": s.get("rss_mb", 0.0),
+            "pid": s.get("pid"),
+            "updated_at": hb.strftime("%Y-%m-%d %H:%M:%S UTC") if hb else "Just now"
+        })
+        
+    # 2. Per-workspace resource allocation
+    workspaces_load = []
+    total_active = 0
+    total_pending = 0
+    circuit_breaker_active = False
+    cb_reason = ""
+    
+    async for w in workspaces_col.find({}).sort("name", 1):
+        w_id = str(w["_id"])
+        is_paused = bool(w.get("scan_paused", False))
+        pause_reason = w.get("pause_reason", "")
+        if is_paused:
+            circuit_breaker_active = True
+            cb_reason = f"Scanning paused on '{w.get('name')}': {pause_reason}"
+        
+        processing_count = await tasks_col.count_documents({"workspace_id": w_id, "status": "processing"})
+        pending_count = await tasks_col.count_documents({"workspace_id": w_id, "status": "pending"})
+        total_active += processing_count
+        total_pending += pending_count
+        
+        est_cpu_share = round(processing_count * 15.0, 1)
+        est_ram_mb = round(processing_count * 350.0)
+        
+        workspaces_load.append({
+            "workspace_id": w_id,
+            "id": w_id,
+            "workspace_name": w.get("name", "Unnamed"),
+            "name": w.get("name", "Unnamed"),
+            "is_default": bool(w.get("is_default")),
+            "scan_paused": is_paused,
+            "pause_reason": pause_reason,
+            "default_scan_interval": w.get("default_scan_interval", 720),
+            "active_tasks": processing_count,
+            "processing_tasks": processing_count,
+            "pending_tasks": pending_count,
+            "est_cpu_pct": est_cpu_share,
+            "est_cpu_share": est_cpu_share,
+            "est_ram_mb": est_ram_mb
+        })
+        
+    return {
+        "vitals": vitals,
+        "containers": containers,
+        "scanners": containers,
+        "workspaces": workspaces_load,
+        "total_active_tasks": total_active,
+        "total_pending_tasks": total_pending,
+        "circuit_breaker_triggered": circuit_breaker_active or vitals_raw.get("is_critical", False),
+        "circuit_breaker_reason": cb_reason if cb_reason else ("System vitals reached capacity limits (>=92%)." if vitals_raw.get("is_critical") else ""),
+        "timestamp": vitals_raw.get("timestamp")
+    }
+
+@app.post("/api/workspaces/{workspace_id}/estimate-resources")
+async def estimate_workspace_resources_api(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    ws_query = {"_id": ObjectId(workspace_id)} if len(workspace_id) == 24 else {"_id": workspace_id}
+    ws = await workspaces_col.find_one(ws_query)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    w_is_def = bool(ws.get("is_default"))
+    dom_clause = workspace_match_clause(str(ws["_id"]), w_is_def)
+    dom_count = await domains_col.count_documents(dom_clause)
+    
+    footprint = estimate_pipeline_footprint(domain_count=max(1, dom_count))
+    footprint["workspace_name"] = ws.get("name")
+    footprint["domain_count"] = dom_count
+    return footprint
+
+@app.post("/api/workspaces/{workspace_id}/pause")
+async def pause_workspace_endpoint(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    ws_query = {"_id": ObjectId(workspace_id)} if len(workspace_id) == 24 else {"_id": workspace_id}
+    ws = await workspaces_col.find_one(ws_query)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    reason = body.get("reason", f"Manually paused by {user.get('username', 'user')}")
+    
+    await workspaces_col.update_one(
+        ws_query,
+        {"$set": {
+            "scan_paused": True,
+            "pause_reason": reason,
+            "paused_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        }}
+    )
+    # Reset active processing tasks to pending so workers immediately yield
+    reset_res = await tasks_col.update_many(
+        {"workspace_id": str(ws["_id"]), "status": "processing"},
+        {"$set": {"status": "pending", "paused": True}}
+    )
+    await log_audit(user["username"], "PAUSE_WORKSPACE", f"Paused scanning on workspace: {ws.get('name')}", request)
+    return {"status": "success", "workspace_id": str(ws["_id"]), "scan_paused": True, "reset_tasks": reset_res.modified_count}
+
+@app.post("/api/workspaces/{workspace_id}/resume")
+async def resume_workspace_endpoint(
+    workspace_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    check_analyst(user)
+    ws_query = {"_id": ObjectId(workspace_id)} if len(workspace_id) == 24 else {"_id": workspace_id}
+    ws = await workspaces_col.find_one(ws_query)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    await workspaces_col.update_one(
+        ws_query,
+        {"$set": {
+            "scan_paused": False,
+            "pause_reason": "",
+            "resumed_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        }}
+    )
+    await log_audit(user["username"], "RESUME_WORKSPACE", f"Resumed scanning on workspace: {ws.get('name')}", request)
+    return {"status": "success", "workspace_id": str(ws["_id"]), "scan_paused": False}
 
 @app.get("/tools", response_class=HTMLResponse)
 async def tools_page(request: Request, user: dict = Depends(get_current_user)):

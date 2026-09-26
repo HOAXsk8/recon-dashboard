@@ -52,6 +52,7 @@ class BaseAgent:
         self.workspaces_col = self.db["workspaces"]
         self.pause_event = asyncio.Event()
         self.pause_event.set() # Default to running
+        self._last_serviced_ws = None
 
     @staticmethod
     def is_in_scope(target: str, root_domain: str, single_domain_only: bool = False) -> bool:
@@ -107,24 +108,65 @@ class BaseAgent:
 
     async def get_next_task(self, task_type: str):
         """
-        Fetch the next valid, in-scope pending task for task_type.
-        Automatically discards and cancels tasks for deleted/inactive domains
-        or out-of-scope targets.
+        Fetch the next valid, in-scope pending task for task_type using fair-share
+        round-robin across active workspaces. Paused workspaces are strictly excluded.
+        Automatically discards and cancels tasks for deleted/inactive domains or out-of-scope targets.
         """
         while True:
             now = datetime.datetime.utcnow()
-            task = await self.tasks_col.find_one_and_update(
-                {"task_type": task_type, "status": "pending"},
-                {"$set": {"status": "processing", "started_at": now, "last_activity": now}},
-                sort=[("priority", -1), ("created_at", 1)]
-            )
+
+            # 1. Identify any paused workspaces
+            paused_ws_ids = []
+            try:
+                paused_docs = await self.workspaces_col.find({"scan_paused": True}, {"_id": 1}).to_list(100)
+                paused_ws_ids = [str(w["_id"]) for w in paused_docs]
+            except Exception as e:
+                logger.debug(f"Error querying paused workspaces: {e}")
+
+            base_filter = {"task_type": task_type, "status": "pending"}
+            if paused_ws_ids:
+                base_filter["workspace_id"] = {"$nin": paused_ws_ids}
+
+            # 2. Fair-share round-robin: pick next workspace among those with pending tasks
+            task = None
+            try:
+                candidate_ws_ids = await self.tasks_col.distinct("workspace_id", base_filter)
+                candidate_ws_ids = [str(w) for w in candidate_ws_ids if w and str(w) not in paused_ws_ids]
+
+                if candidate_ws_ids and len(candidate_ws_ids) > 1:
+                    if self._last_serviced_ws in candidate_ws_ids:
+                        idx = candidate_ws_ids.index(self._last_serviced_ws)
+                        chosen_ws = candidate_ws_ids[(idx + 1) % len(candidate_ws_ids)]
+                    else:
+                        chosen_ws = candidate_ws_ids[0]
+
+                    task = await self.tasks_col.find_one_and_update(
+                        {**base_filter, "workspace_id": chosen_ws},
+                        {"$set": {"status": "processing", "started_at": now, "last_activity": now}},
+                        sort=[("priority", -1), ("created_at", 1)]
+                    )
+                    if task:
+                        self._last_serviced_ws = chosen_ws
+            except Exception as e:
+                logger.debug(f"Fair-share selection error, falling back: {e}")
+
+            # 3. Fallback: pop any pending task matching base filter
+            if not task:
+                task = await self.tasks_col.find_one_and_update(
+                    base_filter,
+                    {"$set": {"status": "processing", "started_at": now, "last_activity": now}},
+                    sort=[("priority", -1), ("created_at", 1)]
+                )
+                if task and task.get("workspace_id"):
+                    self._last_serviced_ws = str(task["workspace_id"])
+
             if not task:
                 return None
 
             root_domain = task.get("root_domain")
             target = task.get("target")
 
-            # 1. Check if the root domain is currently active in the workspace
+            # 4. Check if the root domain is currently active in the workspace
             domain_doc = await self.domains_col.find_one({
                 "domain": root_domain,
                 "blacklisted": {"$ne": True},
@@ -144,7 +186,7 @@ class BaseAgent:
 
             is_single = domain_doc.get("single_domain_only", False)
 
-            # 2. If domain is single_domain_only, discard any discovery tasks
+            # 5. If domain is single_domain_only, discard any discovery tasks
             if is_single and task_type == "discovery":
                 logger.info(f"[{self.agent_name}] Cancelling discovery task {task.get('_id')} because {root_domain} is a single target.")
                 await self.tasks_col.update_one(
@@ -153,7 +195,7 @@ class BaseAgent:
                 )
                 continue
 
-            # 3. Check if the target is within the scope of root_domain
+            # 6. Check if the target is within the scope of root_domain
             if target and not self.is_in_scope(target, root_domain, single_domain_only=is_single):
                 logger.warning(f"[{self.agent_name}] Discarding task {task.get('_id')} with out-of-scope target: {target} (Root: {root_domain}, Single: {is_single})")
                 await self.tasks_col.update_one(
@@ -162,7 +204,7 @@ class BaseAgent:
                 )
                 continue
 
-            # 4. Ensure task inherits workspace_id from active domain document if missing
+            # 7. Ensure task inherits workspace_id from active domain document if missing
             ws_id = domain_doc.get("workspace_id")
             if ws_id and not task.get("workspace_id"):
                 task["workspace_id"] = str(ws_id)
@@ -627,6 +669,9 @@ class BaseAgent:
 
     async def update_heartbeat(self):
         """Update agent status and check for pause/resume commands."""
+        import resource
+        rss_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+
         await self.scanners_col.update_one(
             {"key": self.agent_key},
             {
@@ -635,7 +680,8 @@ class BaseAgent:
                     "type": self.type,
                     "status": "Running",
                     "last_heartbeat": datetime.datetime.utcnow(),
-                    "pid": os.getpid()
+                    "pid": os.getpid(),
+                    "rss_mb": rss_mb
                 }
             },
             upsert=True
@@ -643,6 +689,7 @@ class BaseAgent:
 
         while True:
             try:
+                rss_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
                 await self.scanners_col.update_one(
                     {"key": self.agent_key},
                     {
@@ -651,7 +698,8 @@ class BaseAgent:
                             "type": self.type,
                             "status": "Running",
                             "last_heartbeat": datetime.datetime.utcnow(),
-                            "pid": os.getpid()
+                            "pid": os.getpid(),
+                            "rss_mb": rss_mb
                         }
                     },
                     upsert=True

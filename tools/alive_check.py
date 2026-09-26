@@ -899,13 +899,16 @@ class AliveCheckAgent(BaseAgent):
                         "task_type": "scan"
                     })
                     if not exists_scan:
-                        await self.tasks_col.insert_one({
+                        scan_task = {
                             "root_domain": root_domain,
                             "target": target,
                             "task_type": "scan",
                             "status": "pending",
                             "created_at": datetime.datetime.utcnow()
-                        })
+                        }
+                        if ws_id:
+                            scan_task["workspace_id"] = ws_id
+                        await self.tasks_col.insert_one(scan_task)
                         logger.info(f"Queued Nmap port scan task for verified asset: {target}")
 
                 # Record full enriched status in infrastructure.subdomains
