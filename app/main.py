@@ -4952,17 +4952,39 @@ async def get_system_resources_api(request: Request, user: dict = Depends(get_cu
     }
     
     # 1. Fetch scanner container heartbeat and RSS memory stats from scanners_col
+    now = datetime.utcnow()
     containers = []
     async for s in scanners_col.find({}).sort("name", 1):
         hb = s.get("last_heartbeat")
+        is_stale = False
+        if hb:
+            if isinstance(hb, str):
+                try:
+                    hb_dt = datetime.fromisoformat(hb.replace("Z", "+00:00")).replace(tzinfo=None)
+                    is_stale = (now - hb_dt).total_seconds() > 180
+                except Exception:
+                    pass
+            elif isinstance(hb, datetime):
+                is_stale = (now - hb).total_seconds() > 180
+        else:
+            is_stale = True
+
+        raw_status = s.get("status", "Running")
+        if is_stale:
+            c_status = "Offline"
+        elif "pause" in str(raw_status).lower():
+            c_status = "Paused"
+        else:
+            c_status = "Running"
+
         containers.append({
             "key": s.get("key"),
             "name": s.get("name"),
             "engine": s.get("key"),
-            "status": s.get("status", "running"),
+            "status": c_status,
             "rss_mb": s.get("rss_mb", 0.0),
             "pid": s.get("pid"),
-            "updated_at": hb.strftime("%Y-%m-%d %H:%M:%S UTC") if hb else "Just now"
+            "updated_at": hb.strftime("%Y-%m-%d %H:%M:%S UTC") if isinstance(hb, datetime) else (str(hb) if hb else "Never")
         })
         
     # 2. Per-workspace resource allocation

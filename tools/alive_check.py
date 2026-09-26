@@ -7,6 +7,7 @@ import re
 import socket
 import ssl
 import sys
+from typing import Optional, Dict, Any, List
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from base_agent import BaseAgent, logger
@@ -379,7 +380,7 @@ class AliveCheckAgent(BaseAgent):
     # ------------------------------------------------------------------
     # 3. DNSSEC & Zone Walking (NSEC/NSEC3)
     # ------------------------------------------------------------------
-    async def audit_dnssec(self, domain: str, root_domain: str) -> dict:
+    async def audit_dnssec(self, domain: str, root_domain: str, ws_id: Optional[str] = None) -> dict:
         """
         Audit DNSSEC configuration, detect NSEC vs NSEC3, and if plain NSEC is used,
         conduct an automated NSEC zone walk to extract authoritative zone names.
@@ -401,14 +402,17 @@ class AliveCheckAgent(BaseAgent):
                             "task_type": "verification"
                         })
                         if not exists:
-                            await self.tasks_col.insert_one({
+                            nsec_task = {
                                 "root_domain": root_domain,
                                 "target": name,
                                 "task_type": "verification",
                                 "status": "pending",
                                 "source": "dnssec_nsec_walk",
                                 "created_at": datetime.datetime.utcnow()
-                            })
+                            }
+                            if ws_id:
+                                nsec_task["workspace_id"] = ws_id
+                            await self.tasks_col.insert_one(nsec_task)
                             queued_count += 1
                 logger.info(f"[DNSSEC] Queued {queued_count} walked names from {domain} into verification queue.")
 
@@ -536,6 +540,11 @@ class AliveCheckAgent(BaseAgent):
 
         target = task["target"]
         root_domain = task["root_domain"]
+        ws_id = task.get("workspace_id")
+        if not ws_id:
+            domain_doc = await self.domains_col.find_one({"domain": root_domain}, {"workspace_id": 1})
+            if domain_doc and domain_doc.get("workspace_id"):
+                ws_id = str(domain_doc["workspace_id"])
 
         try:
             # 1. Check for wildcard on the parent domain
@@ -743,7 +752,7 @@ class AliveCheckAgent(BaseAgent):
             domain_doc = await self.domains_col.find_one({"domain": root_domain})
             if target == root_domain or not domain_doc or not domain_doc.get("infrastructure", {}).get("dnssec"):
                 try:
-                    dnssec_data = await self.audit_dnssec(target if target == root_domain else root_domain, root_domain)
+                    dnssec_data = await self.audit_dnssec(target if target == root_domain else root_domain, root_domain, ws_id=ws_id)
                     await self.domains_col.update_one(
                         {"domain": root_domain},
                         {"$set": {"infrastructure.dnssec": dnssec_data}}

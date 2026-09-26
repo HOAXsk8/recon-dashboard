@@ -636,6 +636,8 @@ class PortScannerAgent(BaseAgent):
         try:
             # 1. Fetch ASN and infrastructure context for cloud-aware port hunting
             domain_doc = await self.domains_col.find_one({"domain": root_domain})
+            if not ws_id and domain_doc and domain_doc.get("workspace_id"):
+                ws_id = str(domain_doc["workspace_id"])
             sub_asn_org = ""
             sub_ptr = ""
             sub_ip = ""
@@ -749,14 +751,17 @@ class PortScannerAgent(BaseAgent):
                         "task_type": "verification"
                     })
                     if not exists:
-                        await self.tasks_col.insert_one({
+                        san_task = {
                             "root_domain": root_domain,
                             "target": san_host,
                             "task_type": "verification",
                             "status": "pending",
                             "source": "tls_cert_san",
                             "created_at": datetime.datetime.utcnow()
-                        })
+                        }
+                        if ws_id:
+                            san_task["workspace_id"] = ws_id
+                        await self.tasks_col.insert_one(san_task)
                         logger.info(f"[TLS Cert SAN] Queued verification for {san_host} (discovered in cert SAN on {target})")
 
                 # 7. Raw Service Banner Grabbing on all responsive ports

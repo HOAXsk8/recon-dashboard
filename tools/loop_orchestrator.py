@@ -212,6 +212,8 @@ class ContinuousLoopAgent(BaseAgent):
                     pass
 
             effective_interval_hours = await self.get_effective_scan_interval(domain)
+            is_scanned = domain.get("scanned", False)
+            last_scanned_str = domain.get("last_scanned")
 
             if not is_scanned:
                 # Unscanned or interrupted domain with 0 active tasks

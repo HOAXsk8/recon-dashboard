@@ -1313,7 +1313,8 @@ class DirectoryHunterAgent(BaseAgent):
                 return (1, len(d.split("/")))
             return (2, len(d.split("/")))
 
-        all_dirs = sorted(list(discovered_dirs), key=dir_priority)
+        # Capped to top 15 to prevent queue stalling on massive CMS/news sites
+        all_dirs = sorted(list(discovered_dirs), key=dir_priority)[:15]
 
         for d_path in all_dirs:
             # Heartbeat update to prevent task timeouts during multi-directory searches

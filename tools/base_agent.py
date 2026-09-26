@@ -133,15 +133,27 @@ class BaseAgent:
                 candidate_ws_ids = await self.tasks_col.distinct("workspace_id", base_filter)
                 candidate_ws_ids = [str(w) for w in candidate_ws_ids if w and str(w) not in paused_ws_ids]
 
-                if candidate_ws_ids and len(candidate_ws_ids) > 1:
-                    if self._last_serviced_ws in candidate_ws_ids:
+                has_untagged = await self.tasks_col.find_one(
+                    {**base_filter, "$or": [{"workspace_id": {"$exists": False}}, {"workspace_id": None}]},
+                    {"_id": 1}
+                )
+                if has_untagged:
+                    candidate_ws_ids.append("__none__")
+
+                if candidate_ws_ids:
+                    if len(candidate_ws_ids) > 1 and self._last_serviced_ws in candidate_ws_ids:
                         idx = candidate_ws_ids.index(self._last_serviced_ws)
                         chosen_ws = candidate_ws_ids[(idx + 1) % len(candidate_ws_ids)]
                     else:
                         chosen_ws = candidate_ws_ids[0]
 
+                    if chosen_ws == "__none__":
+                        ws_query = {"$or": [{"workspace_id": {"$exists": False}}, {"workspace_id": None}]}
+                    else:
+                        ws_query = {"workspace_id": chosen_ws}
+
                     task = await self.tasks_col.find_one_and_update(
-                        {**base_filter, "workspace_id": chosen_ws},
+                        {**base_filter, **ws_query},
                         {"$set": {"status": "processing", "started_at": now, "last_activity": now}},
                         sort=[("priority", -1), ("created_at", 1)]
                     )

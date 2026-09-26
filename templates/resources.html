@@ -400,9 +400,25 @@ function renderResources(data) {
     } else {
         cBody.innerHTML = containers.map(c => {
             const rssDisplay = c.rss_mb ? `${c.rss_mb} MB` : 'N/A';
-            const statusBadge = c.status === 'healthy' || c.status === 'active' || c.status === 'running'
-                ? `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">ONLINE</span>`
-                : `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">IDLE</span>`;
+            const st = String(c.status || '').toLowerCase();
+            let statusBadge = '';
+            if (st === 'running' || st === 'healthy' || st === 'active' || st === 'online') {
+                statusBadge = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ONLINE
+                </span>`;
+            } else if (st.includes('pause')) {
+                statusBadge = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> PAUSED
+                </span>`;
+            } else if (st === 'offline' || st === 'dead' || st === 'lost') {
+                statusBadge = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> OFFLINE
+                </span>`;
+            } else {
+                statusBadge = `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-slate-500/10 text-slate-400 border border-slate-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> IDLE
+                </span>`;
+            }
 
             return `
                 <tr class="hover:bg-slate-800/40 transition-colors">
