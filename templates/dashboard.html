@@ -555,7 +555,9 @@
                     
                     const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] text-slate-700 dark:text-slate-300 font-medium">${t}</span>`).join(' ');
                     const wafBadge = item.waf?.detected ? `<span class="px-1.5 py-0.5 bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 rounded-md text-[9px] font-bold" title="WAF: ${item.waf.firewall || 'Detected'}">🛡️ ${item.waf.firewall || 'WAF'}</span>` : '';
-                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.vendor || item.load_balancer.method || 'Detected'}">⚖️ ${item.load_balancer.vendor ? item.load_balancer.vendor.replace(/\s*\(.*?\)/, '').slice(0, 15) : 'LB'}</span>` : '';
+                    const lbName = item.load_balancer?.vendor || (item.load_balancer?.ips?.length > 1 ? 'DNS Round Robin' : 'Load Balancer');
+                    const lbType = item.load_balancer?.lb_type || (item.load_balancer?.ips?.length > 1 ? `DNS Round Robin (${item.load_balancer.ips.length} IPs)` : (item.load_balancer?.method || 'Detected'));
+                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Name: ${lbName}&#10;Type: ${lbType}">⚖️ ${item.load_balancer.vendor ? item.load_balancer.vendor.replace(/\s*\(.*?\)/, '').slice(0, 14) : 'LB'}${item.load_balancer.ips?.length > 1 ? ' (RR)' : ''}</span>` : '';
                     const infraBadges = [wafBadge, lbBadge].filter(Boolean).join(' ');
 
                     const isRecentDrift = item.latest_subdomain_drift_time && (Date.now() - new Date(item.latest_subdomain_drift_time).getTime() < 86400000);
@@ -1739,27 +1741,40 @@
                                                 <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold uppercase">${lb.confidence ? lb.confidence + ' Confidence' : (lb.method || 'Detected')}</span>
                                             </div>
 
-                                            ${lb.vendor ? `
-                                                <div class="p-3.5 bg-slate-50 dark:bg-slate-900/80 border border-purple-500/30 rounded-xl space-y-1">
-                                                    <div class="flex items-center justify-between">
-                                                        <span class="text-[10px] font-mono font-bold uppercase text-purple-600 dark:text-purple-400">Manufacturer / Software</span>
-                                                        ${lb.vendor_category ? `<span class="text-[10px] px-2 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">${lb.vendor_category}</span>` : ''}
-                                                    </div>
-                                                    <div class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                                                        <span>⚖️</span> ${lb.vendor}
-                                                    </div>
-                                                    ${lb.vendors && lb.vendors.length > 1 ? `
-                                                        <div class="text-[10px] text-slate-500 font-mono pt-1">
-                                                            Additional proxies/tiers: ${lb.vendors.slice(1).join(', ')}
-                                                        </div>
-                                                    ` : ''}
+                                            <!-- 1. Load Balancer Manufacturer / Software Name -->
+                                            <div class="p-3.5 bg-slate-50 dark:bg-slate-900/80 border border-purple-500/30 rounded-xl space-y-1">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-[10px] font-mono font-bold uppercase text-purple-600 dark:text-purple-400">Load Balancer Name</span>
+                                                    ${lb.vendor_category ? `<span class="text-[10px] px-2 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">${lb.vendor_category}</span>` : ''}
                                                 </div>
-                                            ` : `
-                                                <div class="p-3 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl">
-                                                    <span class="text-[10px] font-mono font-bold uppercase text-slate-500">Detection Method</span>
-                                                    <div class="text-xs font-mono text-slate-700 dark:text-slate-300 mt-0.5">${lb.method || 'Unknown Method'}</div>
+                                                <div class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                                    <span>⚖️</span> ${lb.vendor || (lb.method && !lb.method.toLowerCase().includes('dns round-robin') ? lb.method.split('•')[0].trim() : 'Generic / Unbranded Load Balancer')}
                                                 </div>
-                                            `}
+                                                ${lb.vendors && lb.vendors.length > 1 ? `
+                                                    <div class="text-[10px] text-slate-500 font-mono pt-1">
+                                                        Additional detected tiers: ${lb.vendors.slice(1).join(', ')}
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+
+                                            <!-- 2. Load Balancing Type / Distribution Mechanism -->
+                                            <div class="p-3 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-[10px] font-mono font-bold uppercase text-slate-500">Balancing Type</span>
+                                                    ${lb.ips && lb.ips.length > 1 ? `<span class="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 font-bold">${lb.ips.length} IPs Rotating</span>` : ''}
+                                                </div>
+                                                <div class="text-xs font-mono font-bold text-tech-accent flex items-center gap-1.5 mt-0.5">
+                                                    <span>🔄</span>
+                                                    <span>${(() => {
+                                                        if (lb.lb_type) return lb.lb_type;
+                                                        const types = [];
+                                                        if (lb.ips && lb.ips.length > 1) types.push(`DNS Round Robin (${lb.ips.length} IPs)`);
+                                                        if (lb.signatures_matched?.some(s => s.toLowerCase().includes('cookie'))) types.push('Cookie Session Affinity');
+                                                        if (types.length) return types.join(' • ');
+                                                        return lb.method || 'Standard Load Balancing';
+                                                    })()}</span>
+                                                </div>
+                                            </div>
 
                                             ${lb.signatures_matched?.length ? `
                                                 <div>
@@ -5595,7 +5610,7 @@
                 subdomainsCount: 0,
                 scanned: Boolean(data.scanned),
                 waf: rootWaf ? (rootWaf.firewall || 'WAF Detected') : null,
-                load_balancer: rootLb ? (rootLb.vendor || rootLb.method || 'LB Detected') : null
+                load_balancer: rootLb ? `${rootLb.vendor || (rootLb.method && !rootLb.method.toLowerCase().includes('dns round-robin') ? rootLb.method.split('•')[0].trim() : 'LB')}: ${rootLb.lb_type || (rootLb.ips?.length > 1 ? 'Round Robin' : 'Detected')}` : null
             }
         };
         nodesMap.set('root', rootNode);
@@ -5626,10 +5641,12 @@
         // Attach Root Load Balancer Node if detected
         if (rootLb) {
             const rootLbId = 'lb_root';
-            const lbMethod = String(rootLb.vendor || rootLb.method || (rootLb.methods && rootLb.methods[0]) || 'Load Balancer');
+            const lbName = String(rootLb.vendor || (rootLb.method && !rootLb.method.toLowerCase().includes('dns round-robin') ? rootLb.method.split('•')[0].trim() : 'Load Balancer'));
+            const lbType = String(rootLb.lb_type || (rootLb.ips?.length > 1 ? `DNS Round Robin (${rootLb.ips.length} IPs)` : (rootLb.method || 'Detected')));
+            const lbLabel = `⚖️ ${lbName.replace(/\s*\(.*?\)/, '').slice(0, 14)}${rootLb.ips?.length > 1 ? ' (RR)' : ''}`;
             const lbNode = {
                 id: rootLbId,
-                label: `⚖️ ${lbMethod.length > 20 ? lbMethod.slice(0, 18) + '...' : lbMethod}`,
+                label: lbLabel,
                 type: 'load_balancer',
                 color: '#a855f7',
                 strokeColor: '#d8b4fe',
@@ -5637,7 +5654,10 @@
                 x: rootNode.x + (focused ? -35 : -70),
                 y: rootNode.y + 75,
                 info: {
-                    method: lbMethod,
+                    name: lbName,
+                    vendor: rootLb.vendor,
+                    lb_type: lbType,
+                    method: rootLb.method,
                     ips: rootLb.ips,
                     all_fqdns: rootLb.all_fqdns,
                     target: rootDomain
@@ -5802,7 +5822,7 @@
                         isSharedHost: isSharedIp,
                         hostedCount: totalHosted,
                         waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
-                        load_balancer: sLb ? (sLb.vendor || sLb.method || 'LB Detected') : null
+                        load_balancer: sLb ? `${sLb.vendor || (sLb.method && !sLb.method.toLowerCase().includes('dns round-robin') ? sLb.method.split('•')[0].trim() : 'LB')}: ${sLb.lb_type || (sLb.ips?.length > 1 ? 'Round Robin' : 'Detected')}` : null
                     }
                 };
                 nodesMap.set(subId, subNode);
@@ -5839,10 +5859,12 @@
                 // Attach Subdomain Load Balancer Node if detected
                 if (sLb) {
                     const lbId = `lb_${sName}`;
-                    const lbMethod = String(sLb.vendor || sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbName = String(sLb.vendor || (sLb.method && !sLb.method.toLowerCase().includes('dns round-robin') ? sLb.method.split('•')[0].trim() : 'Load Balancer'));
+                    const lbType = String(sLb.lb_type || (sLb.ips?.length > 1 ? `DNS Round Robin (${sLb.ips.length} IPs)` : (sLb.method || 'Detected')));
+                    const lbLabel = `⚖️ ${lbName.replace(/\s*\(.*?\)/, '').slice(0, 14)}${sLb.ips?.length > 1 ? ' (RR)' : ''}`;
                     const lbNode = {
                         id: lbId,
-                        label: `⚖️ ${lbMethod.length > 18 ? lbMethod.slice(0, 16) + '...' : lbMethod}`,
+                        label: lbLabel,
                         type: 'load_balancer',
                         color: '#a855f7',
                         strokeColor: '#d8b4fe',
@@ -5850,7 +5872,10 @@
                         x: subX + (directIp ? 90 : 120),
                         y: subY + 32,
                         info: {
-                            method: lbMethod,
+                            name: lbName,
+                            vendor: sLb.vendor,
+                            lb_type: lbType,
+                            method: sLb.method,
                             ips: sLb.ips,
                             all_fqdns: sLb.all_fqdns,
                             target: sName
@@ -6085,7 +6110,7 @@
                         cname: (typeof sub === 'object' && sub.cname) ? sub.cname : null,
                         alive: isAlive,
                         waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
-                        load_balancer: sLb ? (sLb.vendor || sLb.method || 'LB Detected') : null
+                        load_balancer: sLb ? `${sLb.vendor || (sLb.method && !sLb.method.toLowerCase().includes('dns round-robin') ? sLb.method.split('•')[0].trim() : 'LB')}: ${sLb.lb_type || (sLb.ips?.length > 1 ? 'Round Robin' : 'Detected')}` : null
                     }
                 };
                 nodesMap.set(subId, subNode);
@@ -6120,12 +6145,14 @@
                 // Attach Subdomain Load Balancer Node if detected in full view
                 if (sLb) {
                     const lbId = `lb_${subName}`;
-                    const lbMethod = String(sLb.vendor || sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbName = String(sLb.vendor || (sLb.method && !sLb.method.toLowerCase().includes('dns round-robin') ? sLb.method.split('•')[0].trim() : 'Load Balancer'));
+                    const lbType = String(sLb.lb_type || (sLb.ips?.length > 1 ? `DNS Round Robin (${sLb.ips.length} IPs)` : (sLb.method || 'Detected')));
+                    const lbLabel = `⚖️ ${lbName.replace(/\s*\(.*?\)/, '').slice(0, 14)}${sLb.ips?.length > 1 ? ' (RR)' : ''}`;
                     const lbDist = dist + 42;
                     const lbAngle = angle + 0.08;
                     const lbNode = {
                         id: lbId,
-                        label: `⚖️ ${lbMethod.length > 18 ? lbMethod.slice(0, 16) + '...' : lbMethod}`,
+                        label: lbLabel,
                         type: 'load_balancer',
                         color: '#a855f7',
                         strokeColor: '#d8b4fe',
@@ -6133,7 +6160,10 @@
                         x: Math.cos(lbAngle) * lbDist,
                         y: Math.sin(lbAngle) * lbDist,
                         info: {
-                            method: lbMethod,
+                            name: lbName,
+                            vendor: sLb.vendor,
+                            lb_type: lbType,
+                            method: sLb.method,
                             ips: sLb.ips,
                             all_fqdns: sLb.all_fqdns,
                             target: subName
@@ -6911,9 +6941,13 @@
                 if (info.confidence) ctx.fillText(`CONFIDENCE: ${String(info.confidence).toUpperCase()}`, cx + 12, cy + 86);
                 if (info.target) ctx.fillText(`PROTECTS: ${String(info.target).slice(0, 24)}`, cx + 12, cy + 102);
             } else if (n.type === 'load_balancer') {
-                ctx.fillText(`METHOD: ${String(info.method || 'Load Balancer').slice(0, 26)}`, cx + 12, cy + 54);
-                if (info.ips && info.ips.length) ctx.fillText(`POOLED IPS: ${info.ips.slice(0, 3).join(', ')}`.slice(0, 32), cx + 12, cy + 70);
-                if (info.target) ctx.fillText(`BALANCES: ${String(info.target).slice(0, 24)}`, cx + 12, cy + 86);
+                ctx.fillText(`NAME: ${String(info.name || info.vendor || 'Load Balancer').slice(0, 26)}`, cx + 12, cy + 54);
+                ctx.fillText(`TYPE: ${String(info.lb_type || (info.ips && info.ips.length > 1 ? 'DNS Round Robin' : (info.method || 'Reverse Proxy'))).slice(0, 26)}`, cx + 12, cy + 70);
+                if (info.ips && info.ips.length) {
+                    ctx.fillText(`IPS (${info.ips.length}): ${info.ips.slice(0, 3).join(', ')}`.slice(0, 32), cx + 12, cy + 86);
+                } else if (info.target) {
+                    ctx.fillText(`BALANCES: ${String(info.target).slice(0, 24)}`, cx + 12, cy + 86);
+                }
             } else if (n.type === 'asn') {
                 ctx.fillText(`ASN: AS${info.asn || ''}`, cx + 12, cy + 54);
                 if (info.org) ctx.fillText(`ORG: ${String(info.org).slice(0, 24)}`, cx + 12, cy + 70);

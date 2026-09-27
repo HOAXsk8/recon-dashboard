@@ -856,6 +856,22 @@ class LbDetectorAgent(BaseAgent):
         if geo_lb:
             methods.append(f"Geo-distributed edge routing ({', '.join(http_info['unique_pop_codes'])})")
 
+        # Classify specific Load Balancing Type(s) / Mechanism
+        lb_types = []
+        if dns_lb:
+            lb_types.append(f"DNS Round Robin ({len(ips)} IPs)")
+        if any("Cookie:" in ev for ev in signatures_matched):
+            lb_types.append("Cookie Session Affinity (Sticky Session)")
+        if geo_lb:
+            lb_types.append(f"Geo-Distributed Edge Anycast ({len(http_info['unique_pop_codes'])} POPs)")
+        if http_lb or any("Header:" in ev for ev in signatures_matched):
+            if not any("Cookie" in t for t in lb_types):
+                lb_types.append("Layer 7 HTTP Reverse Proxy")
+        if not lb_types and detected:
+            lb_types.append("Layer 4 Transport Load Balancer")
+
+        primary_lb_type = " • ".join(lb_types) if lb_types else ("DNS Round Robin" if len(ips) > 1 else "Reverse Proxy")
+
         # Enhancement #1: Test direct connectivity to backend node IPs
         backend_nodes = []
         if detected and len(ips) > 1:
@@ -864,6 +880,8 @@ class LbDetectorAgent(BaseAgent):
         detail_parts = []
         if vendor_name:
             detail_parts.append(f"Manufacturer/Software: {vendor_name} ({confidence} Confidence)")
+        if primary_lb_type:
+            detail_parts.append(f"Balancing Type: {primary_lb_type}")
         if signatures_matched:
             detail_parts.append(f"Signatures: {'; '.join(signatures_matched[:4])}")
         if f5_backends:
@@ -884,6 +902,8 @@ class LbDetectorAgent(BaseAgent):
             "vendors": all_vendors,
             "vendor_category": vendor_category,
             "confidence": confidence,
+            "lb_type": primary_lb_type,
+            "lb_types": lb_types,
             "signatures_matched": signatures_matched,
             "f5_decoded_backends": f5_backends,
             "method": " • ".join(methods) if methods else None,
