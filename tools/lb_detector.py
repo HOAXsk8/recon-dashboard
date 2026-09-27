@@ -111,14 +111,446 @@ IATA_POP_MAP = {
     "NBO": {"city": "Nairobi", "country": "Kenya", "region": "Africa"},
 }
 
+# ---------------------------------------------------------------------------
+# Load Balancer & Reverse Proxy Manufacturer/Software Signatures Database
+# ---------------------------------------------------------------------------
+LB_SIGNATURES = [
+    {
+        "name": "F5 BIG-IP Local Traffic Manager (LTM)",
+        "vendor": "F5 Networks",
+        "category": "Hardware / Virtual Appliance",
+        "cookies": [
+            r"^BIGipServer",
+            r"^TS[0-9a-fA-F]{6,8}",
+            r"^F5_ST",
+            r"^F5_HT_shrinked",
+            r"^f5_cspm",
+            r"^MRHSession",
+        ],
+        "headers": {
+            "server": r"(?i)big-?ip",
+            "x-wa-info": r".+",
+            "x-cnection": r"(?i)close",
+        },
+        "body_patterns": [
+            r"The requested URL was not found on this server",
+            r"<!--\s*F5\s*-->",
+        ],
+        "ptr_patterns": [
+            r"(?i)\bf5\b",
+            r"(?i)big-?ip",
+        ],
+    },
+    {
+        "name": "AWS Application Load Balancer (ALB / ELB)",
+        "vendor": "Amazon Web Services",
+        "category": "Cloud Load Balancer",
+        "cookies": [
+            r"^AWSALB$",
+            r"^AWSALBCORS$",
+            r"^AWSELB$",
+            r"^AWSALBTG$",
+            r"^AWSALBTGCORS$",
+        ],
+        "headers": {
+            "server": r"(?i)awselb",
+            "x-amz-rid": r".+",
+        },
+        "body_patterns": [
+            r"<title>502 Bad Gateway</title>[\s\S]*?awselb",
+            r"<title>504 Gateway Time-out</title>[\s\S]*?awselb",
+        ],
+        "ptr_patterns": [
+            r"(?i)\.elb\.amazonaws\.com$",
+            r"(?i)\.elb\.amazonaws\.com\.$",
+        ],
+    },
+    {
+        "name": "AWS CloudFront Distribution & Edge",
+        "vendor": "Amazon Web Services",
+        "category": "Cloud Edge / Anycast Load Balancer",
+        "headers": {
+            "x-amz-cf-pop": r".+",
+            "x-amz-cf-id": r".+",
+            "server": r"(?i)CloudFront",
+            "via": r"(?i)cloudfront",
+        },
+        "ptr_patterns": [
+            r"(?i)\.cloudfront\.net$",
+            r"(?i)\.cloudfront\.net\.$",
+        ],
+    },
+    {
+        "name": "Citrix ADC / NetScaler",
+        "vendor": "Citrix Systems",
+        "category": "Hardware / Virtual Appliance",
+        "cookies": [
+            r"^NSC_",
+            r"^citrix_ns_id",
+            r"^ns_af",
+            r"^ns_session_id",
+        ],
+        "headers": {
+            "cneonction": r"(?i)close",
+            "nncoection": r"(?i)close",
+            "x-citrix-application": r".+",
+            "ns-cache-control": r".+",
+            "server": r"(?i)netscaler",
+        },
+        "ptr_patterns": [
+            r"(?i)netscaler",
+            r"(?i)\bns\b.*\.citrix\.",
+        ],
+    },
+    {
+        "name": "HAProxy Load Balancer",
+        "vendor": "HAProxy Technologies",
+        "category": "Software Load Balancer",
+        "cookies": [
+            r"^SERVERID$",
+            r"^SRV$",
+            r"^HA_ID$",
+            r"^HAPROXY",
+        ],
+        "headers": {
+            "server": r"(?i)haproxy",
+            "x-haproxy-": r".+",
+        },
+        "body_patterns": [
+            r"503 Service Unavailable[\s\S]*?No server is available to handle this request",
+            r"<html><body><h1>503 Service Unavailable</h1>\s*No server is available to handle this request\.</body></html>",
+        ],
+        "ptr_patterns": [
+            r"(?i)haproxy",
+        ],
+    },
+    {
+        "name": "Microsoft Azure Application Gateway / ARR",
+        "vendor": "Microsoft Azure",
+        "category": "Cloud Load Balancer",
+        "cookies": [
+            r"^ARRAffinity$",
+            r"^ARRAffinitySameSite$",
+            r"^ApplicationGatewayAffinity$",
+            r"^ApplicationGatewayAffinityCORS$",
+        ],
+        "headers": {
+            "x-powered-by": r"(?i)\bARR\b",
+            "x-ms-request-id": r".+",
+            "x-azure-ref": r".+",
+        },
+        "ptr_patterns": [
+            r"(?i)\.azurefd\.net$",
+            r"(?i)\.trafficmanager\.net$",
+            r"(?i)\.azureedge\.net$",
+            r"(?i)\.cloudapp\.azure\.com$",
+        ],
+    },
+    {
+        "name": "Envoy Proxy / Istio Service Mesh",
+        "vendor": "CNCF / Envoy Project",
+        "category": "Software Load Balancer / Proxy",
+        "headers": {
+            "server": r"(?i)^envoy$",
+            "x-envoy-upstream-service-time": r"\d+",
+            "x-envoy-decorator-operation": r".+",
+            "x-envoy-attempt-count": r"\d+",
+        },
+        "body_patterns": [
+            r"upstream connect error or disconnect/reset before headers\. reset reason: connection failure",
+            r"upstream request timeout",
+            r"no healthy upstream",
+        ],
+    },
+    {
+        "name": "Traefik Modern HTTP Reverse Proxy",
+        "vendor": "Traefik Labs",
+        "category": "Software Load Balancer / Proxy",
+        "headers": {
+            "server": r"(?i)^traefik$",
+        },
+    },
+    {
+        "name": "Nginx / OpenResty Reverse Proxy",
+        "vendor": "Nginx / F5",
+        "category": "Software Load Balancer / Reverse Proxy",
+        "headers": {
+            "server": r"(?i)^(nginx|openresty)",
+        },
+    },
+    {
+        "name": "Google Cloud Load Balancing (GCLB)",
+        "vendor": "Google Cloud",
+        "category": "Cloud Load Balancer",
+        "headers": {
+            "via": r"(?i)1\.1 google",
+            "server": r"(?i)^(gws|gse|googlefrontend)$",
+            "x-cloud-trace-context": r".+",
+        },
+        "body_patterns": [
+            r"<title>Error 502 \(Server Error\)!!1</title>",
+            r"The server encountered a temporary error and could not complete your request",
+        ],
+        "ptr_patterns": [
+            r"(?i)\.1e100\.net$",
+            r"(?i)\.bc\.googleusercontent\.com$",
+        ],
+    },
+    {
+        "name": "Kemp LoadMaster",
+        "vendor": "Progress / Kemp",
+        "category": "Hardware / Virtual Load Balancer",
+        "cookies": [
+            r"^reassign_seq$",
+            r"^u_sess$",
+        ],
+        "headers": {
+            "x-kemp-": r".+",
+            "server": r"(?i)kemp",
+        },
+    },
+    {
+        "name": "Fortinet FortiADC",
+        "vendor": "Fortinet",
+        "category": "Hardware / Virtual ADC",
+        "cookies": [
+            r"^FORTIADC",
+        ],
+        "headers": {
+            "server": r"(?i)fortiadc",
+        },
+    },
+    {
+        "name": "Barracuda Load Balancer ADC",
+        "vendor": "Barracuda Networks",
+        "category": "Hardware / Virtual ADC",
+        "cookies": [
+            r"^barra_counter_session",
+            r"^BNI__BARRACUDA_",
+            r"^BNI_persistence",
+            r"^BNES_",
+        ],
+        "headers": {
+            "server": r"(?i)barracuda",
+        },
+    },
+    {
+        "name": "Radware Alteon ADC",
+        "vendor": "Radware",
+        "category": "Hardware Load Balancer",
+        "cookies": [
+            r"^rdwr_",
+            r"^alteonP",
+        ],
+        "headers": {
+            "x-radware-": r".+",
+            "server": r"(?i)alteon",
+        },
+    },
+    {
+        "name": "Akamai Edge & Global Traffic Management (GTM)",
+        "vendor": "Akamai Technologies",
+        "category": "Global Server Load Balancing (GSLB) / Edge",
+        "headers": {
+            "server": r"(?i)akamaighost",
+            "x-akamai-transformed": r".+",
+            "x-akamai-staging": r".+",
+        },
+        "ptr_patterns": [
+            r"(?i)\.akamaitechnologies\.com$",
+            r"(?i)\.akadns\.net$",
+            r"(?i)\.akamai\.net$",
+        ],
+    },
+    {
+        "name": "Cloudflare Global Load Balancing & Proxy",
+        "vendor": "Cloudflare",
+        "category": "Global Anycast Load Balancer / Edge",
+        "headers": {
+            "server": r"(?i)^cloudflare$",
+            "cf-ray": r".+",
+        },
+        "cookies": [
+            r"^__cf_bm$",
+            r"^cf_clearance$",
+            r"^__cfduid$",
+        ],
+        "ptr_patterns": [
+            r"(?i)\.cloudflare\.com$",
+        ],
+    },
+    {
+        "name": "Fastly Edge Load Balancing",
+        "vendor": "Fastly",
+        "category": "Edge Cloud / Load Balancer",
+        "headers": {
+            "x-served-by": r"(?i)cache-",
+            "x-fastly-request-id": r".+",
+            "fastly-debug-digest": r".+",
+        },
+        "ptr_patterns": [
+            r"(?i)\.fastly\.net$",
+        ],
+    },
+    {
+        "name": "Varnish Cache Reverse Proxy",
+        "vendor": "Varnish Software",
+        "category": "HTTP Accelerator / Reverse Proxy",
+        "headers": {
+            "via": r"(?i)varnish",
+            "x-varnish": r"\d+",
+        },
+    },
+    {
+        "name": "Apache Traffic Server",
+        "vendor": "Apache Software Foundation",
+        "category": "Software Reverse Proxy / Cache",
+        "headers": {
+            "server": r"(?i)ATS",
+            "via": r"(?i)traffic_server",
+        },
+    },
+    {
+        "name": "Caddy Modern Web Server & Reverse Proxy",
+        "vendor": "Caddy",
+        "category": "Software Reverse Proxy",
+        "headers": {
+            "server": r"(?i)^caddy$",
+        },
+    },
+    {
+        "name": "Kong API Gateway & Load Balancer",
+        "vendor": "Kong Inc.",
+        "category": "API Gateway / Reverse Proxy",
+        "headers": {
+            "server": r"(?i)^kong/",
+            "via": r"(?i)kong",
+        },
+    },
+]
+
+
+def decode_f5_cookie(cookie_name: str, cookie_val: str) -> dict:
+    """
+    Decodes F5 BIG-IP persistence cookie to reveal internal backend IPv4 and port.
+    Standard format: BIGipServer<pool>=<ip_int>.<port_int>.0000
+    """
+    try:
+        parts = cookie_val.split(".")
+        if len(parts) >= 2:
+            ip_int = int(parts[0])
+            port_int = int(parts[1])
+            # Little endian decode for IPv4
+            a = ip_int & 0xFF
+            b = (ip_int >> 8) & 0xFF
+            c = (ip_int >> 16) & 0xFF
+            d = (ip_int >> 24) & 0xFF
+            ip_str = f"{a}.{b}.{c}.{d}"
+            # Port byte swap
+            p_high = (port_int >> 8) & 0xFF
+            p_low = port_int & 0xFF
+            port = (p_low << 8) | p_high
+            return {
+                "cookie": cookie_name,
+                "internal_ip": ip_str,
+                "internal_port": port,
+                "raw_value": cookie_val,
+                "pool": cookie_name.replace("BIGipServer", "")
+            }
+    except Exception:
+        pass
+    return None
+
+
+def match_load_balancer_fingerprints(headers_list, cookies_dict, body_snippets, fqdns):
+    """
+    Matches observed HTTP headers, Set-Cookie lines, error/body responses, and reverse DNS PTRs
+    against LB_SIGNATURES to identify the exact manufacturer and software name.
+    """
+    matched_results = []
+    f5_backends = []
+
+    # Check for F5 cookie decoding
+    for c_name, c_vals in cookies_dict.items():
+        if c_name.startswith("BIGipServer"):
+            for cv in c_vals:
+                decoded = decode_f5_cookie(c_name, cv)
+                if decoded and decoded not in f5_backends:
+                    f5_backends.append(decoded)
+
+    for sig in LB_SIGNATURES:
+        evidence = []
+        confidence_score = 0
+
+        # 1. Check cookies
+        sig_cookies = sig.get("cookies", [])
+        for c_pat in sig_cookies:
+            regex = re.compile(c_pat, re.I)
+            for c_name, c_vals in cookies_dict.items():
+                if regex.search(c_name):
+                    val_sample = c_vals[0] if c_vals else ""
+                    evidence.append(f"Cookie: {c_name}")
+                    confidence_score += 4
+
+        # 2. Check headers
+        sig_headers = sig.get("headers", {})
+        for h_key, h_val_pat in sig_headers.items():
+            h_regex = re.compile(h_val_pat, re.I)
+            for h_dict in headers_list:
+                for actual_key, actual_val in h_dict.items():
+                    if actual_key.lower() == h_key.lower() or (h_key.endswith("-") and actual_key.lower().startswith(h_key.lower())):
+                        if h_regex.search(str(actual_val)):
+                            ev_str = f"Header: {actual_key}: {actual_val}"
+                            if ev_str not in evidence:
+                                evidence.append(ev_str)
+                                confidence_score += 3
+
+        # 3. Check bodies / error templates
+        sig_bodies = sig.get("body_patterns", [])
+        for b_pat in sig_bodies:
+            b_regex = re.compile(b_pat, re.I)
+            for body in body_snippets:
+                if body and b_regex.search(body):
+                    ev_str = f"Response template match: {b_pat[:35]}..."
+                    if ev_str not in evidence:
+                        evidence.append(ev_str)
+                        confidence_score += 2
+
+        # 4. Check Reverse DNS PTRs
+        sig_ptrs = sig.get("ptr_patterns", [])
+        for p_pat in sig_ptrs:
+            p_regex = re.compile(p_pat, re.I)
+            for fqdn in fqdns:
+                if fqdn and p_regex.search(fqdn):
+                    ev_str = f"Reverse DNS (PTR): {fqdn}"
+                    if ev_str not in evidence:
+                        evidence.append(ev_str)
+                        confidence_score += 2
+
+        if evidence:
+            confidence = "High" if confidence_score >= 3 else "Medium"
+            matched_results.append({
+                "name": sig["name"],
+                "vendor": sig["vendor"],
+                "category": sig["category"],
+                "confidence": confidence,
+                "score": confidence_score,
+                "evidence": evidence
+            })
+
+    # Sort matched by score descending
+    matched_results.sort(key=lambda x: x["score"], reverse=True)
+    return matched_results, f5_backends
+
 
 class LbDetectorAgent(BaseAgent):
     """
     Detects load balancers, reverse proxies, and Cloud Edge distribution using:
-      1. DNS round-robin: resolve domain repeatedly to collect unique IP addresses.
-      2. HTTP header variance: compare Date precision, Server banners, and X-Served-By headers.
-      3. Cloud Edge POP & Geographic mapping: parse cf-ray, x-amz-cf-pop, and x-served-by.
-      4. Direct backend node probing: test direct connectivity to discovered backend nodes.
+      1. Vendor & Software fingerprinting: matching signatures against cookies, headers, body templates, and PTRs.
+      2. DNS round-robin: resolve domain repeatedly to collect unique IP addresses.
+      3. HTTP header variance: compare Date precision, Server banners, and X-Served-By headers.
+      4. Cloud Edge POP & Geographic mapping: parse cf-ray, x-amz-cf-pop, and x-served-by.
+      5. Direct backend node probing: test direct connectivity to discovered backend nodes.
     """
 
     def __init__(self):
@@ -200,14 +632,16 @@ class LbDetectorAgent(BaseAgent):
     async def check_http_variance(self, domain):
         """
         Send multiple HTTP requests and look for inconsistent headers
-        (different Date precision, Server banners, or X-Served-By values)
-        and record Edge POP locations across requests.
+        (different Date precision, Server banners, or X-Served-By values),
+        record Edge POP locations, collect Set-Cookie headers, and probe error pages.
         """
         dates = []
         servers = []
         served_by = []
         all_headers_list = []
         edge_pops = []
+        cookies_dict = {}
+        body_snippets = []
 
         async with httpx.AsyncClient(
             timeout=self.http_timeout,
@@ -221,7 +655,28 @@ class LbDetectorAgent(BaseAgent):
                     try:
                         resp = await client.get(url)
                         h = resp.headers
-                        all_headers_list.append(dict(h))
+                        h_dict = dict(h)
+                        all_headers_list.append(h_dict)
+
+                        # Capture parsed cookies
+                        for c_k, c_v in resp.cookies.items():
+                            if c_k not in cookies_dict:
+                                cookies_dict[c_k] = []
+                            if c_v not in cookies_dict[c_k]:
+                                cookies_dict[c_k].append(c_v)
+
+                        # Also capture raw Set-Cookie lines to catch affinity attributes
+                        for sc in h.get_list("set-cookie"):
+                            m = re.match(r"^([^=;,\s]+)=([^;]*)", sc)
+                            if m:
+                                raw_ck, raw_cv = m.group(1).strip(), m.group(2).strip()
+                                if raw_ck not in cookies_dict:
+                                    cookies_dict[raw_ck] = []
+                                if raw_cv not in cookies_dict[raw_ck]:
+                                    cookies_dict[raw_ck].append(raw_cv)
+
+                        if resp.text and len(body_snippets) < 2:
+                            body_snippets.append(resp.text[:4096])
 
                         if h.get("date"):
                             dates.append(h["date"])
@@ -232,13 +687,22 @@ class LbDetectorAgent(BaseAgent):
                                 served_by.append(h[key])
 
                         # Extract edge pop per request
-                        pop_info = self.extract_edge_pop_geo(dict(h))
+                        pop_info = self.extract_edge_pop_geo(h_dict)
                         if pop_info.get("pop_code"):
                             edge_pops.append(pop_info)
                     except Exception as e:
                         logger.debug(f"HTTP probe {i} for {url} failed: {e}")
                     await asyncio.sleep(0.2)
                 if dates or servers:
+                    # Also probe an intentional non-existent URL to capture LB error page templates (e.g. HAProxy 503, Envoy reset, AWS ALB 502/504)
+                    try:
+                        err_url = f"{scheme}://{domain}/_recon_lb_probe_{os.urandom(4).hex()}"
+                        err_resp = await client.get(err_url)
+                        all_headers_list.append(dict(err_resp.headers))
+                        if err_resp.text:
+                            body_snippets.append(err_resp.text[:4096])
+                    except Exception as probe_err:
+                        logger.debug(f"Error page probe failed for {url}: {probe_err}")
                     break  # Got data from this scheme
 
         # Analyse for variance
@@ -264,7 +728,10 @@ class LbDetectorAgent(BaseAgent):
             "unique_cities": unique_cities,
             "unique_countries": unique_countries,
             "geo_steering_detected": geo_steering_detected,
-            "sample_headers": all_headers_list[0] if all_headers_list else {}
+            "sample_headers": all_headers_list[0] if all_headers_list else {},
+            "all_headers_list": all_headers_list,
+            "cookies_dict": cookies_dict,
+            "body_snippets": body_snippets
         }
 
     # ------------------------------------------------------------------
@@ -319,27 +786,8 @@ class LbDetectorAgent(BaseAgent):
         ips = await self.check_dns_roundrobin(domain)
         http_info = await self.check_http_variance(domain)
 
-        dns_lb = len(ips) > 1
-        http_lb = http_info["server_variance"] or http_info["date_variance"] or len(http_info["served_by"]) > 0
-        geo_lb = http_info["geo_steering_detected"]
-
-        methods = []
-        if dns_lb:
-            methods.append(f"DNS round-robin ({len(ips)} IPs)")
-        if http_lb:
-            if http_info["server_variance"]:
-                methods.append("HTTP Server header variance")
-            if http_info["date_variance"]:
-                methods.append("HTTP Date header variance")
-            if http_info["served_by"]:
-                methods.append("HTTP proxy/cache header")
-        if geo_lb:
-            methods.append(f"Geo-distributed edge routing ({', '.join(http_info['unique_pop_codes'])})")
-
-        detected = dns_lb or http_lb or geo_lb
-
         # Fallback resolution if not already resolved
-        if detected and not ips:
+        if not ips:
             try:
                 loop = asyncio.get_event_loop()
                 results = await loop.getaddrinfo(domain, None, type=socket.SOCK_STREAM)
@@ -353,7 +801,7 @@ class LbDetectorAgent(BaseAgent):
         # Perform reverse DNS lookup using `dig -x`
         reverse_dns = {}
         all_fqdns = []
-        if detected and ips:
+        if ips:
             for ip in ips:
                 try:
                     fqdns = await self.reverse_dns_lookup(ip)
@@ -365,12 +813,62 @@ class LbDetectorAgent(BaseAgent):
                 except Exception as rdns_err:
                     logger.debug(f"Reverse DNS error for LB IP {ip}: {rdns_err}")
 
+        # Match vendor/manufacturer signatures
+        matched_vendors, f5_backends = match_load_balancer_fingerprints(
+            headers_list=http_info.get("all_headers_list", []),
+            cookies_dict=http_info.get("cookies_dict", {}),
+            body_snippets=http_info.get("body_snippets", []),
+            fqdns=all_fqdns
+        )
+
+        dns_lb = len(ips) > 1
+        http_lb = http_info["server_variance"] or http_info["date_variance"] or len(http_info["served_by"]) > 0
+        geo_lb = http_info["geo_steering_detected"]
+        vendor_lb = len(matched_vendors) > 0
+
+        detected = dns_lb or http_lb or geo_lb or vendor_lb
+
+        methods = []
+        vendor_name = None
+        vendor_category = None
+        confidence = None
+        signatures_matched = []
+        all_vendors = []
+
+        if vendor_lb:
+            top_vendor = matched_vendors[0]
+            vendor_name = top_vendor["name"]
+            vendor_category = top_vendor["category"]
+            confidence = top_vendor["confidence"]
+            all_vendors = [m["name"] for m in matched_vendors]
+            signatures_matched = [ev for m in matched_vendors for ev in m["evidence"]]
+            methods.append(f"{vendor_name}")
+
+        if dns_lb:
+            methods.append(f"DNS round-robin ({len(ips)} IPs)")
+        if http_lb and not vendor_lb:
+            if http_info["server_variance"]:
+                methods.append("HTTP Server header variance")
+            if http_info["date_variance"]:
+                methods.append("HTTP Date header variance")
+            if http_info["served_by"]:
+                methods.append("HTTP proxy/cache header")
+        if geo_lb:
+            methods.append(f"Geo-distributed edge routing ({', '.join(http_info['unique_pop_codes'])})")
+
         # Enhancement #1: Test direct connectivity to backend node IPs
         backend_nodes = []
         if detected and len(ips) > 1:
             backend_nodes = await self.test_direct_backend_nodes(domain, ips)
 
         detail_parts = []
+        if vendor_name:
+            detail_parts.append(f"Manufacturer/Software: {vendor_name} ({confidence} Confidence)")
+        if signatures_matched:
+            detail_parts.append(f"Signatures: {'; '.join(signatures_matched[:4])}")
+        if f5_backends:
+            f5_str = ", ".join(f"{b['internal_ip']}:{b['internal_port']} (pool: {b['pool']})" for b in f5_backends)
+            detail_parts.append(f"F5 Decoded Backends: {f5_str}")
         if http_info["served_by"]:
             detail_parts.append(f"Via/X-Served-By: {', '.join(http_info['served_by'])}")
         if http_info["unique_servers"] and http_info["server_variance"]:
@@ -382,7 +880,13 @@ class LbDetectorAgent(BaseAgent):
 
         return {
             "detected": detected,
-            "method": ", ".join(methods) if methods else None,
+            "vendor": vendor_name,
+            "vendors": all_vendors,
+            "vendor_category": vendor_category,
+            "confidence": confidence,
+            "signatures_matched": signatures_matched,
+            "f5_decoded_backends": f5_backends,
+            "method": " • ".join(methods) if methods else None,
             "ips": ips,
             "reverse_dns": reverse_dns,
             "fqdns": all_fqdns,

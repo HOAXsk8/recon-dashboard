@@ -555,7 +555,7 @@
                     
                     const techBadges = item.technologies.map(t => `<span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[10px] text-slate-700 dark:text-slate-300 font-medium">${t}</span>`).join(' ');
                     const wafBadge = item.waf?.detected ? `<span class="px-1.5 py-0.5 bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 rounded-md text-[9px] font-bold" title="WAF: ${item.waf.firewall || 'Detected'}">🛡️ ${item.waf.firewall || 'WAF'}</span>` : '';
-                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.method || 'Detected'}">⚖️ LB</span>` : '';
+                    const lbBadge = item.load_balancer?.detected ? `<span class="px-1.5 py-0.5 bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-400 rounded-md text-[9px] font-bold" title="Load Balancer: ${item.load_balancer.vendor || item.load_balancer.method || 'Detected'}">⚖️ ${item.load_balancer.vendor ? item.load_balancer.vendor.replace(/\s*\(.*?\)/, '').slice(0, 15) : 'LB'}</span>` : '';
                     const infraBadges = [wafBadge, lbBadge].filter(Boolean).join(' ');
 
                     const isRecentDrift = item.latest_subdomain_drift_time && (Date.now() - new Date(item.latest_subdomain_drift_time).getTime() < 86400000);
@@ -1736,8 +1736,52 @@
                                                     <span class="w-2.5 h-2.5 rounded-full bg-purple-400 flex-shrink-0 animate-pulse"></span>
                                                     <span class="text-sm font-bold text-purple-600 dark:text-purple-300">Detected</span>
                                                 </div>
-                                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold uppercase">${lb.method || 'unknown method'}</span>
+                                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold uppercase">${lb.confidence ? lb.confidence + ' Confidence' : (lb.method || 'Detected')}</span>
                                             </div>
+
+                                            ${lb.vendor ? `
+                                                <div class="p-3.5 bg-slate-50 dark:bg-slate-900/80 border border-purple-500/30 rounded-xl space-y-1">
+                                                    <div class="flex items-center justify-between">
+                                                        <span class="text-[10px] font-mono font-bold uppercase text-purple-600 dark:text-purple-400">Manufacturer / Software</span>
+                                                        ${lb.vendor_category ? `<span class="text-[10px] px-2 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20">${lb.vendor_category}</span>` : ''}
+                                                    </div>
+                                                    <div class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                                        <span>⚖️</span> ${lb.vendor}
+                                                    </div>
+                                                    ${lb.vendors && lb.vendors.length > 1 ? `
+                                                        <div class="text-[10px] text-slate-500 font-mono pt-1">
+                                                            Additional proxies/tiers: ${lb.vendors.slice(1).join(', ')}
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            ` : `
+                                                <div class="p-3 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl">
+                                                    <span class="text-[10px] font-mono font-bold uppercase text-slate-500">Detection Method</span>
+                                                    <div class="text-xs font-mono text-slate-700 dark:text-slate-300 mt-0.5">${lb.method || 'Unknown Method'}</div>
+                                                </div>
+                                            `}
+
+                                            ${lb.signatures_matched?.length ? `
+                                                <div>
+                                                    <p class="text-[10px] text-slate-500 uppercase mb-1 font-bold">Signatures & Matched Evidence</p>
+                                                    <div class="flex flex-col gap-1">
+                                                        ${lb.signatures_matched.map(sig => `<span class="font-mono text-[10px] px-2 py-1 bg-slate-100 dark:bg-slate-800 text-purple-700 dark:text-purple-300 rounded border border-slate-200 dark:border-slate-700/60 break-all">${sig}</span>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+
+                                            ${lb.f5_decoded_backends?.length ? `
+                                                <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
+                                                    <div class="flex items-center gap-1.5 text-amber-500 text-xs font-bold">
+                                                        <span>⚠️</span> F5 Decoded Internal Backend Targets
+                                                    </div>
+                                                    <p class="text-[10px] text-slate-400">Internal IPv4 address decoded from BIGipServer persistence cookie:</p>
+                                                    <div class="flex flex-col gap-1">
+                                                        ${lb.f5_decoded_backends.map(b => `<div class="font-mono text-xs text-amber-300 bg-amber-950/50 px-2 py-1 rounded border border-amber-500/30">Backend: <span class="font-bold underline">${b.internal_ip}:${b.internal_port}</span> (Pool: ${b.pool})</div>`).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+
                                             ${lb.fqdns?.length ? `
                                                 <div>
                                                     <p class="text-[10px] text-slate-500 uppercase mb-1 font-bold">Device FQDNs (Reverse DNS)</p>
@@ -1754,7 +1798,7 @@
                                                     </div>
                                                 </div>
                                             ` : ''}
-                                            ${lb.details ? `<p class="text-xs text-slate-600 dark:text-slate-400">${lb.details}</p>` : ''}
+                                            ${lb.details ? `<p class="text-xs text-slate-600 dark:text-slate-400 font-mono">${lb.details}</p>` : ''}
                                             <p class="text-[10px] text-slate-500">Scanned: ${new Date(lb.scanned_at).toLocaleString()}</p>
                                         </div>
                                     `;
@@ -5551,7 +5595,7 @@
                 subdomainsCount: 0,
                 scanned: Boolean(data.scanned),
                 waf: rootWaf ? (rootWaf.firewall || 'WAF Detected') : null,
-                load_balancer: rootLb ? (rootLb.method || 'LB Detected') : null
+                load_balancer: rootLb ? (rootLb.vendor || rootLb.method || 'LB Detected') : null
             }
         };
         nodesMap.set('root', rootNode);
@@ -5582,7 +5626,7 @@
         // Attach Root Load Balancer Node if detected
         if (rootLb) {
             const rootLbId = 'lb_root';
-            const lbMethod = String(rootLb.method || (rootLb.methods && rootLb.methods[0]) || 'Load Balancer');
+            const lbMethod = String(rootLb.vendor || rootLb.method || (rootLb.methods && rootLb.methods[0]) || 'Load Balancer');
             const lbNode = {
                 id: rootLbId,
                 label: `⚖️ ${lbMethod.length > 20 ? lbMethod.slice(0, 18) + '...' : lbMethod}`,
@@ -5758,7 +5802,7 @@
                         isSharedHost: isSharedIp,
                         hostedCount: totalHosted,
                         waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
-                        load_balancer: sLb ? (sLb.method || 'LB Detected') : null
+                        load_balancer: sLb ? (sLb.vendor || sLb.method || 'LB Detected') : null
                     }
                 };
                 nodesMap.set(subId, subNode);
@@ -5795,7 +5839,7 @@
                 // Attach Subdomain Load Balancer Node if detected
                 if (sLb) {
                     const lbId = `lb_${sName}`;
-                    const lbMethod = String(sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbMethod = String(sLb.vendor || sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
                     const lbNode = {
                         id: lbId,
                         label: `⚖️ ${lbMethod.length > 18 ? lbMethod.slice(0, 16) + '...' : lbMethod}`,
@@ -6041,7 +6085,7 @@
                         cname: (typeof sub === 'object' && sub.cname) ? sub.cname : null,
                         alive: isAlive,
                         waf: sWaf ? (sWaf.firewall || 'WAF Detected') : null,
-                        load_balancer: sLb ? (sLb.method || 'LB Detected') : null
+                        load_balancer: sLb ? (sLb.vendor || sLb.method || 'LB Detected') : null
                     }
                 };
                 nodesMap.set(subId, subNode);
@@ -6076,7 +6120,7 @@
                 // Attach Subdomain Load Balancer Node if detected in full view
                 if (sLb) {
                     const lbId = `lb_${subName}`;
-                    const lbMethod = String(sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
+                    const lbMethod = String(sLb.vendor || sLb.method || (sLb.methods && sLb.methods[0]) || 'Load Balancer');
                     const lbDist = dist + 42;
                     const lbAngle = angle + 0.08;
                     const lbNode = {
