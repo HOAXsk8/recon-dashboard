@@ -320,8 +320,6 @@
                     <button onclick="switchTab('dns_intel')" id="tab-dns_intel" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">DNS & ASN Intel</button>
                     <button onclick="switchTab('apis')" id="tab-apis" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">APIs & Schemas</button>
                     <button onclick="switchTab('timeline')" id="tab-timeline" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Drift & Timeline</button>
-                    <button onclick="switchTab('topology')" id="tab-topology" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Topology Graph</button>
-                    <button onclick="switchTab('systems')" id="tab-systems" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Systems & Network</button>
                     <button onclick="switchTab('webapps')" id="tab-webapps" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">Web Applications</button>
                     <button onclick="switchTab('osint')" id="tab-osint" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">OSINT</button>
                     <button onclick="switchTab('whois')" id="tab-whois" class="tab-btn whitespace-nowrap flex-shrink-0 px-4 py-3 font-bold text-xs sm:text-sm border-b-2 transition-all border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">WHOIS</button>
@@ -908,6 +906,9 @@
     };
 
     function switchTab(tabId) {
+        if (tabId === 'topology' || tabId === 'systems') {
+            tabId = 'infrastructure';
+        }
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.classList.remove('border-tech-accent', 'text-tech-accent');
             btn.classList.add('border-transparent', 'text-slate-500');
@@ -919,7 +920,7 @@
             activeBtn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         }
 
-        if (tabId !== 'topology' && typeof topoState !== 'undefined' && topoState.animId) {
+        if (tabId !== 'infrastructure' && tabId !== 'topology' && typeof topoState !== 'undefined' && topoState.animId) {
             cancelAnimationFrame(topoState.animId);
             topoState.animId = null;
         }
@@ -1511,8 +1512,132 @@
                 break;
             case 'infrastructure':
                 const subs = data.infrastructure?.subdomains || [];
+                const systems = data.systems || [];
+                const curViewingTarget = getViewingTarget();
                 content.innerHTML = `
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="space-y-8">
+                        <!-- 1. Infrastructure Relationship Topology -->
+                        <div class="space-y-4 bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-3">
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <h4 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                            <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            Infrastructure Relationship Topology
+                                        </h4>
+                                        <span id="topology-scope-badge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">Root Overview</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-1">Interactive visual map. Click any subdomain or IP to isolate its direct links and co-hosted domains. Use filters to toggle asset tiers.</p>
+                                </div>
+                                
+                                <!-- Interactive Scope Bar & Reset -->
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <button onclick="window.topologySetScope(null)" id="topo-scope-root-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all">All Assets (Root)</button>
+                                    <span id="topo-scope-sub-pill" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                                        <span id="topo-scope-sub-label"></span>
+                                        <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Root Overview">×</button>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Interactive Node Filter Toggles -->
+                            <div class="flex items-center gap-2 text-xs font-mono flex-wrap bg-slate-900/60 p-2.5 rounded-2xl border border-slate-800">
+                                <span class="text-slate-500 text-[11px] uppercase tracking-wider font-bold mr-1">Filter Nodes:</span>
+                                <button id="topo-filter-root" onclick="window.topologyToggleFilter('root')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Root Domain
+                                </button>
+                                <button id="topo-filter-subdomain" onclick="window.topologyToggleFilter('subdomain')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block"></span> Alive Subdomains
+                                </button>
+                                <button id="topo-filter-unresponsive" onclick="window.topologyToggleFilter('unresponsive')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block"></span> Unresponsive
+                                </button>
+                                <button id="topo-filter-takeover" onclick="window.topologyToggleFilter('takeover')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> Takeovers / Risk
+                                </button>
+                                <button id="topo-filter-ip" onclick="window.topologyToggleFilter('ip')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span> Shared Host IPs
+                                </button>
+                                <button id="topo-filter-asn" onclick="window.topologyToggleFilter('asn')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> ASN Networks
+                                </button>
+                                <button id="topo-filter-cloud" onclick="window.topologyToggleFilter('cloud')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Cloud Storage
+                                </button>
+                                <button id="topo-filter-waf" onclick="window.topologyToggleFilter('waf')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Web Application Firewalls">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span> WAFs
+                                </button>
+                                <button id="topo-filter-load_balancer" onclick="window.topologyToggleFilter('load_balancer')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Load Balancers & Proxies">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span> Load Balancers
+                                </button>
+                            </div>
+
+                            <!-- Canvas Container (Default 720px, Expandable to Fullscreen) -->
+                            <div id="topology-container" class="w-full h-[720px] bg-slate-950 rounded-3xl border border-slate-800 relative overflow-hidden select-none block transition-all" style="min-height: 720px;">
+                                <canvas id="topology-canvas" class="block cursor-grab" style="width: 100%; height: 100%; display: block;"></canvas>
+                                
+                                <!-- Floating Status Badge -->
+                                <div id="topology-stats-badge" class="absolute top-4 left-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 z-10 shadow-lg pointer-events-none">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <span id="topology-stats-text">Initializing topology graph...</span>
+                                </div>
+
+                                <!-- Floating Action Controls -->
+                                <div class="absolute bottom-4 right-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-xs font-mono z-10 shadow-lg">
+                                    <button id="topology-expand-btn" onclick="window.topologyToggleExpand()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Toggle Expanded / Fullscreen View">⛶ Expand</button>
+                                    <button onclick="window.topologyZoom(1.2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom In">+</button>
+                                    <button onclick="window.topologyZoom(0.8)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom Out">-</button>
+                                    <button onclick="window.topologyReset()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white transition-colors" title="Reset View">Reset</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Systems & Network Information -->
+                        <div class="bg-white dark:bg-tech-bg p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+                            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                                <h3 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2.5">
+                                    <svg class="w-6 h-6 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                                    Systems & Network (Ports & Services)
+                                </h3>
+                                <span class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-tech-accent/10 text-tech-accent border border-tech-accent/20">
+                                    ${systems.length} Target Host(s) Scanned
+                                </span>
+                            </div>
+                            <div class="space-y-6">
+                                ${systems.map(sys => `
+                                    <div class="bg-slate-50 dark:bg-slate-900/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm">
+                                        <div class="flex flex-col md:flex-row justify-between md:items-center mb-5 gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+                                            <div>
+                                                <h4 class="text-slate-900 dark:text-white font-bold text-base mb-1 cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${sys.target || data.domain}')">${sys.target || data.domain}</h4>
+                                                <p class="font-mono text-tech-accent text-xs">${sys.ip} • OS: ${sys.os || 'Unknown'}</p>
+                                            </div>
+                                            <div class="flex space-x-2">
+                                                <span class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold uppercase border border-slate-200 dark:border-slate-700">${sys.services?.length || 0} Open Ports</span>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            ${sys.services?.map(svc => `
+                                                <div class="recon-sub-item flex items-center justify-between p-3.5 rounded-xl hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                                                    <div class="flex items-center space-x-3 truncate mr-2">
+                                                        <div class="w-10 h-10 bg-tech-accent/10 rounded-lg flex items-center justify-center text-tech-accent font-bold font-mono text-sm shrink-0">
+                                                            ${svc.port}
+                                                        </div>
+                                                        <div class="truncate">
+                                                            <p class="font-bold text-slate-900 dark:text-white uppercase text-xs tracking-wider truncate">${svc.service || 'Unknown Service'}</p>
+                                                            <p class="text-[11px] text-slate-500 font-mono truncate">${svc.software || ''} ${svc.version || ''}</p>
+                                                        </div>
+                                                    </div>
+                                                    <span class="px-2.5 py-0.5 bg-tech-success/10 text-tech-success rounded text-[10px] font-bold uppercase tracking-wider border border-tech-success/20 shrink-0">Open</span>
+                                                </div>
+                                            `).join('') || '<p class="text-slate-500 text-center py-4 col-span-full">No open services identified.</p>'}
+                                        </div>
+                                    </div>
+                                `).join('') || '<div class="bg-slate-50 dark:bg-slate-900/40 p-12 text-center text-slate-500 border border-slate-200 dark:border-slate-800 rounded-2xl">No system-level scans found for this target.</div>'}
+                            </div>
+                        </div>
+
+                        <!-- 3. Subdomains & Edge Infrastructure (WAF, Load Balancer, Cloud Storage) -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <div class="bg-white dark:bg-tech-bg p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                             <h3 class="text-lg font-bold mb-4 border-b border-slate-200 dark:border-slate-700 pb-2 text-slate-900 dark:text-white">Subdomains (${subs.length})</h3>
                             <div class="max-h-[600px] overflow-y-auto pr-2">
@@ -1717,6 +1842,7 @@
                         </div>
                     </div>
                 `;
+                setTimeout(() => initTopologyGraph(data, curViewingTarget), 50);
                 break;
             case 'dns_intel':
                 const dnsData = data.dns_records || (data.infrastructure && data.infrastructure.dns_records) || {};
@@ -2171,117 +2297,8 @@
                 `;
                 break;
             case 'topology':
-                const curViewingTarget = getViewingTarget();
-                content.innerHTML = `
-                    <div class="space-y-4">
-                        <div class="flex flex-col lg:flex-row lg:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 gap-3">
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <h4 class="text-lg font-bold text-slate-900 dark:text-white">Infrastructure Relationship Topology</h4>
-                                    <span id="topology-scope-badge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">Root Overview</span>
-                                </div>
-                                <p class="text-xs text-slate-500">Interactive visual map. Click any subdomain or IP to isolate its direct links and co-hosted domains. Use filters to toggle asset tiers.</p>
-                            </div>
-                            
-                            <!-- Interactive Scope Bar & Reset -->
-                            <div class="flex items-center gap-2 flex-wrap">
-                                <button onclick="window.topologySetScope(null)" id="topo-scope-root-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all">All Assets (Root)</button>
-                                <span id="topo-scope-sub-pill" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                                    <span id="topo-scope-sub-label"></span>
-                                    <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Root Overview">×</button>
-                                </span>
-                            </div>
-                        </div>
-
-                        <!-- Interactive Node Filter Toggles -->
-                        <div class="flex items-center gap-2 text-xs font-mono flex-wrap bg-slate-900/60 p-2.5 rounded-2xl border border-slate-800">
-                            <span class="text-slate-500 text-[11px] uppercase tracking-wider font-bold mr-1">Filter Nodes:</span>
-                            <button id="topo-filter-root" onclick="window.topologyToggleFilter('root')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Root Domain
-                            </button>
-                            <button id="topo-filter-subdomain" onclick="window.topologyToggleFilter('subdomain')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block"></span> Alive Subdomains
-                            </button>
-                            <button id="topo-filter-unresponsive" onclick="window.topologyToggleFilter('unresponsive')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block"></span> Unresponsive
-                            </button>
-                            <button id="topo-filter-takeover" onclick="window.topologyToggleFilter('takeover')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> Takeovers / Risk
-                            </button>
-                            <button id="topo-filter-ip" onclick="window.topologyToggleFilter('ip')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block"></span> Shared Host IPs
-                            </button>
-                            <button id="topo-filter-asn" onclick="window.topologyToggleFilter('asn')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> ASN Networks
-                            </button>
-                            <button id="topo-filter-cloud" onclick="window.topologyToggleFilter('cloud')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer">
-                                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Cloud Storage
-                            </button>
-                            <button id="topo-filter-waf" onclick="window.topologyToggleFilter('waf')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Web Application Firewalls">
-                                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span> WAFs
-                            </button>
-                            <button id="topo-filter-load_balancer" onclick="window.topologyToggleFilter('load_balancer')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Load Balancers & Proxies">
-                                <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span> Load Balancers
-                            </button>
-                        </div>
-
-                        <!-- Canvas Container (Default 720px, Expandable to Fullscreen) -->
-                        <div id="topology-container" class="w-full h-[720px] bg-slate-950 rounded-3xl border border-slate-800 relative overflow-hidden select-none block transition-all" style="min-height: 720px;">
-                            <canvas id="topology-canvas" class="block cursor-grab" style="width: 100%; height: 100%; display: block;"></canvas>
-                            
-                            <!-- Floating Status Badge -->
-                            <div id="topology-stats-badge" class="absolute top-4 left-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-300 z-10 shadow-lg pointer-events-none">
-                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                <span id="topology-stats-text">Initializing topology graph...</span>
-                            </div>
-
-                            <!-- Floating Action Controls -->
-                            <div class="absolute bottom-4 right-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-xl text-xs font-mono z-10 shadow-lg">
-                                <button id="topology-expand-btn" onclick="window.topologyToggleExpand()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Toggle Expanded / Fullscreen View">⛶ Expand</button>
-                                <button onclick="window.topologyZoom(1.2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom In">+</button>
-                                <button onclick="window.topologyZoom(0.8)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white font-bold transition-colors" title="Zoom Out">-</button>
-                                <button onclick="window.topologyReset()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-tech-accent hover:text-tech-bg text-white transition-colors" title="Reset View">Reset</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                setTimeout(() => initTopologyGraph(data, curViewingTarget), 50);
-                break;
             case 'systems':
-                const systems = data.systems || [];
-                content.innerHTML = `
-                    <div class="space-y-8">
-                        ${systems.map(sys => `
-                            <div class="bg-white dark:bg-tech-bg p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
-                                    <div>
-                                        <h4 class="text-slate-900 dark:text-white font-bold mb-1 cursor-pointer hover:text-tech-accent transition-colors" onclick="showDomainMenu(event, '${sys.target || data.domain}')">${sys.target || data.domain}</h4>
-                                        <p class="font-mono text-tech-accent text-sm">${sys.ip} • OS: ${sys.os || 'Unknown'}</p>
-                                    </div>
-                                    <div class="flex space-x-2">
-                                        <span class="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold uppercase border border-slate-200 dark:border-slate-700">${sys.services?.length || 0} Open Ports</span>
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-1 gap-4">
-                                    ${sys.services?.map(svc => `
-                                        <div class="recon-sub-item flex items-center justify-between p-4 rounded-2xl hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-                                            <div class="flex items-center space-x-4">
-                                                <div class="w-12 h-12 bg-tech-accent/10 rounded-xl flex items-center justify-center text-tech-accent font-bold font-mono">
-                                                    ${svc.port}
-                                                </div>
-                                                <div>
-                                                    <p class="font-bold text-slate-900 dark:text-white uppercase text-sm tracking-widest">${svc.service || 'Unknown Service'}</p>
-                                                    <p class="text-xs text-slate-500 font-mono">${svc.software || ''} ${svc.version || ''}</p>
-                                                </div>
-                                            </div>
-                                            <span class="px-3 py-1 bg-tech-success/10 text-tech-success rounded-lg text-[10px] font-bold uppercase tracking-widest border border-tech-success/20">Open</span>
-                                        </div>
-                                    `).join('') || '<p class="text-slate-500 text-center py-4">No open services identified.</p>'}
-                                </div>
-                            </div>
-                        `).join('') || '<div class="bg-white dark:bg-tech-bg p-20 text-center text-slate-500 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm">No system-level scans found for this target.</div>'}
-                    </div>
-                `;
+                renderTabContent('infrastructure');
                 break;
             case 'webapps':
                 const apps = data.web_applications || [];
