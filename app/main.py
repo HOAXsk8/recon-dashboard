@@ -136,7 +136,7 @@ def get_flattened_pipeline(
                     "$reduce": {
                         "input": {
                             "$concatArrays": [
-                                [{"name": "$domain", "is_root": True, "added_at": "$added_at", "source": {"$ifNull": ["$source", "user"]}}],
+                                [{"name": "$domain", "is_root": True, "added_at": "$added_at", "last_scanned": "$last_scanned", "source": {"$ifNull": ["$source", "user"]}}],
                                 {"$ifNull": ["$infrastructure.subdomains", []]}
                             ]
                         },
@@ -164,6 +164,7 @@ def get_flattened_pipeline(
                 "archive_urls": 1,
                 "history": {"$ifNull": ["$history", []]},
                 "scanned": 1,
+                "last_scanned": 1,
                 "blacklisted": 1,
                 "on_hold": 1,
                 "added_at": 1,
@@ -179,6 +180,7 @@ def get_flattened_pipeline(
                 "is_root": {"$ifNull": ["$targets.is_root", False]},
                 "source": {"$ifNull": ["$targets.source", "$source"]},
                 "subdomain_scanned": {"$ifNull": ["$targets.scanned", False]},
+                "last_scanned": {"$ifNull": ["$targets.last_scanned", "$last_scanned"]},
                 "scanned_flag": "$scanned",
                 "on_hold_flag": "$on_hold",
                 "single_domain_only": {"$ifNull": ["$single_domain_only", False]},
@@ -288,6 +290,7 @@ def get_flattened_pipeline(
                 "is_root": 1,
                 "source": 1,
                 "subdomain_scanned": 1,
+                "last_scanned": 1,
                 "scanned_flag": 1,
                 "on_hold_flag": 1,
                 "single_domain_only": 1,
@@ -543,6 +546,7 @@ def get_flattened_pipeline(
                 "is_root": {"$first": "$is_root"},
                 "source": {"$first": "$source"},
                 "subdomain_scanned": {"$max": "$subdomain_scanned"},
+                "last_scanned": {"$max": "$last_scanned"},
                 "scanned_flag": {"$max": "$scanned_flag"},
                 "on_hold_flag": {"$first": "$on_hold_flag"},
                 "single_domain_only": {"$first": "$single_domain_only"},
@@ -582,6 +586,7 @@ def get_flattened_pipeline(
                 "is_root": 1,
                 "source": 1,
                 "subdomain_scanned": 1,
+                "last_scanned": 1,
                 "scanned_flag": 1,
                 "on_hold_flag": 1,
                 "single_domain_only": 1,
@@ -1927,7 +1932,7 @@ async def get_subdomains(
             "tech_str": ", ".join(tech_stack),
             "country_id": get_country_code(resolved_ip),
             "recon_date": d.get("recon_date", "N/A"),
-            "last_scanned": system_info.get("last_scanned", "Never"),
+            "last_scanned": system_info.get("last_scanned") or d.get("last_scanned") or "Never",
             "source": d.get("source"),
             "is_permutated": is_permutated,
             "waf": {
@@ -3979,7 +3984,7 @@ async def get_domains(
     results = []
     for d in docs:
         is_scanned = True if (d.get("system") or d.get("subdomain_scanned")) else (d.get("scanned_flag", False) if d.get("is_root") else False)
-        last_scanned = d.get("system", {}).get("last_scanned") if d.get("system") else (d.get("last_scanned") if d.get("is_root") else "Never")
+        last_scanned = (d.get("system") or {}).get("last_scanned") or d.get("last_scanned") or "Never"
         sub_drift_count = int(d.get("subdomain_drift_count", 0))
         latest_drift_time = d.get("latest_subdomain_drift_time")
         
