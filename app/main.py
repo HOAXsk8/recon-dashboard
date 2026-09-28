@@ -126,7 +126,8 @@ def get_flattened_pipeline(
     takeover: Optional[str] = None,
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
-    drift: Optional[str] = None
+    drift: Optional[str] = None,
+    dir_files: Optional[str] = None
 ):
     pipeline = [
         {"$match": root_query},
@@ -501,6 +502,48 @@ def get_flattened_pipeline(
                         False
                     ]
                 },
+                "has_dir_files": {
+                    "$cond": [
+                        {"$or": [
+                            {"$gt": [
+                                {"$size": {
+                                    "$filter": {
+                                        "input": {"$ifNull": ["$web_app.sensitive_files", []]},
+                                        "as": "sf",
+                                        "cond": {"$ne": ["$$sf.source", "Passive Archive Hunter"]}
+                                    }
+                                }},
+                                0
+                            ]},
+                            {"$and": [
+                                {"$eq": ["$is_root", True]},
+                                {"$gt": [
+                                    {"$size": {
+                                        "$filter": {
+                                            "input": "$web_applications",
+                                            "as": "wa",
+                                            "cond": {
+                                                "$gt": [
+                                                    {"$size": {
+                                                        "$filter": {
+                                                            "input": {"$ifNull": ["$$wa.sensitive_files", []]},
+                                                            "as": "sf",
+                                                            "cond": {"$ne": ["$$sf.source", "Passive Archive Hunter"]}
+                                                        }
+                                                    }},
+                                                    0
+                                                ]
+                                            }
+                                        }
+                                    }},
+                                    0
+                                ]}
+                            ]}
+                        ]},
+                        True,
+                        False
+                    ]
+                },
                 "subdomain_drift_events": {
                     "$filter": {
                         "input": {"$ifNull": ["$history", []]},
@@ -574,6 +617,7 @@ def get_flattened_pipeline(
                 "takeover_provider": {"$first": "$takeover_provider"},
                 "has_api_specs": {"$max": "$has_api_specs"},
                 "has_graphql": {"$max": "$has_graphql"},
+                "has_dir_files": {"$max": "$has_dir_files"},
                 "subdomain_drift_count": {"$max": "$subdomain_drift_count"},
                 "latest_subdomain_drift_time": {"$max": "$latest_subdomain_drift_time"}
             }
@@ -696,6 +740,7 @@ def get_flattened_pipeline(
                 "takeover_provider": 1,
                 "has_api_specs": 1,
                 "has_graphql": 1,
+                "has_dir_files": 1,
                 "subdomain_drift_count": {"$ifNull": ["$subdomain_drift_count", 0]},
                 "latest_subdomain_drift_time": 1
             }
@@ -839,6 +884,13 @@ def get_flattened_pipeline(
         elif dr_clean in ["false", "0", "no", "none"]:
             match_stage["is_root"] = False
             match_stage["subdomain_drift_count"] = {"$lte": 0}
+
+    if dir_files:
+        df_clean = str(dir_files).strip().lower()
+        if df_clean in ["true", "1", "yes"]:
+            match_stage["has_dir_files"] = True
+        elif df_clean in ["false", "0", "no"]:
+            match_stage["has_dir_files"] = {"$ne": True}
 
     if status_val:
         if status_val == "scanned":
@@ -1836,6 +1888,7 @@ async def get_subdomains(
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
     drift: Optional[str] = None,
+    dir_files: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -1867,7 +1920,8 @@ async def get_subdomains(
         takeover=takeover,
         hide_parked=hide_parked,
         api_spec=api_spec,
-        drift=drift
+        drift=drift,
+        dir_files=dir_files
     )
     
     # Total count (Aggregation)
@@ -1961,6 +2015,7 @@ async def get_subdomains(
             "takeover_provider": d.get("takeover_provider"),
             "has_api_specs": bool(d.get("has_api_specs", False)),
             "has_graphql": bool(d.get("has_graphql", False)),
+            "has_dir_files": bool(d.get("has_dir_files", False)),
             "subdomain_drift_count": sub_drift_count,
             "latest_subdomain_drift_time": latest_drift_time,
             "has_subdomain_drift": sub_drift_count > 0

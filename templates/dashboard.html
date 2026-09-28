@@ -191,6 +191,15 @@
                     </select>
                 </div>
 
+                <!-- Row 3: Directory & File Discovery -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-8 gap-2.5">
+                    <select id="filter-dir-files" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">Dirs / Files (All)</option>
+                        <option value="true">📁 Has Dirs / Files Found</option>
+                        <option value="false">No Dirs / Files Found</option>
+                    </select>
+                </div>
+
                 <div class="flex items-center justify-between pt-1">
                     <div id="active-filters-info" class="text-[11px] text-slate-500 font-mono flex items-center gap-2">
                         <span id="active-filters-pill" class="hidden px-2 py-0.5 rounded-full bg-tech-accent/15 text-tech-accent border border-tech-accent/30 font-bold text-[10px]"></span>
@@ -494,10 +503,11 @@
         const hideParked = document.getElementById('filter-hide-parked') ? document.getElementById('filter-hide-parked').value : '';
         const apiSpec = document.getElementById('filter-api-spec') ? document.getElementById('filter-api-spec').value : '';
         const drift = document.getElementById('filter-drift') ? document.getElementById('filter-drift').value : '';
+        const dirFiles = document.getElementById('filter-dir-files') ? document.getElementById('filter-dir-files').value : '';
         const limit = document.getElementById('limit-select').value;
         const tbody = document.getElementById('inventory-table-body');
 
-        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, currentPortFilter].filter(Boolean).length;
+        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, dirFiles, currentPortFilter].filter(Boolean).length;
         const pill = document.getElementById('active-filters-pill');
         if (pill) {
             if (activeCount > 0) {
@@ -536,6 +546,7 @@
             if (hideParked) params.append('hide_parked', hideParked);
             if (apiSpec) params.append('api_spec', apiSpec);
             if (drift) params.append('drift', drift);
+            if (dirFiles) params.append('dir_files', dirFiles);
             
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
@@ -739,6 +750,7 @@
         const base64 = document.getElementById('filter-base64') ? document.getElementById('filter-base64').value : '';
         const historical = document.getElementById('filter-historical') ? document.getElementById('filter-historical').value : '';
         const drift = document.getElementById('filter-drift') ? document.getElementById('filter-drift').value : '';
+        const dirFiles = document.getElementById('filter-dir-files') ? document.getElementById('filter-dir-files').value : '';
 
         const params = new URLSearchParams({
             q: q,
@@ -761,6 +773,7 @@
         if (base64) params.append('base64', base64);
         if (historical) params.append('historical', historical);
         if (drift) params.append('drift', drift);
+        if (dirFiles) params.append('dir_files', dirFiles);
         
         window.location.href = `/api/subdomains/export?${params.toString()}`;
     }
@@ -800,6 +813,8 @@
         if (apiSpecSelect) apiSpecSelect.value = '';
         const driftSelect = document.getElementById('filter-drift');
         if (driftSelect) driftSelect.value = '';
+        const dirFilesSelect = document.getElementById('filter-dir-files');
+        if (dirFilesSelect) dirFilesSelect.value = '';
         currentPortFilter = null;
         resetAndFetch();
     }
