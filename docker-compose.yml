@@ -16,7 +16,7 @@ services:
     build: .
     image: recon-dashboard:latest
     container_name: recon-dashboard
-    command: ["./start.sh"]
+    command: [ "./start.sh" ]
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - MONGO_HOST=localhost
@@ -56,7 +56,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/subdomain_discovery.py"]
+    command: [ "python", "tools/subdomain_discovery.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -72,7 +72,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/alive_check.py"]
+    command: [ "python", "tools/alive_check.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -88,7 +88,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/port_scanner.py"]
+    command: [ "python", "tools/port_scanner.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -104,7 +104,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/whois_agent.py"]
+    command: [ "python", "tools/whois_agent.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -120,7 +120,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/osint_agent.py"]
+    command: [ "python", "tools/osint_agent.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -135,7 +135,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/screenshot_agent.py"]
+    command: [ "python", "tools/screenshot_agent.py" ]
     volumes:
       - ./tools:/app/tools
       - ./screenshots:/app/screenshots
@@ -152,7 +152,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/archive_hunter.py"]
+    command: [ "python", "tools/archive_hunter.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -161,13 +161,14 @@ services:
       - db
       - dashboard
 
-  directory-hunter:
+  directory-hunter-1:
     image: recon-dashboard:latest
-    container_name: directory-hunter
+    container_name: directory-hunter-1
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/directory_hunter.py"]
+      - INSTANCE_ID=1
+    command: [ "python", "tools/directory_hunter.py" ]
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
@@ -175,6 +176,323 @@ services:
       - ./wordlists:/app/wordlists
     restart: always
     network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-2:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-2
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=2
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-3:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-3
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=3
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-4:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-4
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=4
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-5:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-5
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=5
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-6:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-6
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=6
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-7:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-7
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=7
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-8:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-8
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=8
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-9:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-9
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=9
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-10:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-10
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=10
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-11:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-11
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=11
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-12:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-12
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=12
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-13:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-13
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=13
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-14:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-14
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=14
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-15:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-15
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=15
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
+    depends_on:
+      - db
+      - dashboard
+
+  directory-hunter-16:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-16
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - INSTANCE_ID=16
+    command: [ "python", "tools/directory_hunter.py" ]
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./tools:/app/tools
+      - ./wordlists:/app/wordlists
+    restart: always
+    network_mode: "host"
+    mem_limit: 1200m
+    cpus: 1.0
     depends_on:
       - db
       - dashboard
@@ -185,7 +503,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/tech_fingerprinter.py"]
+    command: [ "python", "tools/tech_fingerprinter.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -201,14 +519,35 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - RESCAN_INTERVAL_HOURS=720.0
-    command: ["python", "tools/loop_orchestrator.py"]
+      - DOCKER_SOCKET=/var/run/docker.sock
+    command: [ "python", "tools/loop_orchestrator.py" ]
     volumes:
       - ./tools:/app/tools
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: always
     network_mode: "host"
     depends_on:
       - db
       - dashboard
+
+  directory-hunter-autoscaler:
+    image: recon-dashboard:latest
+    container_name: directory-hunter-autoscaler
+    environment:
+      - MONGO_HOST=localhost
+      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
+      - PYTHONUNBUFFERED=1
+      - DOCKER_SOCKET=/var/run/docker.sock
+    command: [ "python", "tools/directory_hunter_autoscaler.py" ]
+    volumes:
+      - ./tools:/app/tools
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: always
+    network_mode: "host"
+    depends_on:
+      - db
+      - dashboard
+
 
   bypass-403:
     image: recon-dashboard:latest
@@ -216,7 +555,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/bypass_403.py"]
+    command: [ "python", "tools/bypass_403.py" ]
     volumes:
       - ./app:/app/app
       - ./templates:/app/templates
@@ -233,7 +572,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/waf_detector.py"]
+    command: [ "python", "tools/waf_detector.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -248,7 +587,7 @@ services:
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    command: ["python", "tools/lb_detector.py"]
+    command: [ "python", "tools/lb_detector.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always
@@ -264,7 +603,7 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - PYTHONUNBUFFERED=1
-    command: ["python", "tools/dynamic_js_collector.py"]
+    command: [ "python", "tools/dynamic_js_collector.py" ]
     volumes:
       - ./tools:/app/tools
       - ./recovered_sources:/app/recovered_sources
@@ -282,7 +621,7 @@ services:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - PYTHONUNBUFFERED=1
-    command: ["python", "tools/cloud_storage_auditor.py"]
+    command: [ "python", "tools/cloud_storage_auditor.py" ]
     volumes:
       - ./tools:/app/tools
     restart: always

@@ -64,7 +64,10 @@ CURATED_SENSITIVE_FILES = [
 
 class DirectoryHunterAgent(BaseAgent):
     def __init__(self):
-        super().__init__("directory_hunter", "Directory & File Hunter")
+        instance_id = os.getenv("INSTANCE_ID", "").strip()
+        agent_key = f"directory_hunter_{instance_id}" if instance_id else "directory_hunter"
+        agent_name = f"Directory & File Hunter #{instance_id}" if instance_id else "Directory & File Hunter"
+        super().__init__(agent_key, agent_name)
         self.alert_hashes_col = self.db["alert_hashes"]
 
     def get_directory_wordlist(self) -> str:
@@ -1664,6 +1667,15 @@ class DirectoryHunterAgent(BaseAgent):
                     {"domain": root_domain},
                     {"$set": {"web_applications": web_apps}}
                 )
+
+                if target and target.lower() != root_domain.lower():
+                    t_doc = await self.domains_col.find_one({"domain": target})
+                    if t_doc:
+                        t_web_apps = [app for app in web_apps if app.get("target") == target]
+                        await self.domains_col.update_one(
+                            {"domain": target},
+                            {"$set": {"web_applications": t_web_apps}}
+                        )
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

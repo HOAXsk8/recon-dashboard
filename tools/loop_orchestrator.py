@@ -129,7 +129,11 @@ class ContinuousLoopAgent(BaseAgent):
             last_activity = task.get("last_activity") or task.get("started_at") or task.get("created_at")
 
             agent_key = TASK_AGENT_MAP.get(task_type)
-            last_heartbeat = active_scanners.get(agent_key)
+            matching_heartbeats = [
+                hb for k, hb in active_scanners.items()
+                if (k == agent_key or (agent_key and k.startswith(f"{agent_key}_"))) and hb
+            ]
+            last_heartbeat = max(matching_heartbeats) if matching_heartbeats else None
             agent_alive = last_heartbeat and last_heartbeat > agent_heartbeat_cutoff
 
             should_recover = False
@@ -415,6 +419,32 @@ class ContinuousLoopAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"Circuit breaker monitor error: {e}")
 
+    async def main_loop(self):
+        # Fallback / Backup Autoscaler: if dedicated autoscaler container isn't running, run in-process
+        try:
+            from directory_hunter_autoscaler import DirectoryHunterAutoscaler, DockerUnixClient
+            docker_client = DockerUnixClient()
+            status, containers = docker_client.request("GET", "/v1.41/containers/json")
+            autoscaler_container_running = False
+            if status == 200 and isinstance(containers, list):
+                for c in containers:
+                    for name in c.get("Names", []):
+                        if "directory-hunter-autoscaler" in name:
+                            autoscaler_container_running = True
+                            break
+
+            if not autoscaler_container_running:
+                logger.info("Loop Orchestrator: Launching in-process Directory Hunter autoscaler daemon.")
+                self.dh_autoscaler = DirectoryHunterAutoscaler(db_client=self.client)
+                asyncio.create_task(self.dh_autoscaler.run())
+            else:
+                logger.info("Loop Orchestrator: Dedicated directory-hunter-autoscaler container active.")
+        except Exception as e:
+            logger.debug(f"Loop Orchestrator autoscaler startup check error: {e}")
+
+        await super().main_loop()
+
 if __name__ == "__main__":
     agent = ContinuousLoopAgent()
     asyncio.run(agent.main_loop())
+
