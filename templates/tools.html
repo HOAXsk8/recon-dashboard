@@ -102,7 +102,7 @@
                 <label class="block text-xs font-black uppercase tracking-widest text-slate-300">
                     1. Select Execution Scope
                 </label>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button 
                         type="button" 
                         id="scope-btn-single" 
@@ -113,23 +113,39 @@
                             <svg class="w-4 h-4 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                             <span class="text-xs font-black uppercase tracking-wider">Single Target</span>
                         </div>
-                        <span class="text-[11px] text-slate-400 mt-1 leading-snug">Run on specific root domain or subdomain</span>
+                        <span class="text-[11px] text-slate-400 mt-1.5 leading-snug">Specific root domain or subdomain</span>
                     </button>
 
                     <button 
                         type="button" 
-                        id="scope-btn-all" 
-                        onclick="setExecutionScope('all')" 
+                        id="scope-btn-workspace" 
+                        onclick="setExecutionScope('workspace')" 
                         class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
                     >
                         <div class="flex items-center space-x-1.5 justify-between">
-                            <div class="flex items-center space-x-2 truncate">
-                                <svg class="w-4 h-4 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                <span class="text-xs font-black uppercase tracking-wider truncate">All Domains</span>
+                            <div class="flex items-center space-x-1.5 truncate">
+                                <svg class="w-4 h-4 text-tech-accent shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                                <span class="text-xs font-black uppercase tracking-wider truncate">Workspace</span>
                             </div>
-                            <span id="scope-all-count-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/30 shrink-0">0 active</span>
+                            <span id="scope-workspace-count-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/30 shrink-0">0 active</span>
                         </div>
-                        <span class="text-[11px] text-slate-400 mt-1 leading-snug">Broadcast across all active targets</span>
+                        <span id="scope-ws-name-label" class="text-[11px] text-slate-400 mt-1.5 leading-snug truncate">Active workspace targets</span>
+                    </button>
+
+                    <button 
+                        type="button" 
+                        id="scope-btn-all-workspaces" 
+                        onclick="setExecutionScope('all_workspaces')" 
+                        class="p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                    >
+                        <div class="flex items-center space-x-1.5 justify-between">
+                            <div class="flex items-center space-x-1.5 truncate">
+                                <svg class="w-4 h-4 text-purple-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                <span class="text-xs font-black uppercase tracking-wider truncate">All Workspaces</span>
+                            </div>
+                            <span id="scope-all-workspaces-count-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0">0 active</span>
+                        </div>
+                        <span class="text-[11px] text-slate-400 mt-1.5 leading-snug">Global fleet across all workspaces</span>
                     </button>
                 </div>
             </div>
@@ -191,24 +207,52 @@
                 </div>
             </div>
 
-            <!-- CONTAINER B: All Domains Broadcast Scope -->
-            <div id="modal-all-scope-container" class="hidden p-4 rounded-2xl bg-tech-panel/60 border border-tech-accent/30 space-y-3">
+            <!-- CONTAINER B: Entire Workspace Scope -->
+            <div id="modal-workspace-scope-container" class="hidden p-4 rounded-2xl bg-tech-panel/60 border border-tech-accent/30 space-y-3">
                 <div class="flex items-start space-x-3">
                     <div class="w-9 h-9 rounded-xl bg-tech-accent/15 border border-tech-accent/30 flex items-center justify-center text-tech-accent shrink-0 mt-0.5">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                     </div>
-                    <div class="space-y-1">
-                        <div class="flex items-center space-x-2">
-                            <h4 class="text-xs font-black uppercase tracking-wider text-white">Broadcast Execution Mode</h4>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Active Only</span>
+                    <div class="space-y-1 flex-1">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-black uppercase tracking-wider text-white">Workspace Scope Execution</h4>
+                            <span id="modal-ws-name-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/30">Workspace: Default</span>
                         </div>
                         <p class="text-[11px] text-slate-400 leading-relaxed">
-                            This tool will be scheduled across every active domain in your workspace.
+                            This tool will be scheduled across every active domain within the current workspace.
                         </p>
                         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] font-mono">
                             <span class="flex items-center space-x-1.5 text-emerald-400 font-bold">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                                <span id="modal-all-count-text">0 domains eligible</span>
+                                <span id="modal-workspace-count-text">0 domains eligible</span>
+                            </span>
+                            <span class="flex items-center space-x-1.5 text-slate-500">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+                                <span>On-hold & blacklisted automatically skipped</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONTAINER C: All Workspaces Global Scope -->
+            <div id="modal-all-workspaces-scope-container" class="hidden p-4 rounded-2xl bg-purple-950/20 border border-purple-500/30 space-y-3">
+                <div class="flex items-start space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0 mt-0.5">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <div class="space-y-1 flex-1">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-black uppercase tracking-wider text-white">Global Multi-Workspace Broadcast</h4>
+                            <span id="modal-all-workspaces-badge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">Global Fleet Sweep</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed">
+                            This tool will be scheduled across all active domains in <strong class="text-white">every workspace</strong>. Tasks are assigned to each domain's respective workspace for fair-share processing.
+                        </p>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-[11px] font-mono">
+                            <span class="flex items-center space-x-1.5 text-purple-300 font-bold">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                <span id="modal-all-workspaces-count-text">0 domains eligible across all workspaces</span>
                             </span>
                             <span class="flex items-center space-x-1.5 text-slate-500">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
@@ -265,7 +309,10 @@
     let selectedDomainObj = null;
     let domainSearchTimeout = null;
     let executionScope = 'single';
-    let activeDomainsCount = 0;
+    let workspaceActiveCount = 0;
+    let allWorkspacesActiveCount = 0;
+    let currentWorkspaceName = 'Default';
+    let totalWorkspacesCount = 1;
 
     // Tool Metadata and Descriptions
     const TOOL_METADATA = {
@@ -641,39 +688,46 @@
     function setExecutionScope(scope) {
         executionScope = scope;
         const singleBtn = document.getElementById('scope-btn-single');
-        const allBtn = document.getElementById('scope-btn-all');
+        const wsBtn = document.getElementById('scope-btn-workspace');
+        const allWsBtn = document.getElementById('scope-btn-all-workspaces');
+        
         const singleContainer = document.getElementById('modal-single-scope-container');
-        const allContainer = document.getElementById('modal-all-scope-container');
+        const wsContainer = document.getElementById('modal-workspace-scope-container');
+        const allWsContainer = document.getElementById('modal-all-workspaces-scope-container');
+        
         const runBtn = document.getElementById('modal-run-btn');
         const runBtnText = document.getElementById('modal-run-btn-text');
 
-        if (scope === 'all') {
-            allBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
-            singleBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700';
-            
-            singleContainer.classList.add('hidden');
-            allContainer.classList.remove('hidden');
+        // Reset all buttons to inactive state
+        const inactiveClass = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700';
+        if (singleBtn) singleBtn.className = inactiveClass;
+        if (wsBtn) wsBtn.className = inactiveClass;
+        if (allWsBtn) allWsBtn.className = inactiveClass;
 
+        // Hide all containers
+        if (singleContainer) singleContainer.classList.add('hidden');
+        if (wsContainer) wsContainer.classList.add('hidden');
+        if (allWsContainer) allWsContainer.classList.add('hidden');
+
+        const toolName = activeModalTool ? activeModalTool.name : 'Tool';
+
+        if (scope === 'workspace') {
+            if (wsBtn) wsBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
+            if (wsContainer) wsContainer.classList.remove('hidden');
             runBtn.disabled = false;
-            if (activeModalTool) {
-                runBtnText.innerText = `Run ${activeModalTool.name} on All Domains`;
-            } else {
-                runBtnText.innerText = 'Run on All Domains';
-            }
+            runBtnText.innerText = `Run ${toolName} on Workspace (${currentWorkspaceName})`;
+        } else if (scope === 'all_workspaces') {
+            if (allWsBtn) allWsBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-purple-500/60 text-white shadow-md shadow-purple-500/10';
+            if (allWsContainer) allWsContainer.classList.remove('hidden');
+            runBtn.disabled = false;
+            runBtnText.innerText = `Run ${toolName} Across All Workspaces`;
         } else {
-            singleBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
-            allBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900/40 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700';
-
-            singleContainer.classList.remove('hidden');
-            allContainer.classList.add('hidden');
-
-            if (activeModalTool) {
-                runBtnText.innerText = `Run ${activeModalTool.name}`;
-            } else {
-                runBtnText.innerText = 'Run Tool';
-            }
-
+            // Default: 'single'
+            executionScope = 'single';
+            if (singleBtn) singleBtn.className = 'p-3 rounded-xl border text-left transition-all flex flex-col justify-between bg-slate-900 border-tech-accent/60 text-white shadow-md shadow-tech-accent/5';
+            if (singleContainer) singleContainer.classList.remove('hidden');
             runBtn.disabled = !selectedDomainObj;
+            runBtnText.innerText = selectedDomainObj ? `Run ${toolName} on ${selectedDomainObj.target}` : `Run ${toolName}`;
         }
         hideModalAlert();
     }
@@ -741,12 +795,39 @@
             const data = await resp.json();
             availableDomains = data.results || [];
             
-            if (data.active_domains_count !== undefined) {
-                activeDomainsCount = data.active_domains_count;
-                const badge = document.getElementById('scope-all-count-badge');
-                if (badge) badge.innerText = `${activeDomainsCount} active`;
-                const countText = document.getElementById('modal-all-count-text');
-                if (countText) countText.innerText = `${activeDomainsCount} domains eligible`;
+            // Workspace active count
+            if (data.workspace_active_count !== undefined) {
+                workspaceActiveCount = data.workspace_active_count;
+            } else if (data.active_domains_count !== undefined) {
+                workspaceActiveCount = data.active_domains_count;
+            }
+            const wsBadge = document.getElementById('scope-workspace-count-badge');
+            if (wsBadge) wsBadge.innerText = `${workspaceActiveCount} active`;
+            const wsText = document.getElementById('modal-workspace-count-text');
+            if (wsText) wsText.innerText = `${workspaceActiveCount} domain(s) eligible`;
+
+            // All workspaces active count
+            if (data.all_workspaces_active_count !== undefined) {
+                allWorkspacesActiveCount = data.all_workspaces_active_count;
+                totalWorkspacesCount = data.total_workspaces_count || 1;
+                const allWsBadge = document.getElementById('scope-all-workspaces-count-badge');
+                if (allWsBadge) allWsBadge.innerText = `${allWorkspacesActiveCount} active`;
+                const allWsText = document.getElementById('modal-all-workspaces-count-text');
+                if (allWsText) allWsText.innerText = `${allWorkspacesActiveCount} domain(s) eligible across ${totalWorkspacesCount} workspace(s)`;
+            }
+
+            // Current workspace name
+            if (data.workspace_name) {
+                currentWorkspaceName = data.workspace_name;
+                const wsLabel = document.getElementById('scope-ws-name-label');
+                if (wsLabel) wsLabel.innerText = `Workspace: ${currentWorkspaceName}`;
+                const modalWsBadge = document.getElementById('modal-ws-name-badge');
+                if (modalWsBadge) modalWsBadge.innerText = `Workspace: ${currentWorkspaceName}`;
+                
+                // If workspace mode is currently active, update button text
+                if (executionScope === 'workspace' && activeModalTool) {
+                    document.getElementById('modal-run-btn-text').innerText = `Run ${activeModalTool.name} on Workspace (${currentWorkspaceName})`;
+                }
             }
 
             if (data.root_domains && data.root_domains.length > 0) {
@@ -900,6 +981,9 @@
 
         document.getElementById('modal-selected-target-box').classList.remove('hidden');
         document.getElementById('modal-run-btn').disabled = false;
+        if (executionScope === 'single' && activeModalTool) {
+            document.getElementById('modal-run-btn-text').innerText = `Run ${activeModalTool.name} on ${item.target}`;
+        }
         hideModalAlert();
     }
 
@@ -917,20 +1001,20 @@
         const topOfQueue = document.getElementById('modal-top-of-queue-checkbox').checked;
 
         try {
-            let payload = {};
-            if (executionScope === 'all') {
-                payload = {
-                    run_all: true,
-                    top_of_queue: topOfQueue
-                };
+            let payload = {
+                top_of_queue: topOfQueue,
+                scope: executionScope
+            };
+            if (executionScope === 'all_workspaces') {
+                payload.all_workspaces = true;
+                payload.run_all = true;
+            } else if (executionScope === 'workspace') {
+                payload.run_all = true;
             } else {
                 const subtargetSelect = document.getElementById('modal-subtarget-select');
                 const targetVal = (subtargetSelect && subtargetSelect.value) ? subtargetSelect.value : (selectedDomainObj.target || selectedDomainObj.domain);
-                payload = {
-                    domain_id: selectedDomainObj.id,
-                    target: targetVal,
-                    top_of_queue: topOfQueue
-                };
+                payload.domain_id = selectedDomainObj.id;
+                payload.target = targetVal;
             }
 
             const resp = await fetch(`/api/tools/${activeModalTool.key}/run`, {

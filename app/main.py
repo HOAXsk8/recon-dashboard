@@ -5562,8 +5562,27 @@ async def search_simple_domains(request: Request, q: Optional[str] = None, user:
         if len(results) >= 60:
             break
             
-    active_domains_count = await domains_col.count_documents({"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}})
-    return {"results": results[:60], "root_domains": root_summaries, "active_domains_count": active_domains_count}
+    ws_active_query = {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}}
+    if ws_clause:
+        ws_active_query = {"$and": [ws_clause, ws_active_query]}
+    workspace_active_count = await domains_col.count_documents(ws_active_query)
+    
+    all_active_query = {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}}
+    all_workspaces_active_count = await domains_col.count_documents(all_active_query)
+    
+    total_workspaces_count = await workspaces_col.count_documents({})
+    ws_name = active_ws.get("name", "Default")
+
+    return {
+        "results": results[:60],
+        "root_domains": root_summaries,
+        "active_domains_count": workspace_active_count,
+        "workspace_active_count": workspace_active_count,
+        "all_workspaces_active_count": all_workspaces_active_count,
+        "workspace_name": ws_name,
+        "workspace_id": str(active_ws["_id"]),
+        "total_workspaces_count": total_workspaces_count
+    }
 
 def build_tool_tasks(tool_key: str, domain_doc: dict, target: str, priority_val: int, created_at_val: datetime, is_run_all: bool = False) -> list:
     root_domain = domain_doc["domain"]
@@ -5744,32 +5763,39 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
     active_ws = await get_active_workspace(user, request)
     ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
     ws_id_str = str(active_ws["_id"])
+    ws_name = active_ws.get("name", "Default")
 
     top_of_queue = bool(body.get("top_of_queue", False))
-    run_all = bool(body.get("run_all", False)) or domain_id == "all"
+    scope = body.get("scope", "")
+    all_workspaces = bool(body.get("all_workspaces", False)) or scope == "all_workspaces"
+    run_all = bool(body.get("run_all", False)) or domain_id == "all" or scope in ["workspace", "all_workspaces"]
     
     priority_val = 10 if top_of_queue else 0
     created_at_val = datetime.utcnow() - timedelta(days=365) if top_of_queue else datetime.utcnow()
     priority_txt = " (Top of Queue)" if top_of_queue else ""
     
     # -------------------------------------------------------------
-    # CASE A: Run tool across ALL active domains in current workspace
+    # CASE A: Run tool in BROADCAST mode (entire workspace OR all workspaces)
     # -------------------------------------------------------------
     if run_all:
         query = {"blacklisted": {"$ne": True}, "on_hold": {"$ne": True}}
-        if ws_clause:
+        if not all_workspaces and ws_clause:
             query = {"$and": [ws_clause, query]}
         cursor = domains_col.find(query)
         eligible_domains = await cursor.to_list(length=None)
         
+        scope_label = "all workspaces" if all_workspaces else f"workspace '{ws_name}'"
+        scope_type = "all_workspaces" if all_workspaces else "workspace"
+        
         if not eligible_domains:
             return {
                 "status": "warning",
-                "message": "No active domains found in this workspace to run this tool on (all domains on hold or blacklisted).",
+                "message": f"No active domains found in {scope_label} to run this tool on (all domains on hold or blacklisted).",
                 "tasks_queued": 0,
                 "domains_count": 0,
                 "tool_key": tool_key,
-                "top_of_queue": top_of_queue
+                "top_of_queue": top_of_queue,
+                "scope": scope_type
             }
             
         if tool_key == "whois_lookup":
@@ -5777,17 +5803,18 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                 query,
                 {"$set": {"whois_complete": False}}
             )
-            msg = f"Reset WHOIS status for {len(eligible_domains)} active domain(s) to trigger immediate lookup"
+            msg = f"Reset WHOIS status for {len(eligible_domains)} active domain(s) in {scope_label} to trigger immediate lookup"
             if top_of_queue:
                 msg += " (Priority flag noted)"
-            await log_audit(user["username"], "RUN_TOOL", f"Triggered WHOIS lookup on all active domains ({len(eligible_domains)} domains){priority_txt}", request)
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered WHOIS lookup across {scope_label} ({len(eligible_domains)} domains){priority_txt}", request)
             return {
                 "status": "success",
                 "message": msg,
                 "tasks_queued": len(eligible_domains),
                 "domains_count": len(eligible_domains),
                 "tool_key": tool_key,
-                "top_of_queue": top_of_queue
+                "top_of_queue": top_of_queue,
+                "scope": scope_type
             }
             
         elif tool_key == "loop_orchestrator":
@@ -5795,7 +5822,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             for d_doc in eligible_domains:
                 r_domain = d_doc["domain"]
                 is_single = d_doc.get("single_domain_only", False)
-                doc_ws_id = str(d_doc.get("workspace_id", ws_id_str))
+                doc_ws_id = str(d_doc.get("workspace_id") or ws_id_str)
                 await domains_col.update_one(
                     {"_id": d_doc["_id"]},
                     {"$set": {"scanned": False, "on_hold": False, "last_scanned": "Never"}}
@@ -5822,14 +5849,15 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
                     })
             if tasks_to_create:
                 await tasks_col.insert_many(tasks_to_create)
-            await log_audit(user["username"], "RUN_TOOL", f"Triggered full loop scan across all active domains ({len(eligible_domains)} domains){priority_txt}", request)
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered full loop scan across {scope_label} ({len(eligible_domains)} domains){priority_txt}", request)
             return {
                 "status": "success",
-                "message": f"Successfully queued {len(tasks_to_create)} task(s) to restart scan loop across {len(eligible_domains)} active domain(s){priority_txt}",
+                "message": f"Successfully queued {len(tasks_to_create)} task(s) to restart scan loop across {len(eligible_domains)} active domain(s) in {scope_label}{priority_txt}",
                 "tasks_queued": len(tasks_to_create),
                 "domains_count": len(eligible_domains),
                 "tool_key": tool_key,
-                "top_of_queue": top_of_queue
+                "top_of_queue": top_of_queue,
+                "scope": scope_type
             }
             
         else:
@@ -5837,7 +5865,7 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             targeted_domains_count = 0
             for d_doc in eligible_domains:
                 r_domain = d_doc["domain"]
-                doc_ws_id = str(d_doc.get("workspace_id", ws_id_str))
+                doc_ws_id = str(d_doc.get("workspace_id") or ws_id_str)
                 t_list = build_tool_tasks(tool_key, d_doc, r_domain, priority_val, created_at_val, is_run_all=True)
                 if t_list:
                     for t in t_list:
@@ -5848,14 +5876,15 @@ async def run_tool_on_domain(tool_key: str, request: Request, user: dict = Depen
             if tasks_to_create:
                 await tasks_col.insert_many(tasks_to_create)
                 
-            await log_audit(user["username"], "RUN_TOOL", f"Triggered {tool_key} on all active domains ({targeted_domains_count} domains, {len(tasks_to_create)} tasks){priority_txt}", request)
+            await log_audit(user["username"], "RUN_TOOL", f"Triggered {tool_key} on {scope_label} ({targeted_domains_count} domains, {len(tasks_to_create)} tasks){priority_txt}", request)
             return {
                 "status": "success",
-                "message": f"Successfully queued {len(tasks_to_create)} task(s) across {targeted_domains_count} active domain(s){priority_txt}",
+                "message": f"Successfully queued {len(tasks_to_create)} task(s) across {targeted_domains_count} active domain(s) in {scope_label}{priority_txt}",
                 "tasks_queued": len(tasks_to_create),
                 "domains_count": targeted_domains_count,
                 "tool_key": tool_key,
-                "top_of_queue": top_of_queue
+                "top_of_queue": top_of_queue,
+                "scope": scope_type
             }
 
     # -------------------------------------------------------------

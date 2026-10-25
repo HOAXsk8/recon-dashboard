@@ -2941,6 +2941,11 @@
                                                         <span>🔒 ${secFiles.length} Security</span>
                                                     </span>
                                                 ` : ''}
+                                                ${app.favicon && app.favicon.framework ? `
+                                                    <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="Favicon Identified Framework: ${app.favicon.framework}">
+                                                        <span>🎯 ${app.favicon.framework}</span>
+                                                    </span>
+                                                ` : ''}
                                                 ${app.favicon && (app.favicon.mmh3 !== undefined && app.favicon.mmh3 !== null) ? `
                                                     <span class="px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="Favicon MurmurHash3: ${app.favicon.mmh3}">
                                                         <span>🔖 MMH3: ${app.favicon.mmh3}</span>
@@ -2998,6 +3003,11 @@
                                                     <svg class="w-3.5 h-3.5 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.5 7.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zm-.25 4.75a.75.75 0 011.5 0v2a.75.75 0 01-1.5 0v-2zm3 0a.75.75 0 011.5 0v2a.75.75 0 01-1.5 0v-2z"/></svg>
                                                     Favicon:
                                                 </span>
+                                                ${app.favicon.framework ? `
+                                                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold flex items-center gap-1" title="Framework Identified from Favicon Asset Fingerprint">
+                                                        <span>🎯 Framework: <strong class="text-emerald-500 dark:text-emerald-300">${app.favicon.framework}</strong></span>
+                                                    </span>
+                                                ` : ''}
                                                 ${app.favicon.mmh3 !== undefined && app.favicon.mmh3 !== null ? `
                                                     <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700" title="MurmurHash3 (Shodan standard)">
                                                         MMH3: <strong class="text-tech-accent">${app.favicon.mmh3}</strong>

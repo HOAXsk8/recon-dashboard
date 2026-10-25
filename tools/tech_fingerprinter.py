@@ -5,6 +5,8 @@ import json
 import os
 import re
 import urllib.parse
+import codecs
+import hashlib
 from base_agent import BaseAgent, logger
 
 try:
@@ -558,6 +560,186 @@ _KNOWN_VULNERABILITIES = [
 ]
 
 # ---------------------------------------------------------------------------
+# Enhancement: MurmurHash3 Pure-Python Implementation & Favicon Signatures
+# ---------------------------------------------------------------------------
+def mmh3_hash32(key: bytes, seed: int = 0) -> int:
+    """Pure-Python implementation of MurmurHash3 32-bit (x86). Matches Shodan http.favicon.hash standard."""
+    length = len(key)
+    nblocks = length // 4
+    h1 = seed
+    c1 = 0xcc9e2d51
+    c2 = 0x1b873593
+
+    for i in range(nblocks):
+        k1 = int.from_bytes(key[i*4 : (i+1)*4], byteorder='little')
+        k1 = (k1 * c1) & 0xffffffff
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xffffffff
+        k1 = (k1 * c2) & 0xffffffff
+
+        h1 ^= k1
+        h1 = ((h1 << 13) | (h1 >> 19)) & 0xffffffff
+        h1 = (h1 * 5 + 0xe6546b64) & 0xffffffff
+
+    tail = key[nblocks * 4:]
+    k1 = 0
+    tail_len = len(tail)
+    if tail_len == 3:
+        k1 ^= tail[2] << 16
+    if tail_len >= 2:
+        k1 ^= tail[1] << 8
+    if tail_len >= 1:
+        k1 ^= tail[0]
+        k1 = (k1 * c1) & 0xffffffff
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xffffffff
+        k1 = (k1 * c2) & 0xffffffff
+        h1 ^= k1
+
+    h1 ^= length
+    h1 ^= (h1 >> 16)
+    h1 = (h1 * 0x85ebca6b) & 0xffffffff
+    h1 ^= (h1 >> 13)
+    h1 = (h1 * 0xc2b2ae35) & 0xffffffff
+    h1 ^= (h1 >> 16)
+
+    if h1 >= 0x80000000:
+        h1 -= 0x100000000
+    return h1
+
+
+FAVICON_FRAMEWORKS = {
+    116323821: "Spring Boot",
+    0: "Spring Boot",
+    81586312: "Jenkins",
+    942082276: "Jira",
+    -942082276: "Jira",
+    -305179312: "Confluence",
+    -2053896777: "Django",
+    1583491410: "WordPress",
+    -1444555869: "WordPress",
+    611598424: "WordPress",
+    1278323681: "GitLab",
+    -821946395: "Grafana",
+    -159868778: "Kibana",
+    1231872951: "phpMyAdmin",
+    -1343825835: "Apache Tomcat",
+    -125026938: "Vue.js",
+    539070856: "React",
+    -190379963: "React",
+    -1812328221: "Next.js",
+    827727986: "Laravel",
+    -134704386: "Laravel",
+    -1308960810: "Ruby on Rails",
+    -1205602330: "Flask",
+    -1250860824: "Express",
+    -1049788196: "Strapi",
+    -1107567735: "Directus",
+    -1473111077: "Keycloak",
+    -1875154378: "cPanel",
+    -1981143896: "Plesk",
+    -1488032435: "Apache Superset",
+    -1065135167: "Sonarqube",
+    -188241517: "RabbitMQ",
+    143329046: "Swagger UI",
+    -34674003: "Consul",
+    1398055326: "Zabbix",
+    644781744: "Roundcube",
+    -1698260799: "OwnCloud",
+    -1111629853: "Nextcloud",
+    1466099395: "Drupal",
+    -1042788506: "Joomla",
+    -1520138950: "Ghost",
+    -2041285408: "Shopify",
+}
+
+FAVICON_MD5_FRAMEWORKS = {
+    "0488faca4c3fb063a4504a18fa764698": "Spring Boot",
+    "28f51142940251765c9296bc7520e5db": "Jenkins",
+    "f46e297858bf43cbe665e7d2cf2e411b": "WordPress",
+    "709dcf348698044700d23fb275811d7f": "Django",
+    "e485459344407ab6b64f33d7d740c025": "GitLab",
+    "98b46574c866f82794eb8e3efb69204c": "Grafana",
+    "858d247f12eb60b64f52e505cc7eeefb": "Jira",
+    "074b6aa6b231eb93a89a05cb3d9bb205": "phpMyAdmin",
+    "5d70e671754020a5976b7e64177db0a2": "Apache Tomcat",
+    "2f4469e36502da28562725faeb2074e5": "Laravel",
+    "600282b8a6fcf7c7c1fa79c6bb1cb6d2": "Next.js",
+    "bb635560b4fb8a6669910d5f8ceb0981": "Vue.js",
+    "5c75ff3bb4e44439c2c62c95d2c20638": "React",
+}
+
+CANONICAL_TECH_NAMES = {
+    "react": "React",
+    "react.js": "React",
+    "next.js": "Next.js",
+    "nextjs": "Next.js",
+    "vue": "Vue.js",
+    "vue.js": "Vue.js",
+    "nuxt": "Nuxt.js",
+    "nuxt.js": "Nuxt.js",
+    "nuxtjs": "Nuxt.js",
+    "angular": "Angular",
+    "angularjs": "AngularJS",
+    "svelte": "Svelte",
+    "sveltekit": "SvelteKit",
+    "remix": "Remix",
+    "gatsby": "Gatsby",
+    "alpine.js": "Alpine.js",
+    "alpinejs": "Alpine.js",
+    "htmx": "HTMX",
+    "wordpress": "WordPress",
+    "drupal": "Drupal",
+    "joomla": "Joomla",
+    "apache": "Apache",
+    "apache http server": "Apache",
+    "nginx": "Nginx",
+    "microsoft-iis": "Microsoft-IIS",
+    "iis": "Microsoft-IIS",
+    "litespeed": "LiteSpeed",
+    "caddy": "Caddy",
+    "openresty": "OpenResty",
+    "cloudflare": "Cloudflare",
+    "cloudfront": "CloudFront",
+    "amazon cloudfront": "CloudFront",
+    "akamai": "Akamai",
+    "fastly": "Fastly",
+    "varnish": "Varnish",
+    "php": "PHP",
+    "express": "Express",
+    "node.js": "Node.js",
+    "nodejs": "Node.js",
+    "django": "Django",
+    "laravel": "Laravel",
+    "ruby on rails": "Ruby on Rails",
+    "rails": "Ruby on Rails",
+    "flask": "Flask",
+    "spring boot": "Spring Boot",
+    "springboot": "Spring Boot",
+    "java": "Java",
+    "asp.net": "ASP.NET",
+    "asp.net core": "ASP.NET Core",
+    "bootstrap": "Bootstrap",
+    "jquery": "jQuery",
+    "tailwind css": "Tailwind CSS",
+    "tailwindcss": "Tailwind CSS",
+    "shopify": "Shopify",
+    "webflow": "Webflow",
+    "wix": "Wix",
+    "squarespace": "Squarespace",
+    "ghost": "Ghost",
+    "hugo": "Hugo",
+    "jekyll": "Jekyll",
+    "google analytics": "Google Analytics",
+    "google tag manager": "Google Tag Manager",
+    "hotjar": "Hotjar",
+    "intercom": "Intercom",
+    "sentry": "Sentry",
+    "apollo client graphql": "Apollo Client",
+    "redux": "Redux",
+    "font awesome": "Font Awesome",
+    "fontawesome": "Font Awesome",
+}
+
+# ---------------------------------------------------------------------------
 # Enhancement #2: Cookie Patterns for Framework & Backend Identification
 # ---------------------------------------------------------------------------
 COOKIE_FRAMEWORK_PATTERNS = [
@@ -586,8 +768,17 @@ COOKIE_FRAMEWORK_PATTERNS = [
     (r"^BIGipServer", "F5 BIG-IP"),
     (r"^X-Mapping-", "HAProxy"),
     (r"^koa:sess", "Koa.js"),
-    (r"^beaker\.session\.id$", "Python (Beaker/Flask)"),
-    (r"^rack\.session$", "Ruby (Rack)"),
+    (r"^beaker\.session\.id$", "Flask"),
+    (r"^rack\.session$", "Ruby on Rails"),
+    (r"^_shopify_y|_shopify_s", "Shopify"),
+    (r"^wf_session", "Webflow"),
+    (r"^wixSession", "Wix"),
+    (r"^SS_MID|SS_MATTR", "Squarespace"),
+    (r"^_ga$|_gid$|^_gat", "Google Analytics"),
+    (r"^_next", "Next.js"),
+    (r"^sails\.sid", "Sails.js"),
+    (r"^PLAY_SESSION", "Play Framework"),
+    (r"^ring-session", "Clojure (Ring)"),
 ]
 
 def _parse_version(v_str):
@@ -651,16 +842,19 @@ def parse_tech_entry(entry):
     if not entry:
         return None, None, None
     
-    match = re.match(r"^([^:/\[]+)(?:[:/ ]v?([0-9]+(?:\.[0-9a-zA-Z_-]+)*))?", entry)
-    if match:
+    match = re.search(r"^(.*?)(?:[:/ ]\s*v?([0-9]+(?:\.[0-9a-zA-Z_-]+)*))\s*$", entry)
+    if match and match.group(1).strip():
         name = match.group(1).strip()
-        version = match.group(2).strip() if match.group(2) else None
-        return name.lower(), name, version
-    return entry.lower(), entry, None
+        version = match.group(2).strip()
+        base_key = name.lower()
+        display_name = CANONICAL_TECH_NAMES.get(base_key, name)
+        return base_key, display_name, version
+    base_key = entry.lower()
+    return base_key, CANONICAL_TECH_NAMES.get(base_key, entry), None
 
 def merge_and_deduplicate_tech(*tech_sources):
     """
-    Merge technology items from multiple sources (httpx list, whatweb plugins, server banner, cookie hints, db).
+    Merge technology items from multiple sources (httpx list, whatweb plugins, server banner, cookie hints, native probes, db).
     Items can be strings (e.g. 'WordPress:7.2') or tuples (name, version).
     Deduplicates strictly by canonical lowercase base name, keeping the richest version and best casing.
     Excludes non-technology pseudo-plugins.
@@ -677,7 +871,7 @@ def merge_and_deduplicate_tech(*tech_sources):
                 if not name or not isinstance(name, str):
                     continue
                 base_key = name.lower().strip()
-                display_name = name.strip()
+                display_name = CANONICAL_TECH_NAMES.get(base_key, name.strip())
             elif isinstance(item, str):
                 base_key, display_name, version = parse_tech_entry(item)
             else:
@@ -694,8 +888,10 @@ def merge_and_deduplicate_tech(*tech_sources):
                 if version:
                     if not curr.get("version") or len(str(version)) > len(str(curr.get("version", ""))):
                         curr["version"] = version
-                # Prefer title/uppercase casing (e.g. Nginx over nginx)
-                if not curr["display_name"][0].isupper() and display_name[0].isupper():
+                # Prefer canonical/title casing
+                if display_name in CANONICAL_TECH_NAMES.values():
+                    curr["display_name"] = display_name
+                elif not curr["display_name"][0].isupper() and display_name[0].isupper():
                     curr["display_name"] = display_name
 
     result = []
@@ -717,10 +913,12 @@ class TechFingerprinterAgent(BaseAgent):
     async def run_httpx(self, url):
         logger.info(f"Running httpx fingerprinting on {url}")
         cmd = [
-            "pd-httpx", "-u", url, "-H", f"User-Agent: {self.user_agent}", "-td", "-title", "-server", "-sc", "-json", "-silent"
+            "pd-httpx", "-u", url, "-H", f"User-Agent: {self.user_agent}",
+            "-td", "-title", "-server", "-sc", "-json", "-silent",
+            "-no-stdin", "-fr", "-maxr", "5", "-timeout", "10", "-irh"
         ]
         try:
-            stdout, stderr = await self.run_command(cmd, timeout=60)
+            stdout, stderr = await self.run_command(cmd, timeout=30)
             if stdout and stdout.strip():
                 for line in reversed(stdout.strip().splitlines()):
                     line = line.strip()
@@ -736,10 +934,10 @@ class TechFingerprinterAgent(BaseAgent):
     async def run_whatweb(self, url):
         logger.info(f"Running whatweb fingerprinting on {url}")
         cmd = [
-            "whatweb", "-U", self.user_agent, "--log-json=-", "-q", "-a", "1", url
+            "whatweb", "-U", self.user_agent, "--log-json=-", "-q", "-a", "1", "--max-redirects=5", url
         ]
         try:
-            stdout, stderr = await self.run_command(cmd, timeout=60)
+            stdout, stderr = await self.run_command(cmd, timeout=25)
             if stdout:
                 data = json.loads(stdout)
                 if isinstance(data, list) and len(data) > 0:
@@ -749,6 +947,390 @@ class TechFingerprinterAgent(BaseAgent):
         except Exception as e:
             logger.error(f"whatweb error for {url}: {e}")
         return None
+
+    async def direct_probe(self, url: str) -> dict:
+        """
+        Directly probe the target URL following redirects to retrieve final response
+        headers, status code, HTML body, and page title.
+        Provides resilient native detection even when CLI tools fail or time out.
+        """
+        result = {
+            "status_code": None,
+            "headers": {},
+            "body": "",
+            "title": "",
+            "final_url": url,
+        }
+        
+        # 1. Try httpx async client
+        if httpx is not None:
+            try:
+                async with httpx.AsyncClient(
+                    verify=False,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(12.0, connect=6.0),
+                    headers={"User-Agent": self.user_agent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+                ) as client:
+                    resp = await client.get(url)
+                    result["status_code"] = resp.status_code
+                    result["final_url"] = str(resp.url)
+                    result["headers"] = dict(resp.headers)
+                    result["body"] = resp.text[:1000000] # Cap body to 1MB
+            except Exception as e:
+                logger.debug(f"Direct httpx probe failed for {url}: {e}, falling back to curl")
+
+        # 2. Resilient fallback with curl if httpx was unavailable or failed
+        if not result["status_code"]:
+            try:
+                cmd = ["curl", "-sL", "-k", "-m", "12", "--max-redirs", "5", "-A", self.user_agent, "-i", url]
+                stdout, _ = await self.run_command(cmd, timeout=15)
+                if stdout:
+                    parts = re.split(r'\r?\n\r?\n', stdout)
+                    header_blocks = [p for p in parts if re.match(r'^HTTP/\d', p.strip(), re.I)]
+                    if header_blocks:
+                        last_headers = header_blocks[-1]
+                        parsed_headers = {}
+                        lines = last_headers.splitlines()
+                        if lines:
+                            status_match = re.search(r'HTTP/\S+\s+(\d+)', lines[0])
+                            if status_match:
+                                result["status_code"] = int(status_match.group(1))
+                            for line in lines[1:]:
+                                if ":" in line:
+                                    hk, hv = line.split(":", 1)
+                                    parsed_headers[hk.strip()] = hv.strip()
+                        result["headers"] = parsed_headers
+                    if len(parts) > len(header_blocks):
+                        result["body"] = "\n\n".join(parts[len(header_blocks):])[:1000000]
+            except Exception as ce:
+                logger.debug(f"Direct curl probe also failed for {url}: {ce}")
+
+        # Extract title from HTML body if present
+        if result["body"]:
+            title_m = re.search(r'<title[^>]*>(.*?)</title>', result["body"], re.IGNORECASE | re.DOTALL)
+            if title_m:
+                result["title"] = re.sub(r'\s+', ' ', title_m.group(1)).strip()
+
+        return result
+
+    def fingerprint_headers(self, raw_headers: dict) -> list:
+        """
+        Deep pattern matching across HTTP response headers to identify servers,
+        languages, runtimes, CMSs, and infrastructure.
+        Returns list of (tech_name, version_or_None).
+        """
+        techs = []
+        if not raw_headers:
+            return techs
+
+        norm = {k.lower(): str(v).strip() for k, v in raw_headers.items()}
+
+        # 1. Server header
+        server = norm.get("server", "")
+        if server:
+            s_match = re.search(r'([a-zA-Z0-9_\-\.]+)(?:/([0-9\.]+))?', server)
+            if s_match:
+                s_name = s_match.group(1)
+                s_ver = s_match.group(2)
+                techs.append((s_name, s_ver))
+            if "cloudflare" in server.lower():
+                techs.append(("Cloudflare", None))
+            if "gws" in server.lower() or "google" in server.lower():
+                techs.append(("Google Web Server", None))
+            if "openresty" in server.lower():
+                techs.append(("OpenResty", None))
+            if "kestrel" in server.lower():
+                techs.append(("ASP.NET Core", None))
+            if "cowboy" in server.lower():
+                techs.append(("Cowboy", None))
+            if "werkzeug" in server.lower():
+                w_m = re.search(r'werkzeug/([0-9\.]+)', server, re.I)
+                techs.append(("Werkzeug", w_m.group(1) if w_m else None))
+                techs.append(("Python", None))
+            if "gunicorn" in server.lower():
+                g_m = re.search(r'gunicorn/([0-9\.]+)', server, re.I)
+                techs.append(("Gunicorn", g_m.group(1) if g_m else None))
+                techs.append(("Python", None))
+            if "uvicorn" in server.lower():
+                techs.append(("Uvicorn", None))
+                techs.append(("Python", None))
+
+        # 2. X-Powered-By
+        x_powered = norm.get("x-powered-by", "")
+        if x_powered:
+            for part in re.split(r'[,;]\s*', x_powered):
+                p_match = re.search(r'([a-zA-Z0-9_\-\.]+)(?:/([0-9\.]+))?', part.strip())
+                if p_match:
+                    p_name = p_match.group(1)
+                    p_ver = p_match.group(2)
+                    techs.append((p_name, p_ver))
+                if "next.js" in part.lower():
+                    techs.append(("Next.js", None))
+                if "express" in part.lower():
+                    techs.append(("Express", None))
+                if "asp.net" in part.lower():
+                    techs.append(("ASP.NET", None))
+
+        # 3. ASP.NET specific headers
+        if "x-aspnet-version" in norm:
+            techs.append(("ASP.NET", norm["x-aspnet-version"]))
+        if "x-aspnetmvc-version" in norm:
+            techs.append(("ASP.NET MVC", norm["x-aspnetmvc-version"]))
+
+        # 4. Generator & CMS headers
+        if "x-generator" in norm:
+            base_k, disp, ver = parse_tech_entry(norm["x-generator"])
+            if disp:
+                techs.append((disp, ver))
+        if "x-powered-cms" in norm:
+            base_k, disp, ver = parse_tech_entry(norm["x-powered-cms"])
+            if disp:
+                techs.append((disp, ver))
+
+        # 5. Drupal caching headers
+        if "x-drupal-cache" in norm or "x-drupal-dynamic-cache" in norm:
+            techs.append(("Drupal", None))
+
+        # 6. CDN / Proxy headers
+        if "cf-ray" in norm or "cf-cache-status" in norm:
+            techs.append(("Cloudflare", None))
+        if "x-amz-cf-id" in norm or "x-amz-cf-pop" in norm:
+            techs.append(("CloudFront", None))
+        if "x-azure-ref" in norm:
+            techs.append(("Microsoft Azure", None))
+        if "x-fastly-request-id" in norm:
+            techs.append(("Fastly", None))
+        if "x-varnish" in norm:
+            techs.append(("Varnish", None))
+        if "x-shopify-stage" in norm:
+            techs.append(("Shopify", None))
+        if "x-ghost-cache-status" in norm:
+            techs.append(("Ghost", None))
+        if "via" in norm:
+            via = norm["via"].lower()
+            if "varnish" in via:
+                techs.append(("Varnish", None))
+            if "cloudfront" in via:
+                techs.append(("CloudFront", None))
+            if "squid" in via:
+                techs.append(("Squid", None))
+
+        return techs
+
+    def fingerprint_html(self, html: str, raw_headers: dict = None) -> list:
+        """
+        Deep pattern matching across HTML document:
+        - <meta name="generator"> tags
+        - Script src URLs (React, Next, Nuxt, Vue, Angular, Svelte, jQuery, Bootstrap, etc.)
+        - Hydration & SSR state markers (__NEXT_DATA__, __NUXT__, __remixContext, etc.)
+        - DOM attribute markers (data-reactroot, data-v-, ng-version, x-data, hx-get, etc.)
+        - Third-party tracking & SDK snippets (GTM, GA, Hotjar, Intercom, Sentry, etc.)
+        Returns list of (tech_name, version_or_None).
+        """
+        techs = []
+        if not html:
+            return techs
+
+        # 1. Meta generator tag
+        for m in re.finditer(r'<meta[^>]+(?:name=["\']generator["\'][^>]+content=["\']([^"\']+)["\']|content=["\']([^"\']+)["\'][^>]+name=["\']generator["\'])', html, re.I):
+            gen = m.group(1) or m.group(2)
+            if gen:
+                base_k, disp, ver = parse_tech_entry(gen)
+                if disp:
+                    techs.append((disp, ver))
+
+        # 2. Hydration payloads & SSR state markers
+        if re.search(r'id=["\']__NEXT_DATA__["\']|/_next/static/', html, re.I):
+            techs.append(("Next.js", None))
+            techs.append(("React", None))
+        if re.search(r'id=["\']__NUXT_DATA__["\']|window\.__NUXT__\b|/_nuxt/', html, re.I):
+            techs.append(("Nuxt.js", None))
+            techs.append(("Vue.js", None))
+        if re.search(r'window\.__remixContext\b|__remixContext\b', html, re.I):
+            techs.append(("Remix", None))
+            techs.append(("React", None))
+        if re.search(r'id=["\']___gatsby["\']|window\.___gatsby\b', html, re.I):
+            techs.append(("Gatsby", None))
+            techs.append(("React", None))
+        if re.search(r'__APOLLO_STATE__\b', html, re.I):
+            techs.append(("Apollo Client", None))
+
+        # 3. Frontend Framework DOM & Script patterns
+        # React
+        if re.search(r'data-reactroot|data-reactid|react\.production\.min\.js|react-dom', html, re.I):
+            techs.append(("React", None))
+
+        # Vue.js
+        if re.search(r'data-v-[a-f0-9]+|vue\.runtime\.min\.js|vue\.min\.js', html, re.I):
+            techs.append(("Vue.js", None))
+
+        # Angular
+        ang_m = re.search(r'ng-version=["\']([0-9\.]+)["\']', html, re.I)
+        if ang_m:
+            techs.append(("Angular", ang_m.group(1)))
+        elif re.search(r'ng-app\b|<app-root\b|angular\.min\.js|angular\.js', html, re.I):
+            techs.append(("Angular", None))
+
+        # Svelte / SvelteKit
+        if re.search(r'__svelte|data-sveltekit|svelte-', html, re.I):
+            techs.append(("Svelte", None))
+
+        # Alpine.js
+        if re.search(r'x-data=|alpine\.min\.js|alpine\.js', html, re.I):
+            techs.append(("Alpine.js", None))
+
+        # HTMX
+        if re.search(r'hx-get=|hx-post=|htmx\.min\.js|htmx\.org', html, re.I):
+            techs.append(("HTMX", None))
+
+        # jQuery with version detection
+        jq_m = re.search(r'jquery[-.]([0-9\.]+)(?:\.min)?\.js', html, re.I)
+        if jq_m:
+            techs.append(("jQuery", jq_m.group(1)))
+        elif re.search(r'jquery(?:\.min)?\.js', html, re.I):
+            techs.append(("jQuery", None))
+
+        # Bootstrap with version detection
+        bs_m = re.search(r'bootstrap[-.]([0-9\.]+)(?:\.min)?\.(?:js|css)', html, re.I)
+        if bs_m:
+            techs.append(("Bootstrap", bs_m.group(1)))
+        elif re.search(r'bootstrap(?:\.min)?\.(?:js|css)', html, re.I):
+            techs.append(("Bootstrap", None))
+
+        # Tailwind CSS
+        if re.search(r'tailwind(?:\.min)?\.css|cdn\.tailwindcss\.com', html, re.I):
+            techs.append(("Tailwind CSS", None))
+
+        # Font Awesome
+        if re.search(r'fontawesome|font-awesome', html, re.I):
+            techs.append(("Font Awesome", None))
+
+        # 4. CMS & Platform patterns in HTML
+        # WordPress
+        wp_ver_m = re.search(r'wp-content/.*?ver=([0-9\.]+)', html, re.I)
+        if re.search(r'/wp-content/|/wp-includes/|wp-json', html, re.I):
+            techs.append(("WordPress", wp_ver_m.group(1) if wp_ver_m else None))
+
+        # Drupal
+        if re.search(r'/sites/default/files/|drupalSettings|drupal\.js', html, re.I):
+            techs.append(("Drupal", None))
+
+        # Joomla
+        if re.search(r'/media/jui/|/media/system/js/core\.js|option=com_content', html, re.I):
+            techs.append(("Joomla", None))
+
+        # Shopify
+        if re.search(r'cdn\.shopify\.com|Shopify\.theme|shopify-features', html, re.I):
+            techs.append(("Shopify", None))
+
+        # Webflow
+        if re.search(r'assets\.website-files\.com|data-wf-page|data-wf-site', html, re.I):
+            techs.append(("Webflow", None))
+
+        # Wix
+        if re.search(r'static\.parastorage\.com|wix\.com', html, re.I):
+            techs.append(("Wix", None))
+
+        # Squarespace
+        if re.search(r'static1\.squarespace\.com|squarespace\.com', html, re.I):
+            techs.append(("Squarespace", None))
+
+        # 5. Tracking & Marketing SDKs
+        if re.search(r'googletagmanager\.com/gtm\.js', html, re.I):
+            techs.append(("Google Tag Manager", None))
+        if re.search(r'google-analytics\.com/analytics\.js|googletagmanager\.com/gtag/js', html, re.I):
+            techs.append(("Google Analytics", None))
+        if re.search(r'static\.hotjar\.com|hotjar\.com', html, re.I):
+            techs.append(("Hotjar", None))
+        if re.search(r'widget\.intercom\.io|intercomSettings', html, re.I):
+            techs.append(("Intercom", None))
+        if re.search(r'browser\.sentry-cdn\.com|sentry\.io', html, re.I):
+            techs.append(("Sentry", None))
+        if re.search(r'rocket-loader\.min\.js', html, re.I):
+            techs.append(("Cloudflare", None))
+
+        return techs
+
+    async def probe_favicon(self, base_url: str, html: str = "") -> dict:
+        """
+        Probe /favicon.ico or <link rel="icon">, compute MurmurHash3 and MD5 hashes,
+        and match against known framework signatures.
+        Returns dict with mmh3, md5, framework (if matched), and url.
+        """
+        favicon_urls = []
+
+        # 1. Parse HTML for <link rel="icon" ...>
+        if html:
+            for match in re.finditer(r'<link[^>]+rel=["\'](?:shortcut )?icon["\'][^>]+href=["\']([^"\']+)["\']', html, re.I):
+                href = match.group(1).strip()
+                if href:
+                    favicon_urls.append(urllib.parse.urljoin(base_url, href))
+            for match in re.finditer(r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\'](?:shortcut )?icon["\']', html, re.I):
+                href = match.group(1).strip()
+                if href and urllib.parse.urljoin(base_url, href) not in favicon_urls:
+                    favicon_urls.append(urllib.parse.urljoin(base_url, href))
+
+        # Default fallback
+        parsed_base = urllib.parse.urlparse(base_url)
+        root_favicon = f"{parsed_base.scheme}://{parsed_base.netloc}/favicon.ico"
+        if root_favicon not in favicon_urls:
+            favicon_urls.append(root_favicon)
+
+        favicon_bytes = None
+        final_url = None
+
+        if httpx is not None:
+            for f_url in favicon_urls[:3]:
+                try:
+                    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=httpx.Timeout(8.0, connect=4.0), headers={"User-Agent": self.user_agent}) as client:
+                        resp = await client.get(f_url)
+                        if resp.status_code == 200 and resp.content and len(resp.content) > 20:
+                            ct = resp.headers.get("content-type", "").lower()
+                            if "html" not in ct:
+                                favicon_bytes = resp.content
+                                final_url = str(resp.url)
+                                break
+                except Exception as e:
+                    logger.debug(f"Direct httpx favicon probe failed for {f_url}: {e}")
+
+        # Fallback to curl if httpx failed or not installed
+        if not favicon_bytes and favicon_urls:
+            try:
+                target_furl = favicon_urls[0]
+                cmd = ["curl", "-sL", "-k", "-m", "8", "--max-redirs", "3", "-A", self.user_agent, target_furl]
+                stdout, _ = await self.run_command(cmd, timeout=10)
+                if stdout and len(stdout.encode('latin1')) > 20:
+                    raw_b = stdout.encode('latin1')
+                    if b"<html" not in raw_b.lower() and b"<!doctype" not in raw_b.lower():
+                        favicon_bytes = raw_b
+                        final_url = target_furl
+            except Exception as ce:
+                logger.debug(f"Direct curl favicon probe failed: {ce}")
+
+        if not favicon_bytes:
+            return {}
+
+        md5_hash = hashlib.md5(favicon_bytes).hexdigest()
+        sha256_hash = hashlib.sha256(favicon_bytes).hexdigest()
+
+        # Pure-Python MurmurHash3 on base64 bytes
+        shodan_hash = None
+        try:
+            b64_encoded = codecs.encode(favicon_bytes, 'base64')
+            shodan_hash = mmh3_hash32(b64_encoded)
+        except Exception as he:
+            logger.debug(f"Error computing favicon MMH3: {he}")
+
+        matched_framework = FAVICON_FRAMEWORKS.get(shodan_hash) or FAVICON_MD5_FRAMEWORKS.get(md5_hash)
+
+        return {
+            "url": final_url or favicon_urls[0],
+            "mmh3": shodan_hash,
+            "md5": md5_hash,
+            "sha256": sha256_hash,
+            "size": len(favicon_bytes),
+            "framework": matched_framework
+        }
 
     def extract_security_headers(self, raw_headers):
         """Parse raw headers from httpx output to find security headers."""
@@ -1360,10 +1942,12 @@ class TechFingerprinterAgent(BaseAgent):
             url = f"{protocol}://{target}:{port}"
 
         try:
+            # Step 1: Execute Direct Resilient Probe (retrieves headers, status, HTML body & title)
+            direct_data = await self.direct_probe(url)
             httpx_data = await self.run_httpx(url)
             whatweb_data = await self.run_whatweb(url)
 
-            if not httpx_data and not whatweb_data:
+            if not httpx_data and not whatweb_data and not direct_data.get("status_code"):
                 logger.warning(f"No fingerprint data obtained for {url}")
                 await self.tasks_col.update_one(
                     {"_id": task["_id"]},
@@ -1372,21 +1956,26 @@ class TechFingerprinterAgent(BaseAgent):
                 await self.check_completion(root_domain)
                 return
 
+            # Consolidate raw headers and status code across all engines
+            raw_headers = dict(direct_data.get("headers", {}))
+            status_code = direct_data.get("status_code") or 200
+            title = direct_data.get("title", "")
+            server_banner = raw_headers.get("server") or raw_headers.get("Server") or None
+
             # Extract data from httpx
             httpx_tech = []
-            server_banner = None
-            security_headers = {}
-            title = ""
-            status_code = 200
-            raw_headers = {}
-
             if httpx_data:
                 httpx_tech = httpx_data.get("tech", [])
-                server_banner = httpx_data.get("webserver") or httpx_data.get("server")
-                raw_headers = httpx_data.get("headers", {})
-                security_headers = self.extract_security_headers(raw_headers)
-                title = httpx_data.get("title", "")
-                status_code = httpx_data.get("status_code", 200)
+                if httpx_data.get("webserver") or httpx_data.get("server"):
+                    server_banner = httpx_data.get("webserver") or httpx_data.get("server")
+                if httpx_data.get("headers"):
+                    raw_headers.update(httpx_data["headers"])
+                if httpx_data.get("title"):
+                    title = httpx_data["title"]
+                if httpx_data.get("status_code"):
+                    status_code = httpx_data["status_code"]
+
+            security_headers = self.extract_security_headers(raw_headers)
 
             # Extract data from whatweb
             whatweb_tech_tuples = []
@@ -1410,8 +1999,33 @@ class TechFingerprinterAgent(BaseAgent):
                     server_banner = plugins["HTTPServer"]["string"][0]
 
                 for p_name, p_info in plugins.items():
-                    if p_name.lower() in IGNORE_PLUGINS:
+                    p_name_lower = p_name.lower()
+                    # Capture high-value generator and runtime plugins before IGNORE_PLUGINS filter
+                    if p_name_lower in ("metagenerator", "generator"):
+                        if isinstance(p_info, dict) and p_info.get("string"):
+                            for g_str in p_info["string"]:
+                                base_k, disp, ver = parse_tech_entry(g_str)
+                                if disp:
+                                    whatweb_tech_tuples.append((disp, ver))
                         continue
+                    if p_name_lower == "x-powered-by":
+                        if isinstance(p_info, dict) and p_info.get("string"):
+                            for pb_str in p_info["string"]:
+                                base_k, disp, ver = parse_tech_entry(pb_str)
+                                if disp:
+                                    whatweb_tech_tuples.append((disp, ver))
+                        continue
+                    if p_name_lower == "httpserver":
+                        if isinstance(p_info, dict) and p_info.get("string"):
+                            for s_str in p_info["string"]:
+                                base_k, disp, ver = parse_tech_entry(s_str)
+                                if disp:
+                                    whatweb_tech_tuples.append((disp, ver))
+                        continue
+
+                    if p_name_lower in IGNORE_PLUGINS:
+                        continue
+
                     ver = None
                     if isinstance(p_info, dict):
                         if p_info.get("version") and len(p_info["version"]) > 0:
@@ -1423,11 +2037,19 @@ class TechFingerprinterAgent(BaseAgent):
                                 ver = match.group(1)
                     whatweb_tech_tuples.append((p_name, ver))
 
-            # Run cookie security & framework identification audit (Enhancement #2)
+            # Step 2: Native Deep Fingerprinting (Headers + HTML DOM + Scripts + Hydration)
+            header_techs = self.fingerprint_headers(raw_headers)
+            html_techs = self.fingerprint_html(direct_data.get("body", ""), raw_headers)
+
+            # Step 3: Favicon Hash Probing & Known Framework Matching
+            favicon_data = await self.probe_favicon(url, direct_data.get("body", ""))
+            favicon_techs = [(favicon_data["framework"], None)] if favicon_data.get("framework") else []
+
+            # Step 4: Cookie security & framework identification audit
             cookie_audit = await self.audit_cookies(url, raw_headers=raw_headers, whatweb_plugins=whatweb_plugins_data)
             cookie_frameworks = cookie_audit.get("framework_hints", [])
 
-            # Run HTTP/2 & HTTP/3 (QUIC) protocol audit (Enhancement #3)
+            # Step 5: HTTP/2 & HTTP/3 (QUIC) protocol audit
             protocol_support = await self.audit_protocol_support(url, raw_headers=raw_headers)
 
             # Check for configured NIST NVD API key in settings or environment
@@ -1450,11 +2072,14 @@ class TechFingerprinterAgent(BaseAgent):
                     if app.get("target") == target:
                         old_tech = app.get("tech_stack", [])
                         
-                        # Merge and deduplicate across all sources including cookie framework hints
+                        # Merge and deduplicate across all discovery engines
                         tech_stack = merge_and_deduplicate_tech(
                             old_tech,
                             httpx_tech,
                             whatweb_tech_tuples,
+                            header_techs,
+                            html_techs,
+                            favicon_techs,
                             [server_banner] if server_banner else [],
                             cookie_frameworks
                         )
@@ -1486,13 +2111,13 @@ class TechFingerprinterAgent(BaseAgent):
                             await self.create_header_alert(root_domain, target, old_headers, security_headers, url)
                             app["security_headers"] = security_headers
 
-                        # Correlate vulnerabilities & fire alerts (Enhancement #1)
+                        # Correlate vulnerabilities & fire alerts
                         vulns = await self.correlate_vulnerabilities(tech_stack, nvd_api_key=nvd_api_key)
                         for vuln in vulns:
                             if vuln.get("severity") in ("critical", "high"):
                                 await self.create_vulnerability_alert(target, vuln, url)
 
-                        # Fire cookie alerts if insecure session cookies exist (Enhancement #2)
+                        # Fire cookie alerts if insecure session cookies exist
                         insecure_cookies = cookie_audit.get("insecure_session_cookies", [])
                         if insecure_cookies:
                             await self.create_cookie_alert(target, insecure_cookies, url)
@@ -1510,6 +2135,13 @@ class TechFingerprinterAgent(BaseAgent):
                                 "status": whatweb_status,
                                 "plugins": whatweb_plugins_data
                             }
+                        if favicon_data:
+                            existing_fav = app.get("favicon", {})
+                            if isinstance(existing_fav, dict):
+                                existing_fav.update(favicon_data)
+                                app["favicon"] = existing_fav
+                            else:
+                                app["favicon"] = favicon_data
                         app["vulnerabilities"] = vulns
                         app["cookie_audit"] = cookie_audit
                         app["protocol_support"] = protocol_support
@@ -1537,6 +2169,9 @@ class TechFingerprinterAgent(BaseAgent):
                     tech_stack = merge_and_deduplicate_tech(
                         httpx_tech,
                         whatweb_tech_tuples,
+                        header_techs,
+                        html_techs,
+                        favicon_techs,
                         [server_banner] if server_banner else [],
                         cookie_frameworks
                     )
@@ -1557,6 +2192,7 @@ class TechFingerprinterAgent(BaseAgent):
                         "title": title,
                         "status": status_code,
                         "server": server_banner or "",
+                        "favicon": favicon_data or {},
                         "sensitive_files": [],
                         "vulnerabilities": vulns,
                         "cookie_audit": cookie_audit,

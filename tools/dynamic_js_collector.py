@@ -2557,6 +2557,18 @@ class DynamicJsCollectorAgent(BaseAgent):
                 {"domain": root_domain, "web_applications.target": target},
                 {"$set": webapp_set}
             )
+            # Extract any client-side frameworks and CMS signatures discovered dynamically
+            discovered_frameworks = set()
+            for hyd in all_hydration_payloads:
+                fw = hyd.get("framework")
+                if fw:
+                    discovered_frameworks.add(fw)
+            for m in final_meta_tags:
+                if (m.get("name") or "").lower() == "generator" and m.get("content"):
+                    gen_val = m["content"].strip()
+                    if gen_val and len(gen_val) < 60:
+                        discovered_frameworks.add(gen_val)
+
             if res.matched_count == 0:
                 # If target was not found by exact web_applications.target, try by URL hostname
                 res2 = await self.domains_col.update_one(
@@ -2568,6 +2580,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                     new_app = {
                         "target": target,
                         "url": target_url,
+                        "tech_stack": list(discovered_frameworks),
                         "dynamic_js": recon_summary,
                         "comments": final_comments,
                         "comments_count": len(final_comments),
@@ -2604,10 +2617,14 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "meta_tags": final_meta_tags,
                         "meta_tags_count": len(final_meta_tags),
                         "interesting_meta_tags_count": interesting_meta_count,
-                        "infrastructure.dynamic_js.hydration_payloads": all_hydration_payloads,
-                        "infrastructure.dynamic_js.client_routes": unique_client_routes,
-                        "infrastructure.dynamic_js.trackers": unique_trackers,
                     }}
+                )
+
+            # Enrich web_application tech_stack with newly discovered frameworks
+            if discovered_frameworks:
+                await self.domains_col.update_one(
+                    {"domain": root_domain, "web_applications.target": target},
+                    {"$addToSet": {"web_applications.$.tech_stack": {"$each": list(discovered_frameworks)}}}
                 )
 
             # Store any discovered API specs and GraphQL endpoints at the domain level for fast querying

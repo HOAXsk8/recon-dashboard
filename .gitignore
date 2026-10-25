@@ -59,3 +59,7 @@ tools/scanners/C_port_scanner
 ehthumbs.db
 Thumbs.db
 
+# Security reports — keep off GitHub
+vulnerabilities.md
+remediations.md
+

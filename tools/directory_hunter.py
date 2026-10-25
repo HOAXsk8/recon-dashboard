@@ -15,6 +15,111 @@ try:
     import mmh3
 except ImportError:
     mmh3 = None
+
+def mmh3_hash32(key: bytes, seed: int = 0) -> int:
+    """Pure-Python implementation of MurmurHash3 32-bit (x86). Matches Shodan http.favicon.hash standard."""
+    length = len(key)
+    nblocks = length // 4
+    h1 = seed
+    c1 = 0xcc9e2d51
+    c2 = 0x1b873593
+
+    for i in range(nblocks):
+        k1 = int.from_bytes(key[i*4 : (i+1)*4], byteorder='little')
+        k1 = (k1 * c1) & 0xffffffff
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xffffffff
+        k1 = (k1 * c2) & 0xffffffff
+
+        h1 ^= k1
+        h1 = ((h1 << 13) | (h1 >> 19)) & 0xffffffff
+        h1 = (h1 * 5 + 0xe6546b64) & 0xffffffff
+
+    tail = key[nblocks * 4:]
+    k1 = 0
+    tail_len = len(tail)
+    if tail_len == 3:
+        k1 ^= tail[2] << 16
+    if tail_len >= 2:
+        k1 ^= tail[1] << 8
+    if tail_len >= 1:
+        k1 ^= tail[0]
+        k1 = (k1 * c1) & 0xffffffff
+        k1 = ((k1 << 15) | (k1 >> 17)) & 0xffffffff
+        k1 = (k1 * c2) & 0xffffffff
+        h1 ^= k1
+
+    h1 ^= length
+    h1 ^= (h1 >> 16)
+    h1 = (h1 * 0x85ebca6b) & 0xffffffff
+    h1 ^= (h1 >> 13)
+    h1 = (h1 * 0xc2b2ae35) & 0xffffffff
+    h1 ^= (h1 >> 16)
+
+    if h1 >= 0x80000000:
+        h1 -= 0x100000000
+    return h1
+
+FAVICON_FRAMEWORKS = {
+    116323821: "Spring Boot",
+    0: "Spring Boot",
+    81586312: "Jenkins",
+    942082276: "Jira",
+    -942082276: "Jira",
+    -305179312: "Confluence",
+    -2053896777: "Django",
+    1583491410: "WordPress",
+    -1444555869: "WordPress",
+    611598424: "WordPress",
+    1278323681: "GitLab",
+    -821946395: "Grafana",
+    -159868778: "Kibana",
+    1231872951: "phpMyAdmin",
+    -1343825835: "Apache Tomcat",
+    -125026938: "Vue.js",
+    539070856: "React",
+    -190379963: "React",
+    -1812328221: "Next.js",
+    827727986: "Laravel",
+    -134704386: "Laravel",
+    -1308960810: "Ruby on Rails",
+    -1205602330: "Flask",
+    -1250860824: "Express",
+    -1049788196: "Strapi",
+    -1107567735: "Directus",
+    -1473111077: "Keycloak",
+    -1875154378: "cPanel",
+    -1981143896: "Plesk",
+    -1488032435: "Apache Superset",
+    -1065135167: "Sonarqube",
+    -188241517: "RabbitMQ",
+    143329046: "Swagger UI",
+    -34674003: "Consul",
+    1398055326: "Zabbix",
+    644781744: "Roundcube",
+    -1698260799: "OwnCloud",
+    -1111629853: "Nextcloud",
+    1466099395: "Drupal",
+    -1042788506: "Joomla",
+    -1520138950: "Ghost",
+    -2041285408: "Shopify",
+}
+
+FAVICON_MD5_FRAMEWORKS = {
+    "0488faca4c3fb063a4504a18fa764698": "Spring Boot",
+    "28f51142940251765c9296bc7520e5db": "Jenkins",
+    "f46e297858bf43cbe665e7d2cf2e411b": "WordPress",
+    "709dcf348698044700d23fb275811d7f": "Django",
+    "e485459344407ab6b64f33d7d740c025": "GitLab",
+    "98b46574c866f82794eb8e3efb69204c": "Grafana",
+    "858d247f12eb60b64f52e505cc7eeefb": "Jira",
+    "074b6aa6b231eb93a89a05cb3d9bb205": "phpMyAdmin",
+    "5d70e671754020a5976b7e64177db0a2": "Apache Tomcat",
+    "2f4469e36502da28562725faeb2074e5": "Laravel",
+    "600282b8a6fcf7c7c1fa79c6bb1cb6d2": "Next.js",
+    "bb635560b4fb8a6669910d5f8ceb0981": "Vue.js",
+    "5c75ff3bb4e44439c2c62c95d2c20638": "React",
+}
+
 from base_agent import BaseAgent, logger
 
 DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
@@ -543,6 +648,14 @@ class DirectoryHunterAgent(BaseAgent):
                 shodan_hash = int(mmh3.hash(b64_encoded))
             except Exception as e:
                 logger.error(f"MurmurHash3 computation error: {e}")
+        if shodan_hash is None:
+            try:
+                b64_encoded = codecs.encode(favicon_bytes, 'base64')
+                shodan_hash = mmh3_hash32(b64_encoded)
+            except Exception as e:
+                logger.error(f"Fallback MurmurHash3 computation error: {e}")
+
+        matched_framework = FAVICON_FRAMEWORKS.get(shodan_hash) or FAVICON_MD5_FRAMEWORKS.get(md5_hash)
 
         shodan_query = f"http.favicon.hash:{shodan_hash}" if shodan_hash is not None else None
         censys_query = f'services.http.response.favicons.md5_hash:"{md5_hash}"'
@@ -555,6 +668,7 @@ class DirectoryHunterAgent(BaseAgent):
             "sha256": sha256_hash,
             "size": len(favicon_bytes),
             "content_type": content_type,
+            "framework": matched_framework,
             "shodan_query": shodan_query,
             "censys_query": censys_query,
             "zoomeye_query": zoomeye_query
@@ -588,8 +702,12 @@ class DirectoryHunterAgent(BaseAgent):
                 f"MurmurHash3 (Shodan): {shodan_hash}\n"
                 f"MD5 Hash: {md5_hash}\n"
                 f"SHA256 Hash: {sha256_hash}\n"
-                f"Size: {len(favicon_bytes)} bytes\n\n"
-                f"Search Engine Pivot Queries:\n"
+                f"Size: {len(favicon_bytes)} bytes\n"
+            )
+            if matched_framework:
+                details += f"Identified Framework: **{matched_framework}**\n"
+            details += (
+                f"\nSearch Engine Pivot Queries:\n"
                 f"- Shodan Query: `{shodan_query}`\n"
                 f"- Censys Query: `{censys_query}`\n"
                 f"- ZoomEye Query: `{zoomeye_query}`"
@@ -603,6 +721,8 @@ class DirectoryHunterAgent(BaseAgent):
                     f"Favicon search on Shodan uncovered {total_shodan} Internet-facing host(s) sharing this hash. "
                     f"Sample IPs: {ips_sample}"
                 )
+                if matched_framework:
+                    description += f" [Identified: {matched_framework}]"
                 risk_level = "high" if len(shodan_live["ips"]) > 0 else "medium"
 
                 shodan_section = (
@@ -624,10 +744,10 @@ class DirectoryHunterAgent(BaseAgent):
                     f"3. **Shodan Pivot**: View full query results at [http.favicon.hash:{shodan_hash}](https://www.shodan.io/search?query=http.favicon.hash:{shodan_hash})."
                 )
             else:
-                title = f"Favicon Asset Fingerprint: {hash_display}"
+                title = f"Favicon Framework Match: {matched_framework}" if matched_framework else f"Favicon Asset Fingerprint: {hash_display}"
                 description = (
-                    f"Favicon asset fingerprinted on {target} ({len(favicon_bytes)}B). "
-                    f"Shodan: {shodan_query or 'N/A'}, Censys MD5: {md5_hash}"
+                    f"Favicon identified as {matched_framework} on {target} ({len(favicon_bytes)}B). MMH3: {shodan_hash}" if matched_framework else
+                    f"Favicon asset fingerprinted on {target} ({len(favicon_bytes)}B). Shodan: {shodan_query or 'N/A'}, Censys MD5: {md5_hash}"
                 )
                 risk_level = "low"
                 exploitation = (
@@ -651,7 +771,7 @@ class DirectoryHunterAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"Error creating favicon alert: {e}")
 
-        logger.info(f"Favicon fingerprinted on {target}: Shodan MMH3={shodan_hash}, MD5={md5_hash}")
+        logger.info(f"Favicon fingerprinted on {target}: Shodan MMH3={shodan_hash}, MD5={md5_hash}, Framework={matched_framework}")
         return favicon_info
 
     async def query_shodan_favicon_hash(self, shodan_hash: int, api_key: str) -> dict:
@@ -1484,6 +1604,10 @@ class DirectoryHunterAgent(BaseAgent):
                     "length": favicon_data.get("size", 0),
                     "source": "favicon"
                 })
+            if favicon_data and favicon_data.get("framework"):
+                fw = favicon_data["framework"]
+                if fw not in target_tech:
+                    target_tech.append(fw)
 
             well_known_data = await self.harvest_well_known_profiles(url, target, root_domain)
             if well_known_data:
