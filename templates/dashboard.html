@@ -1169,15 +1169,18 @@
         `;
     }
 
-    function renderClientRouterDrawer(djs) {
-        if (!djs) return '';
-        const routes = djs.client_routes || [];
+    function renderClientRouterDrawer(djs, app) {
+        if (!djs && !app) return '';
+        const routes = (djs && djs.client_routes && djs.client_routes.length > 0) 
+            ? djs.client_routes 
+            : (app?.client_routes || app?.routes || []);
         if (routes.length === 0) return '';
 
-        const privCount = routes.filter(r => r.is_privileged).length;
+        const privCount = routes.filter(r => (typeof r === 'object' ? r.is_privileged : /admin|billing|settings|auth|root|security|manage/i.test(r))).length;
+        const targetHost = (app?.target || djs?.target_url || '').replace(/[^a-zA-Z0-9_-]/g, '_');
 
         return `
-            <details class="recon-sub-panel rounded-xl !border-amber-500/30 p-3 group">
+            <details id="client-routes-drawer-${targetHost}" class="recon-sub-panel rounded-xl !border-amber-500/30 p-3 group" ${privCount > 0 ? 'open' : ''}>
                 <summary class="cursor-pointer text-[11px] font-bold uppercase text-slate-700 dark:text-slate-400 flex items-center justify-between select-none">
                     <span class="flex items-center gap-2">
                         <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1192,22 +1195,29 @@
                 <div class="mt-3 space-y-2 font-mono text-[11px]">
                     <div class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                         ${routes.map(r => {
-                            let catBadge = 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800';
-                            if (r.category?.includes('Admin')) catBadge = 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/30 font-bold';
-                            else if (r.category?.includes('Billing')) catBadge = 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30 font-bold';
-                            else if (r.category?.includes('Settings')) catBadge = 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/30 font-bold';
-                            else if (r.category?.includes('Auth')) catBadge = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30';
+                            const isObj = (typeof r === 'object' && r !== null);
+                            const rPath = isObj ? (r.path || r.url || '') : String(r);
+                            const rCat = isObj ? (r.category || 'Route') : 'Route';
+                            const isPriv = isObj ? Boolean(r.is_privileged) : /admin|billing|settings|auth|root|security|manage/i.test(rPath);
 
-                            const srcName = r.source_script ? r.source_script.split('/').pop().split('?')[0] : '';
+                            let catBadge = 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800';
+                            if (rCat?.includes('Admin') || rPath.includes('/admin') || rPath.includes('/root')) catBadge = 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/30 font-bold';
+                            else if (rCat?.includes('Billing') || rPath.includes('/billing') || rPath.includes('/payment')) catBadge = 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30 font-bold';
+                            else if (rCat?.includes('Settings') || rPath.includes('/settings') || rPath.includes('/preferences')) catBadge = 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/30 font-bold';
+                            else if (rCat?.includes('Auth') || rPath.includes('/login') || rPath.includes('/oauth')) catBadge = 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30';
+
+                            const srcScript = isObj ? (r.source_script || '') : '';
+                            const srcName = srcScript ? srcScript.split('/').pop().split('?')[0] : '';
+                            const safePath = encodeURIComponent(rPath);
 
                             return `
                                 <div class="recon-sub-item flex items-center justify-between p-2 rounded gap-2">
                                     <div class="flex items-center gap-2 min-w-0 flex-1">
-                                        <span class="px-1.5 py-0.5 rounded text-[9px] uppercase border ${catBadge} shrink-0">${r.category || 'Route'}</span>
-                                        <span class="font-bold text-slate-900 dark:text-slate-100 truncate">${r.path}</span>
-                                        ${srcName ? `<span class="text-[10px] text-slate-500 truncate" title="${r.source_script}">(${srcName})</span>` : ''}
+                                        <span class="px-1.5 py-0.5 rounded text-[9px] uppercase border ${catBadge} shrink-0">${rCat}</span>
+                                        <span class="font-bold text-slate-900 dark:text-slate-100 truncate">${rPath}</span>
+                                        ${srcName ? `<span class="text-[10px] text-slate-500 truncate" title="${srcScript}">(${srcName})</span>` : ''}
                                     </div>
-                                    <button onclick="navigator.clipboard.writeText('${r.path}'); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 1500);" class="text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2 py-0.5 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded border border-slate-200 dark:border-slate-800 shrink-0 transition-colors">Copy</button>
+                                    <button onclick="navigator.clipboard.writeText(decodeURIComponent('${safePath}')); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 1500);" class="text-[10px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-2 py-0.5 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 rounded border border-slate-200 dark:border-slate-800 shrink-0 transition-colors">Copy</button>
                                 </div>
                             `;
                         }).join('')}
@@ -2820,6 +2830,18 @@
                                                     </span>` : ''}
                                                 `;
                                             })()}
+                                            ${(() => {
+                                                const rList = app.client_routes || app.dynamic_js?.client_routes || app.routes || [];
+                                                const rc = app.client_routes_count || rList.length;
+                                                if (!rc) return '';
+                                                return `<span class="text-[10px] text-amber-500 dark:text-amber-400 font-bold flex items-center space-x-0.5" title="${rc} Client SPA Routes discovered from JS"><span>🛣️ ${rc}</span></span> `;
+                                            })()}
+                                            ${(() => {
+                                                const epList = app.extracted_endpoints || app.dynamic_js?.extracted_endpoints || [];
+                                                const epc = app.endpoints_count || epList.length;
+                                                if (!epc) return '';
+                                                return `<span class="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold flex items-center space-x-0.5" title="${epc} API Endpoints discovered from JS"><span>⚡ ${epc}</span></span> `;
+                                            })()}
                                             ${appSubArch.total_urls > 0 ? `
                                                 <span class="text-[10px] text-amber-400 font-bold flex items-center space-x-1 cursor-pointer hover:underline" onclick="event.stopPropagation(); switchArchiveSubdomain('${app.target}'); setTimeout(() => document.getElementById('passive-archives-section')?.scrollIntoView({behavior: 'smooth'}), 50);" title="Click to view ${appSubArch.total_urls} historical archive URLs for ${app.target}">
                                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -2895,6 +2917,8 @@
                                 }
                             }
 
+                            const safeTargetHost = (app.target || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+
                             return `
                             <div class="bg-white dark:bg-tech-bg p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
                                 <div class="flex flex-col md:flex-row gap-6 items-start pb-6 mb-6 border-b border-slate-200 dark:border-slate-800">
@@ -2941,6 +2965,27 @@
                                                         <span>🔒 ${secFiles.length} Security</span>
                                                     </span>
                                                 ` : ''}
+                                                ${(() => {
+                                                    const rList = app.client_routes || app.dynamic_js?.client_routes || app.routes || [];
+                                                    const rc = app.client_routes_count || rList.length;
+                                                    if (!rc) return '';
+                                                    const privCount = rList.filter(r => (typeof r === 'object' ? r.is_privileged : /admin|billing|settings|auth|root|security|manage/i.test(r))).length;
+                                                    return `
+                                                        <span class="px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1 cursor-pointer hover:bg-amber-500/20 transition-colors" onclick="document.getElementById('client-routes-drawer-${safeTargetHost}')?.setAttribute('open', ''); document.getElementById('client-routes-drawer-${safeTargetHost}')?.scrollIntoView({behavior: 'smooth'})" title="${rc} Client SPA Routes discovered from JavaScript (${privCount} privileged)">
+                                                            <span>🛣️ ${rc} Routes${privCount > 0 ? ` (${privCount} Privileged)` : ''}</span>
+                                                        </span>
+                                                    `;
+                                                })()}
+                                                ${(() => {
+                                                    const epList = app.extracted_endpoints || app.dynamic_js?.extracted_endpoints || [];
+                                                    const epc = app.endpoints_count || epList.length;
+                                                    if (!epc) return '';
+                                                    return `
+                                                        <span class="px-2 py-0.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1 cursor-pointer hover:bg-indigo-500/20 transition-colors" onclick="document.getElementById('api-endpoints-drawer-${safeTargetHost}')?.setAttribute('open', ''); document.getElementById('api-endpoints-drawer-${safeTargetHost}')?.scrollIntoView({behavior: 'smooth'})" title="${epc} API Endpoints discovered from JavaScript">
+                                                            <span>⚡ ${epc} Endpoints</span>
+                                                        </span>
+                                                    `;
+                                                })()}
                                                 ${app.favicon && app.favicon.framework ? `
                                                     <span class="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-mono font-bold flex items-center space-x-1" title="Favicon Identified Framework: ${app.favicon.framework}">
                                                         <span>🎯 ${app.favicon.framework}</span>
@@ -3239,10 +3284,10 @@
                                 <!-- Dynamic JS Recon Findings for this Web App -->
                                 ${(() => {
                                     // Findings must strictly belong to THIS web application / subdomain
-                                    let djs = app.dynamic_js;
+                                    let djs = app.dynamic_js ? { ...app.dynamic_js } : null;
 
                                     // Strict fallback: ONLY match if infrastructure.dynamic_js explicitly targets this specific host
-                                    if (!djs && data.infrastructure?.dynamic_js?.scanned_at && data.infrastructure.dynamic_js.target_url) {
+                                    if ((!djs || !djs.scanned_at) && data.infrastructure?.dynamic_js?.scanned_at && data.infrastructure.dynamic_js.target_url) {
                                         try {
                                             const infraDjs = data.infrastructure.dynamic_js;
                                             const djsHost = new URL(infraDjs.target_url.startsWith('http') ? infraDjs.target_url : `https://${infraDjs.target_url}`).hostname.toLowerCase().trim();
@@ -3255,12 +3300,32 @@
                                             }
                                             // Exact hostname match only - never match across different subdomains or root domain
                                             if (djsHost && (djsHost === appHost || (appUrlHost && djsHost === appUrlHost))) {
-                                                djs = infraDjs;
+                                                djs = { ...infraDjs, ...(djs || {}) };
                                             }
                                         } catch(e) {}
                                     }
 
-                                    if (!djs || !djs.scanned_at) return '';
+                                    // If still null, check if app itself has routes or endpoints or dynamic_js fields
+                                    if (!djs && (app.client_routes?.length || app.routes?.length || app.extracted_endpoints?.length)) {
+                                        djs = {};
+                                    }
+
+                                    if (djs) {
+                                        if (!djs.client_routes && (app.client_routes || app.routes)) {
+                                            djs.client_routes = app.client_routes || app.routes;
+                                        }
+                                        if (!djs.client_routes_count && (app.client_routes_count || djs.client_routes?.length)) {
+                                            djs.client_routes_count = app.client_routes_count || djs.client_routes?.length;
+                                        }
+                                        if (!djs.extracted_endpoints && app.extracted_endpoints) {
+                                            djs.extracted_endpoints = app.extracted_endpoints;
+                                        }
+                                        if (!djs.scanned_at) {
+                                            djs.scanned_at = app.js_scanned_at || app.scanned_at || (djs.client_routes?.length || djs.extracted_endpoints?.length ? new Date().toISOString() : null);
+                                        }
+                                    }
+
+                                    if (!djs || (!djs.scanned_at && !djs.client_routes?.length && !djs.extracted_endpoints?.length)) return '';
                                     return `
                                         <div class="mt-8 border-t border-slate-200 dark:border-slate-800/80 pt-6">
                                             <div class="flex flex-wrap items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-800 pb-2 gap-2">
@@ -3313,7 +3378,7 @@
 
                                                 ${renderSecretsDrawer(djs)}
                                                 ${renderHydrationStateDrawer(djs)}
-                                                ${renderClientRouterDrawer(djs)}
+                                                ${renderClientRouterDrawer(djs, app)}
                                                 ${renderTrackersDrawer(djs)}
 
                                                 ${djs.scripts?.length ? `
@@ -3365,7 +3430,7 @@
                                                 ` : ''}
 
                                                 ${djs.extracted_endpoints?.length ? `
-                                                    <details class="recon-sub-panel rounded-xl p-3 group">
+                                                    <details id="api-endpoints-drawer-${safeTargetHost}" class="recon-sub-panel rounded-xl p-3 group">
                                                         <summary class="cursor-pointer text-[11px] font-bold uppercase text-slate-700 dark:text-slate-400 flex items-center justify-between select-none">
                                                             <span class="flex items-center gap-2">
                                                                 <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -3945,7 +4010,7 @@
 
                                         ${renderSecretsDrawer(djs)}
                                         ${renderHydrationStateDrawer(djs)}
-                                        ${renderClientRouterDrawer(djs)}
+                                        ${renderClientRouterDrawer(djs, { target: data.domain })}
                                         ${renderTrackersDrawer(djs)}
 
                                         ${djs.scripts?.length ? `

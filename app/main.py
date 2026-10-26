@@ -1607,13 +1607,11 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
                 None
             )
     else:
-        # If looking at root domain, only show systems/webapps for the root domain itself
+        # If looking at root domain, only show systems for the root domain itself
         if domain_data.get("systems"):
             # Only show latest and previous scan results for the root domain
             root_systems = [s for s in domain_data["systems"] if s.get("target") == domain_name]
             domain_data["systems"] = list(reversed(root_systems))[:2]
-        if domain_data.get("web_applications"):
-            domain_data["web_applications"] = [w for w in domain_data["web_applications"] if w.get("target") == domain_name]
 
     # Ensure infrastructure and cloud_footprint are populated and properly scoped
     if "infrastructure" not in domain_data or not isinstance(domain_data["infrastructure"], dict):

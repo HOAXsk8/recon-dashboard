@@ -496,7 +496,8 @@ class BaseAgent:
             "fingerprint": fingerprint,
             "acknowledged": False,
             "response_size": int(response_size) if response_size is not None else 0,
-            "alert_type": alert_key
+            "alert_type": alert_key,
+            "root_domain": root_domain or (domain_doc.get("domain") if domain_doc else None)
         }
         if workspace_id:
             lead_doc["workspace_id"] = workspace_id

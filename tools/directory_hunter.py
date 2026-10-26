@@ -9,7 +9,7 @@ import codecs
 import hashlib
 import secrets
 import urllib.parse
-from collections import Counter
+from collections import Counter, deque
 import httpx
 try:
     import mmh3
@@ -122,11 +122,21 @@ FAVICON_MD5_FRAMEWORKS = {
 
 from base_agent import BaseAgent, logger
 
-DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
+DIR_WORDLIST = "/app/wordlists/common-directories.txt"
+FULL_DIR_WORDLIST = "/app/wordlists/DirBuster-2007_directory-list-2.3-small.txt"
 FILE_WORDLIST = "/app/wordlists/raft-small-files-lowercase.txt"
 
-LOCAL_DIR_WORDLIST = "wordlists/DirBuster-2007_directory-list-2.3-small.txt"
+LOCAL_DIR_WORDLIST = "wordlists/common-directories.txt"
+LOCAL_FULL_DIR_WORDLIST = "wordlists/DirBuster-2007_directory-list-2.3-small.txt"
 LOCAL_FILE_WORDLIST = "wordlists/raft-small-files-lowercase.txt"
+
+TECH_WORDLISTS = {
+    "php": ["/app/wordlists/php-files.txt", "wordlists/php-files.txt"],
+    "asp": ["/app/wordlists/asp-files.txt", "wordlists/asp-files.txt"],
+    "java": ["/app/wordlists/java-files.txt", "wordlists/java-files.txt"],
+    "node": ["/app/wordlists/node-files.txt", "wordlists/node-files.txt"],
+    "python": ["/app/wordlists/python-files.txt", "wordlists/python-files.txt"],
+}
 
 SECLISTS_DIRBUSTER_URL = "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt"
 SECLISTS_RAFT_FILES_URL = "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-small-files-lowercase.txt"
@@ -174,23 +184,27 @@ class DirectoryHunterAgent(BaseAgent):
         agent_name = f"Directory & File Hunter #{instance_id}" if instance_id else "Directory & File Hunter"
         super().__init__(agent_key, agent_name)
         self.alert_hashes_col = self.db["alert_hashes"]
+        self.probe_cache = {}
 
     def get_directory_wordlist(self) -> str:
         """
-        Locates the DirBuster-2007_directory-list-2.3-small.txt directory wordlist.
+        Locates the directory wordlist. Prioritizes the curated common-directories.txt,
+        falling back to DirBuster-2007_directory-list-2.3-small.txt.
         Auto-downloads from SecLists GitHub if missing.
         """
         for p in [
             DIR_WORDLIST,
-            "/app/wordlists/directory-list-2.3-small.txt",
             LOCAL_DIR_WORDLIST,
+            FULL_DIR_WORDLIST,
+            LOCAL_FULL_DIR_WORDLIST,
+            "/app/wordlists/directory-list-2.3-small.txt",
             "wordlists/directory-list-2.3-small.txt",
         ]:
             if os.path.exists(p):
                 return p
 
         # Attempt to auto-download if not present
-        target_dest = DIR_WORDLIST if os.path.exists("/app/wordlists") else LOCAL_DIR_WORDLIST
+        target_dest = FULL_DIR_WORDLIST if os.path.exists("/app/wordlists") else LOCAL_FULL_DIR_WORDLIST
         try:
             os.makedirs(os.path.dirname(target_dest), exist_ok=True)
             logger.info(f"Downloading DirBuster-2007_directory-list-2.3-small.txt from SecLists to {target_dest}...")
@@ -209,9 +223,9 @@ class DirectoryHunterAgent(BaseAgent):
         """
         for p in [
             FILE_WORDLIST,
+            LOCAL_FILE_WORDLIST,
             "/app/wordlists/raft-small-files.txt",
             "/app/wordlists/common-files.txt",
-            LOCAL_FILE_WORDLIST,
             "wordlists/raft-small-files.txt",
             "wordlists/common-files.txt",
         ]:
@@ -231,13 +245,317 @@ class DirectoryHunterAgent(BaseAgent):
             logger.warning(f"Failed to auto-download raft small files list from SecLists: {e}")
             return ""
 
-    def build_file_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None, include_raft: bool = True) -> str:
+    def get_tech_file_wordlist(self, tech_cat: str) -> list:
         """
-        Builds the file discovery wordlist for a directory combining:
-        1. Curated sensitive files (.env, .git/HEAD, secrets, backups, etc.)
-        2. Contextual directory-based filenames and technology-specific files
-        3. SecLists raft-small-files-lowercase.txt
-        Writes to a temporary file and returns the file path for ffuf.
+        Reads dedicated technology-specific file wordlists (e.g. PHP, ASP, Java, Node, Python).
+        """
+        candidates = TECH_WORDLISTS.get(tech_cat.lower(), [])
+        for p in candidates:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = [line.strip().lstrip("/") for line in f if line.strip() and not line.startswith("#")]
+                        if lines:
+                            return lines
+                except Exception as e:
+                    logger.debug(f"Error reading tech wordlist {p}: {e}")
+        return []
+
+    def identify_tech_from_file_path(self, path: str) -> list:
+        """
+        Analyzes a discovered file path and identifies any associated technologies.
+        Returns a list of technology names (e.g. ['PHP', 'WordPress'], ['ASP.NET', 'IIS'], ['Java', 'Spring Boot']).
+        """
+        p_lower = path.lower().strip()
+        techs = []
+
+        # PHP & PHP Frameworks
+        if re.search(r'\.(php\d?|phtml|inc|phar)$', p_lower) or any(x in p_lower for x in ['wp-config.php', 'xmlrpc.php', 'wp-login.php', 'phpinfo.php', 'composer.json']):
+            techs.append("PHP")
+        if any(x in p_lower for x in ['wp-config.php', 'wp-login.php', 'xmlrpc.php', 'wp-content', 'wp-includes']):
+            techs.append("WordPress")
+            if "PHP" not in techs:
+                techs.append("PHP")
+        if any(x in p_lower for x in ['artisan', 'composer.json', 'composer.lock', 'laravel']):
+            techs.append("Laravel")
+            if "PHP" not in techs:
+                techs.append("PHP")
+        if any(x in p_lower for x in ['drupal', 'sites/default']):
+            techs.append("Drupal")
+            if "PHP" not in techs:
+                techs.append("PHP")
+        if any(x in p_lower for x in ['joomla', 'configuration.php']):
+            techs.append("Joomla")
+            if "PHP" not in techs:
+                techs.append("PHP")
+
+        # Microsoft / ASP.NET / IIS
+        if re.search(r'\.(aspx?|ashx|asmx|axd|cs|vb)$', p_lower) or 'web.config' in p_lower or 'appsettings.json' in p_lower:
+            techs.append("ASP.NET")
+            techs.append("IIS")
+
+        # Java / Spring Boot / Tomcat
+        if re.search(r'\.(jspx?|do|action|war|jar)$', p_lower) or any(x in p_lower for x in ['actuator/', 'web-inf/', 'meta-inf/', 'application.properties', 'application.yml', 'pom.xml']):
+            techs.append("Java")
+        if any(x in p_lower for x in ['actuator/', 'application.properties', 'application.yml']):
+            techs.append("Spring Boot")
+            if "Java" not in techs:
+                techs.append("Java")
+        if any(x in p_lower for x in ['manager/html', 'host-manager/html']):
+            techs.append("Apache Tomcat")
+            if "Java" not in techs:
+                techs.append("Java")
+
+        # Node.js & Javascript Runtimes
+        if any(x in p_lower for x in ['package.json', 'package-lock.json', '.npmrc', 'server.js', 'next.config.js', 'nuxt.config.js']):
+            techs.append("Node.js")
+        if 'next.config' in p_lower or '_next/' in p_lower:
+            techs.append("Next.js")
+            if "Node.js" not in techs:
+                techs.append("Node.js")
+
+        # Python & Frameworks
+        if any(x in p_lower for x in ['wsgi.py', 'asgi.py', 'requirements.txt', 'settings.py', 'pipfile', 'pyproject.toml', 'manage.py']):
+            techs.append("Python")
+        if any(x in p_lower for x in ['settings.py', 'manage.py']):
+            techs.append("Django")
+            if "Python" not in techs:
+                techs.append("Python")
+
+        # Ruby / Rails
+        if any(x in p_lower for x in ['gemfile', 'gemfile.lock', 'config/database.yml', 'config/routes.rb']):
+            techs.append("Ruby on Rails")
+
+        # ColdFusion
+        if re.search(r'\.(cfc|cfm)$', p_lower):
+            techs.append("ColdFusion")
+
+        return list(dict.fromkeys(techs))
+
+    async def update_tech_fingerprint(self, target: str, root_domain: str, new_techs: list, source_file: str, base_url: str):
+        """
+        Persists newly identified technology to target and root domain documents in MongoDB,
+        and creates an informative tech_stack_changes alert lead.
+        """
+        clean_target = target.lower().strip()
+        clean_root = root_domain.lower().strip()
+        
+        # 1. Update target document
+        await self.domains_col.update_one(
+            {"domain": clean_target},
+            {"$addToSet": {"tech_stack": {"$each": new_techs}}}
+        )
+        await self.domains_col.update_one(
+            {"domain": clean_target, "web_applications.target": target},
+            {"$addToSet": {"web_applications.$.tech_stack": {"$each": new_techs}}}
+        )
+        
+        # 2. Update parent root domain document
+        if clean_root != clean_target:
+            await self.domains_col.update_one(
+                {"domain": clean_root, "web_applications.target": target},
+                {"$addToSet": {"web_applications.$.tech_stack": {"$each": new_techs}}}
+            )
+
+        # 3. Check apex domain candidates
+        parts = clean_target.split(".")
+        for i in range(1, len(parts) - 1):
+            cand = ".".join(parts[i:])
+            if cand != clean_target:
+                await self.domains_col.update_one(
+                    {"domain": cand, "web_applications.target": target},
+                    {"$addToSet": {"web_applications.$.tech_stack": {"$each": new_techs}}}
+                )
+            
+        # 4. Create tech stack alert
+        title = f"Tech Stack Discovery: {', '.join(new_techs)} Identified"
+        desc = f"Newly identified technology {', '.join(new_techs)} discovered on {target} via file finding: {source_file}"
+        details = (
+            f"**Target:** `{target}` ({root_domain})\n"
+            f"**Discovered Technologies:** `{', '.join(new_techs)}`\n"
+            f"**Discovery Source File:** `{source_file}`\n"
+            f"**URL:** {base_url}/{source_file}"
+        )
+        exploitation = (
+            f"1. **Technology-Specific Audit**: Run focused enumeration and security checks for {', '.join(new_techs)}.\n"
+            f"2. **Check for Known CVEs**: Cross-reference identified components with vulnerability feeds.\n"
+            f"3. **File Access Control**: Verify that `{source_file}` does not expose sensitive source code or credentials."
+        )
+        try:
+            await self.create_alert(
+                title=title,
+                description=desc,
+                target=target,
+                risk_level="info",
+                details=details,
+                exploitation_suggestions=exploitation,
+                alert_type="tech_stack_changes",
+                root_domain=root_domain
+            )
+        except Exception as e:
+            logger.debug(f"Error creating tech discovery alert: {e}")
+
+    def _extract_dirs_from_path(self, path: str, dir_set: set):
+        """Extracts directory prefix hierarchy from a route or endpoint path."""
+        if not path or not isinstance(path, str):
+            return
+        if path.startswith("http://") or path.startswith("https://"):
+            try:
+                path = urllib.parse.urlparse(path).path
+            except Exception:
+                pass
+        path = path.split("?")[0].split("#")[0].strip()
+        parts = [p.strip() for p in path.strip("/").split("/") if p.strip()]
+        if not parts:
+            return
+        for i in range(1, len(parts) + 1):
+            sub_path = "/".join(parts[:i])
+            # Filter out static files (.png, .css, .js, .map, etc.)
+            if not re.search(r'\.(html|htm|js|css|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|map|json|txt|xml|pdf)$', sub_path, re.I):
+                dir_set.add(sub_path)
+
+    async def harvest_initial_directories(self, target: str, root_domain: str) -> set:
+        """
+        Harvests initial seed directories from:
+        1. Dynamic JS Collector routes & endpoints stored in web_applications and domain docs
+        2. Prior discovered directories
+        """
+        initial_dirs = set([""]) # Always start with root
+        clean_target = target.lower().strip()
+        clean_root = root_domain.lower().strip()
+
+        # Query all documents where target or root_domain is present
+        query = {
+            "$or": [
+                {"domain": clean_target},
+                {"domain": clean_root},
+                {"web_applications.target": clean_target},
+                {"web_applications.target": target}
+            ]
+        }
+        try:
+            docs = await self.domains_col.find(query).to_list(length=20)
+            for doc in docs:
+                # Top level routes if any
+                for r in doc.get("client_routes", []) + doc.get("dynamic_js", {}).get("client_routes", []):
+                    path = r.get("path") if isinstance(r, dict) else str(r)
+                    self._extract_dirs_from_path(path, initial_dirs)
+                for ep in doc.get("extracted_endpoints", []) + doc.get("dynamic_js", {}).get("extracted_endpoints", []):
+                    path = ep.get("path") or ep.get("url") if isinstance(ep, dict) else str(ep)
+                    self._extract_dirs_from_path(path, initial_dirs)
+
+                # Web applications
+                for app in doc.get("web_applications", []):
+                    app_t = (app.get("target") or "").lower().strip()
+                    if app_t == clean_target or clean_target in (app.get("url") or "").lower():
+                        all_routes = (
+                            (app.get("client_routes") or []) +
+                            (app.get("routes") or []) +
+                            (app.get("dynamic_js", {}).get("client_routes") or [])
+                        )
+                        for r in all_routes:
+                            path = r.get("path") if isinstance(r, dict) else str(r)
+                            self._extract_dirs_from_path(path, initial_dirs)
+
+                        all_eps = (
+                            (app.get("extracted_endpoints") or []) +
+                            (app.get("dynamic_js", {}).get("extracted_endpoints") or []) +
+                            (app.get("dynamic_js", {}).get("api_discovered_routes") or [])
+                        )
+                        for ep in all_eps:
+                            path = ep.get("path") or ep.get("url") if isinstance(ep, dict) else str(ep)
+                            self._extract_dirs_from_path(path, initial_dirs)
+
+                        for dd in app.get("discovered_directories", []):
+                            dp = dd.get("path") if isinstance(dd, dict) else str(dd)
+                            dp = dp.strip("/")
+                            if dp:
+                                initial_dirs.add(dp)
+        except Exception as e:
+            logger.warning(f"Error harvesting initial directories from DB: {e}")
+
+        logger.info(f"[+] Harvested {len(initial_dirs)} seed directories from JS discovery & prior findings for {target}: {sorted(list(initial_dirs))[:10]}")
+        return initial_dirs
+
+    def generate_contextual_permutations(self, target: str, root_domain: str) -> list:
+        """
+        Generates brand-, domain-, and environment-specific permutations for high-value
+        target discovery (backups, database dumps, environment configs, private keys).
+        """
+        tokens = set()
+        clean_target = (target or "").lower().strip()
+        clean_root = (root_domain or "").lower().strip()
+
+        # 1. Extract apex brand token (e.g. virginmedia from virginmedia.co.uk)
+        root_base = clean_root
+        for tld in [".co.uk", ".com.au", ".co.nz", ".co.jp", ".com", ".net", ".org", ".io", ".tech", ".co", ".app", ".dev", ".uk", ".de", ".eu"]:
+            if root_base.endswith(tld):
+                root_base = root_base[:-len(tld)]
+                break
+        if root_base:
+            tokens.add(root_base)
+            for part in re.split(r'[-_.]', root_base):
+                if len(part) >= 3:
+                    tokens.add(part)
+
+        # 2. Extract subdomain tokens (e.g. vmanep, euw2, sit7, api, admin)
+        target_no_root = clean_target.replace(clean_root, "").strip(".")
+        if target_no_root:
+            for chunk in re.split(r'[-_.]', target_no_root):
+                if chunk and len(chunk) >= 2:
+                    tokens.add(chunk)
+                    m = re.match(r'^([a-zA-Z]+)(\d+)$', chunk)
+                    if m:
+                        tokens.add(m.group(1))
+
+        # Add common environment labels if present
+        env_labels = ["sit", "dev", "stage", "staging", "uat", "prod", "production", "test", "qa"]
+        for env in env_labels:
+            if env in clean_target:
+                tokens.add(env)
+
+        years = ["2026", "2025", "2024"]
+        permutations = []
+
+        for tok in list(tokens):
+            if not tok or len(tok) < 2:
+                continue
+            # Archive & Backups
+            permutations.extend([
+                f"{tok}.zip", f"{tok}.tar.gz", f"{tok}.tgz", f"{tok}.bak", f"{tok}.old",
+                f"{tok}_backup.zip", f"{tok}-backup.zip", f"backup_{tok}.zip", f"backup-{tok}.zip",
+                f"backup_{tok}.tar.gz", f"{tok}_db.sql", f"{tok}_dump.sql", f"{tok}.sql",
+                f"dump_{tok}.sql", f"db_{tok}.sql", f"backup_{tok}.sql"
+            ])
+            for yr in years:
+                permutations.extend([
+                    f"{tok}_{yr}.zip", f"{tok}_{yr}.sql", f"backup_{tok}_{yr}.zip", f"dump_{tok}_{yr}.sql"
+                ])
+
+            # Configs & Environment
+            permutations.extend([
+                f"{tok}.env", f".env.{tok}", f"appsettings.{tok}.json",
+                f"config.{tok}.json", f"config.{tok}.php", f"configuration.{tok}.php",
+                f"settings_{tok}.py", f"parameters_{tok}.yml", f"database_{tok}.yml"
+            ])
+
+            # Certificates & Keys
+            permutations.extend([
+                f"{tok}.key", f"{tok}.pem", f"{tok}.crt", f"{tok}.pfx", f"{tok}.p12"
+            ])
+
+        return list(dict.fromkeys(permutations))
+
+    def build_smart_file_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None, target: str = "", root_domain: str = "") -> str:
+        """
+        Builds a smart file discovery wordlist for a directory combining:
+        1. Curated universal high-impact sensitive files (.env, .git/HEAD, backups, etc.)
+        2. Technology-specific wordlists based on detected tech_stack (PHP, ASP.NET, Java/Spring, Node.js, Python)
+        3. Contextual brand, environment, and domain permutations for target
+        4. Fallback probes for unverified technologies to discover backend stack quickly
+        5. Contextual directory-based filenames
+        6. Filtered SecLists raft small files
+        Writes to a temporary file and returns file path for ffuf.
         """
         words = list(CURATED_SENSITIVE_FILES)
         base_label = d_clean.split("/")[-1].lower() if d_clean else ""
@@ -245,58 +563,141 @@ class DirectoryHunterAgent(BaseAgent):
         # Contextual filenames matching directory name
         if base_label:
             words.extend([
-                f"{base_label}.php", f"{base_label}.html", f"{base_label}.json",
-                f"{base_label}.js", f"{base_label}.bak", f"{base_label}.zip",
-                f"{base_label}.sql", f"{base_label}.txt", f"{base_label}.xml"
+                f"{base_label}.php", f"{base_label}.aspx", f"{base_label}.jsp",
+                f"{base_label}.html", f"{base_label}.json", f"{base_label}.js",
+                f"{base_label}.bak", f"{base_label}.zip", f"{base_label}.sql",
+                f"{base_label}.txt", f"{base_label}.xml"
             ])
 
-        # Technology-specific extensions
+        # Target-aware contextual permutations (on root or level-1 directories)
+        if target and (not d_clean or len(d_clean.split("/")) <= 1):
+            words.extend(self.generate_contextual_permutations(target, root_domain))
+
         tech_str = " ".join(str(t).lower() for t in (tech_stack or []))
-        if "php" in tech_str or "wordpress" in tech_str:
-            words.extend([
-                "wp-config.php.bak", "wp-config.php~", "readme.html", "license.txt",
-                "xmlrpc.php", "functions.php", "db.php", "connect.php"
-            ])
-        if "asp" in tech_str or "iis" in tech_str or "windows" in tech_str:
-            words.extend([
-                "web.config", "web.config.bak", "global.asax", "default.aspx", "index.aspx"
-            ])
-        if "spring" in tech_str or "java" in tech_str or "tomcat" in tech_str:
-            words.extend([
-                "actuator/env", "actuator/health", "actuator/heapdump", "actuator/mappings",
-                "application.properties", "application.yml", "pom.xml"
-            ])
-        if "node" in tech_str or "express" in tech_str:
-            words.extend(["package.json", "package-lock.json", ".npmrc", "server.js", "app.js"])
-        if "python" in tech_str or "django" in tech_str or "flask" in tech_str:
-            words.extend(["settings.py", "wsgi.py", "requirements.txt", ".env"])
 
-        # Include SecLists raft small files list
-        if include_raft:
-            raft_wl = self.get_file_wordlist()
-            if raft_wl and os.path.exists(raft_wl):
-                try:
-                    with open(raft_wl, "r", encoding="utf-8", errors="ignore") as rf:
-                        for line in rf:
-                            line = line.strip().lstrip("/")
-                            if line and not line.startswith("#"):
-                                words.append(line)
-                except Exception as e:
-                    logger.debug(f"Error reading raft small files: {e}")
+        is_php = any(x in tech_str for x in ["php", "wordpress", "laravel", "drupal", "joomla", "symfony"])
+        is_asp = any(x in tech_str for x in ["asp", "iis", "windows", ".net", "c#"])
+        is_java = any(x in tech_str for x in ["java", "spring", "tomcat", "jboss", "weblogic", "websphere", "struts"])
+        is_node = any(x in tech_str for x in ["node", "express", "next", "nuxt", "koa", "sails"])
+        is_python = any(x in tech_str for x in ["python", "django", "flask", "fastapi", "tornado", "py"])
+        is_ruby = any(x in tech_str for x in ["ruby", "rails", "sinatra"])
+
+        # 1. PHP Smart Wordlist
+        if is_php:
+            php_wl = self.get_tech_file_wordlist("php")
+            if php_wl:
+                words.extend(php_wl)
+            else:
+                words.extend([
+                    "wp-config.php", "wp-config.php.bak", "wp-config.php~", "wp-login.php", "xmlrpc.php",
+                    "phpinfo.php", "info.php", "test.php", "config.php", "config.inc.php", "db.php",
+                    "connect.php", "admin.php", "login.php", "upload.php", "functions.php", "composer.json",
+                    "composer.lock", ".env", "artisan", "index.php", "api.php", "setup.php", "install.php"
+                ])
+            # Add .php variants for contextual directory
+            if base_label:
+                words.extend([f"{base_label}.php.bak", f"{base_label}.php~", f"{base_label}.phtml"])
+
+        # 2. ASP.NET / IIS Smart Wordlist
+        if is_asp:
+            asp_wl = self.get_tech_file_wordlist("asp")
+            if asp_wl:
+                words.extend(asp_wl)
+            else:
+                words.extend([
+                    "web.config", "web.config.bak", "web.config.old", "global.asax", "global.asax.bak",
+                    "default.aspx", "default.asp", "index.aspx", "index.asp", "login.aspx", "admin.aspx",
+                    "trace.axd", "elmah.axd", "WebResource.axd", "appsettings.json", "appsettings.Development.json"
+                ])
+
+        # 3. Java / Spring Boot Smart Wordlist
+        if is_java:
+            java_wl = self.get_tech_file_wordlist("java")
+            if java_wl:
+                words.extend(java_wl)
+            else:
+                words.extend([
+                    "actuator", "actuator/health", "actuator/env", "actuator/mappings", "actuator/beans",
+                    "actuator/info", "actuator/metrics", "actuator/threaddump", "actuator/heapdump",
+                    "application.properties", "application.yml", "pom.xml", "WEB-INF/web.xml",
+                    "META-INF/MANIFEST.MF", "manager/html", "index.jsp", "login.jsp", "admin.jsp"
+                ])
+
+        # 4. Node.js Smart Wordlist
+        if is_node:
+            node_wl = self.get_tech_file_wordlist("node")
+            if node_wl:
+                words.extend(node_wl)
+            else:
+                words.extend([
+                    "package.json", "package-lock.json", ".npmrc", "server.js", "app.js", "index.js",
+                    "next.config.js", "next.config.mjs", "ecosystem.config.js", "tsconfig.json", ".env.local"
+                ])
+
+        # 5. Python Smart Wordlist
+        if is_python:
+            py_wl = self.get_tech_file_wordlist("python")
+            if py_wl:
+                words.extend(py_wl)
+            else:
+                words.extend([
+                    "settings.py", "local_settings.py", "wsgi.py", "asgi.py", "requirements.txt",
+                    "Pipfile", "pyproject.toml", "manage.py", "app.py", "main.py", ".env"
+                ])
+
+        # 6. Ruby on Rails
+        if is_ruby:
+            words.extend(["Gemfile", "Gemfile.lock", "config/database.yml", "config/routes.rb", "Rakefile"])
+
+        # 7. Unverified Technology Probes: if no backend stack is known, include key probes across all stacks
+        if not (is_php or is_asp or is_java or is_node or is_python or is_ruby):
+            words.extend([
+                "index.php", "test.php", "info.php", "phpinfo.php", "wp-login.php", "config.php", "admin.php",
+                "default.aspx", "index.aspx", "web.config", "trace.axd", "login.aspx",
+                "index.jsp", "actuator/health", "actuator/env", "application.properties", "WEB-INF/web.xml",
+                "package.json", "server.js", "next.config.js",
+                "requirements.txt", "wsgi.py", "settings.py"
+            ])
+
+        # 8. Raft small files integration
+        raft_wl = self.get_file_wordlist()
+        if raft_wl and os.path.exists(raft_wl):
+            try:
+                with open(raft_wl, "r", encoding="utf-8", errors="ignore") as rf:
+                    count = 0
+                    for line in rf:
+                        line = line.strip().lstrip("/")
+                        if line and not line.startswith("#"):
+                            # Filter based on technology if identified
+                            if is_php and (line.endswith(".asp") or line.endswith(".aspx") or line.endswith(".jsp")):
+                                continue
+                            if is_asp and (line.endswith(".php") or line.endswith(".jsp")):
+                                continue
+                            if is_java and (line.endswith(".php") or line.endswith(".asp") or line.endswith(".aspx")):
+                                continue
+                            words.append(line)
+                            count += 1
+                            if count >= 1500:
+                                break
+            except Exception as e:
+                logger.debug(f"Error reading raft files: {e}")
 
         # Deduplicate preserving order
         deduped = list(dict.fromkeys(words))
-        wl_path = f"/tmp/raft_file_wl_{os.getpid()}_{base_label or 'root'}.txt"
+        wl_path = f"/tmp/smart_file_wl_{os.getpid()}_{base_label or 'root'}.txt"
         try:
             with open(wl_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(deduped) + "\n")
             return wl_path
         except Exception as e:
-            logger.debug(f"Error writing file wordlist: {e}")
+            logger.debug(f"Error writing smart file wordlist: {e}")
             return self.get_file_wordlist() or FILE_WORDLIST
 
+    def build_file_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None, include_raft: bool = True) -> str:
+        return self.build_smart_file_wordlist_for_dir(d_clean=d_clean, tech_stack=tech_stack)
+
     def build_curated_wordlist_for_dir(self, d_clean: str = "", tech_stack: list = None) -> str:
-        return self.build_file_wordlist_for_dir(d_clean=d_clean, tech_stack=tech_stack, include_raft=True)
+        return self.build_smart_file_wordlist_for_dir(d_clean=d_clean, tech_stack=tech_stack)
 
     async def fetch_robots_and_sitemaps(self, base_url: str, target: str):
         """
@@ -1293,30 +1694,143 @@ class DirectoryHunterAgent(BaseAgent):
         logger.info(f"HTTP method audit completed on {target}: Root allowed: {root_allowed}, Dangerous: {summary['dangerous_methods']}, WebDAV: {webdav_active}, TRACE: {trace_active}")
         return summary
 
-    async def probe_soft_404_lengths(self, base_url: str):
+    def detect_waf(self, headers: dict) -> str:
         """
-        Probe random non-existent paths to detect baseline catch-all / custom-404 response sizes.
-        Returns a set of sizes (in bytes) representing soft-404 or custom redirect pages.
+        Detects web application firewalls and CDNs from HTTP response headers.
         """
-        soft_404_lengths = set()
+        if not headers:
+            return ""
+        h_lower = {str(k).lower(): str(v).lower() for k, v in headers.items()}
+        server = h_lower.get("server", "")
+        via = h_lower.get("via", "")
+
+        if "cf-ray" in h_lower or "cloudflare" in server:
+            return "Cloudflare"
+        if "x-akamai-transformed" in h_lower or "akamaighost" in server:
+            return "Akamai"
+        if "x-amz-cf-id" in h_lower or "cloudfront" in via:
+            return "AWS CloudFront"
+        if "x-iinfo" in h_lower or "visid_incap" in str(h_lower):
+            return "Imperva/Incapsula"
+        if "fastly" in server or "x-served-by" in h_lower:
+            return "Fastly"
+        if "f5" in server or "bigip" in str(h_lower):
+            return "F5 BIG-IP"
+        if "sucuri" in str(h_lower):
+            return "Sucuri"
+        return ""
+
+    async def probe_soft_404_profile(self, base_url: str) -> dict:
+        """
+        Probes target to detect:
+        1. Baseline soft-404 / custom-404 response sizes
+        2. Web Application Firewall (WAF) signatures
+        3. SPA (Single Page App) title & index markers for zero false-positive filtering
+        Caches results per base_url across multiple worker requests.
+        """
+        cached = self.probe_cache.get(base_url)
+        if cached:
+            return cached
+
+        profile = {
+            "lengths": set(),
+            "waf": "",
+            "spa_title": "",
+            "spa_detected": False
+        }
+
         test_tokens = [
             f"rnd_soft404_{secrets.token_hex(6)}",
-            f"test_probe_{secrets.token_hex(6)}.html"
+            f"test_probe_{secrets.token_hex(6)}.html",
+            f"probe_nonexistent_{secrets.token_hex(6)}.zip"
         ]
 
         try:
             async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
+                # 1. Probe root for WAF and SPA signature
+                try:
+                    root_resp = await client.get(base_url)
+                    profile["waf"] = self.detect_waf(root_resp.headers)
+                    if profile["waf"]:
+                        logger.info(f"[*] WAF Detected on {base_url}: {profile['waf']}")
+
+                    root_text = root_resp.text
+                    m = re.search(r'<title>(.*?)</title>', root_text, re.I)
+                    if m:
+                        profile["spa_title"] = m.group(1).strip()
+                    if any(marker in root_text.lower() for marker in ["<div id=\"root\"", "<div id=\"app\"", "<app-root", "ng-version", "__next"]):
+                        profile["spa_detected"] = True
+                except Exception as e:
+                    logger.debug(f"Root probe error for {base_url}: {e}")
+
+                # 2. Probe random non-existent paths
                 for token in test_tokens:
                     probe_url = f"{base_url.rstrip('/')}/{token}"
                     resp = await client.get(probe_url)
                     body_len = len(resp.content)
                     if body_len > 0:
-                        soft_404_lengths.add(body_len)
+                        profile["lengths"].add(body_len)
                         logger.info(f"Soft-404 probe on {base_url}: detected baseline length {body_len} (Status {resp.status_code})")
-        except Exception as e:
-            logger.debug(f"Soft-404 probe exception on {base_url}: {e}")
 
-        return soft_404_lengths
+                    # If a .zip probe returns 200 with text/html, target is an SPA catch-all!
+                    if token.endswith(".zip") and resp.status_code == 200:
+                        ct = (resp.headers.get("content-type") or "").lower()
+                        if "text/html" in ct:
+                            profile["spa_detected"] = True
+                            logger.info(f"[*] SPA Catch-All 200 OK behavior confirmed on {base_url}")
+        except Exception as e:
+            logger.debug(f"Soft-404 profile probe exception on {base_url}: {e}")
+
+        self.probe_cache[base_url] = profile
+        return profile
+
+    async def probe_soft_404_lengths(self, base_url: str):
+        profile = await self.probe_soft_404_profile(base_url)
+        return profile.get("lengths", set())
+
+    async def verify_discovered_file(self, base_url: str, item: dict, spa_profile: dict = None) -> bool:
+        """
+        Verifies if a 200 OK discovery is a genuine file or an SPA catch-all / custom error page.
+        Returns True if genuine, False if false positive.
+        """
+        status = item.get("status")
+        path = item.get("path", "").lower()
+
+        # Non-200 responses (e.g. 401, 403, 301, 302) are real server responses
+        if status != 200:
+            return True
+
+        # Non-HTML sensitive file extensions
+        non_html_extensions = (
+            ".zip", ".tar.gz", ".tgz", ".sql", ".sqlite", ".db", ".env", ".key",
+            ".pem", ".crt", ".pfx", ".p12", ".bak", ".old", ".json", ".xml",
+            ".yaml", ".yml", ".ini", ".conf", ".properties", ".log", ".gz"
+        )
+        is_binary_or_data = any(path.endswith(ext) or f"{ext}." in path for ext in non_html_extensions)
+        if not is_binary_or_data:
+            return True
+
+        # Verify Content-Type & HTML body
+        file_url = f"{base_url}/{item['path']}".replace("//", "/").replace(":/", "://")
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=6.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
+                resp = await client.get(file_url)
+                ct = (resp.headers.get("content-type") or "").lower()
+
+                # A zip/sql/env/json file must not return an HTML web page
+                if "text/html" in ct or "text/plain" in ct:
+                    body_start = resp.text[:1500].lower()
+                    if any(marker in body_start for marker in ["<!doctype html", "<html", "<head", "<body", "<div id=\"root\"", "<div id=\"app\"", "<app-root"]):
+                        if spa_profile and spa_profile.get("spa_title"):
+                            if spa_profile["spa_title"].lower() in body_start:
+                                logger.info(f"Filtering out SPA catch-all false positive: {item['path']} matches SPA title '{spa_profile['spa_title']}'")
+                                return False
+                        logger.info(f"Filtering out SPA catch-all false positive: {item['path']} returned Content-Type '{ct}' with HTML document body")
+                        return False
+        except Exception as e:
+            logger.debug(f"Verification request failed for {file_url}: {e}")
+
+        return True
 
     @staticmethod
     def filter_duplicate_lengths(items, baseline_lengths=None, threshold=3):
@@ -1356,91 +1870,163 @@ class DirectoryHunterAgent(BaseAgent):
 
         return [item for item in items if item.get("length", 0) not in catch_all_lengths]
 
-    async def run_ffuf_recursive(self, base_url, task_id=None, tech_stack=None, initial_dirs=None):
-        logger.info(f"Phase 1: Recursive directory mapping on {base_url}")
-        
-        discovered_dirs = set([""]) # Always start with root
+    async def run_recursive_directory_hunt(self, base_url: str, initial_dirs=None, task_id=None):
+        """
+        Phase 1: Recursively hunt for directories starting from initial seed directories
+        (harvested from JS Collector routes/endpoints, robots.txt, sitemaps, well-known)
+        using curated high-priority directory wordlists with adaptive WAF rate control.
+        Explores newly discovered directories recursively up to depth 3 without hanging or timing out.
+        """
+        logger.info(f"Phase 1: Recursive directory hunting on {base_url}")
+        discovered_dirs = set([""]) # Always include root
         if initial_dirs:
             for d in initial_dirs:
                 if d and isinstance(d, str):
                     clean_d = d.strip('/')
                     if clean_d and not re.search(r'\.(html|htm|js|css|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|map|json|txt|xml|pdf)$', clean_d, re.I):
                         discovered_dirs.add(clean_d)
-        results = []
-        
+
+        dir_results = []
         dir_wl = self.get_directory_wordlist()
         if not dir_wl or not os.path.exists(dir_wl):
-            logger.warning(f"Directory wordlist not found, skipping directory mapping.")
-            return results, discovered_dirs
+            logger.warning("Directory wordlist not found, skipping recursive directory hunt.")
+            return discovered_dirs, dir_results
 
-        # Pre-flight probe for root soft-404 baseline lengths
-        root_baseline = await self.probe_soft_404_lengths(base_url)
+        # Pre-flight probe for root baseline profile & WAF
+        profile = await self.probe_soft_404_profile(base_url)
+        root_baseline = profile.get("lengths", set())
+        waf_name = profile.get("waf", "")
+        rate = "30" if waf_name else "60"
+        threads = "10" if waf_name else "20"
+        if waf_name:
+            logger.info(f"[*] Adaptive WAF Tuning: Throttling scan rate to {rate} req/s ({threads} threads) for {waf_name} on {base_url}")
 
-        # Phase 1: Map directory structure recursively with controlled rate
-        cmd = [
-            "ffuf", "-w", dir_wl, "-u", f"{base_url}/FUZZ",
-            "-H", f"User-Agent: {self.user_agent}",
-            "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic",
-            "-recursion", "-recursion-depth", "2", "-t", "10", "-rate", "25"
+        # Build exploration queue
+        priority_keywords = [
+            "api", "v1", "v2", "admin", "auth", "login", "app", "portal",
+            "users", "user", "account", "dashboard", "manage", "internal", "config"
         ]
-        if root_baseline:
-            cmd.extend(["-fs", ",".join(str(l) for l in root_baseline)])
         
-        try:
-            stdout, _ = await self.run_command(cmd, timeout=600)
-            if stdout:
-                for line in stdout.splitlines():
-                    try:
-                        data = json.loads(line.strip())
-                        res_list = data['results'] if 'results' in data else [data]
-                        for r in res_list:
-                            full_url = r['url']
-                            rel_path = full_url.replace(base_url, "").lstrip("/")
-                            # Track discovered item
-                            results.append({
-                                "path": rel_path,
-                                "directory": "",
-                                "status": r['status'],
-                                "length": r.get('length', 0),
-                                "words": r.get('words', 0)
-                            })
-                    except: continue
-        except Exception as e:
-            logger.error(f"Recursive directory hunt error: {e}")
+        queue = deque([""])
+        # Add high-priority seed directories into queue
+        for s in sorted(discovered_dirs, key=lambda x: (0 if any(k in x.lower() for k in priority_keywords) else 1, len(x.split("/")), x)):
+            if s and s not in queue and len(s.split("/")) <= 2:
+                queue.append(s)
 
-        # Filter duplicate lengths from Phase 1 before choosing candidate directories for Phase 2
-        filtered_p1 = self.filter_duplicate_lengths(results, baseline_lengths=root_baseline, threshold=3)
-        for r in filtered_p1:
-            clean_d = r["path"].strip("/")
-            # If path doesn't look like a file with a known static extension, treat as directory
-            if not re.search(r'\.(html|htm|js|css|png|jpg|jpeg|svg|gif|ico|woff|woff2|ttf|map)$', clean_d, re.I):
-                discovered_dirs.add(clean_d)
+        visited_dirs = set()
+        max_dirs_to_probe = 20
+        max_depth = 3
 
-        logger.info(f"Discovered {len(discovered_dirs)} total directories on {base_url}. Starting Phase 2: File search using raft small files list.")
+        while queue and len(visited_dirs) < max_dirs_to_probe:
+            curr_dir = queue.popleft()
+            if curr_dir in visited_dirs:
+                continue
+            visited_dirs.add(curr_dir)
 
-        # Phase 2: File Search inside discovered directories using raft small files list
-        raft_file_wl = self.get_file_wordlist()
-        
-        # Priority keywords that warrant earlier scanning order
+            if task_id:
+                try:
+                    await self.tasks_col.update_one(
+                        {"_id": task_id},
+                        {"$set": {"last_activity": datetime.datetime.utcnow()}}
+                    )
+                except Exception:
+                    pass
+
+            curr_url = f"{base_url}/{curr_dir}".rstrip("/")
+            logger.info(f"Phase 1: Directory hunting on: {curr_url or '/'}")
+
+            dir_baseline = await self.probe_soft_404_lengths(curr_url) if curr_dir else root_baseline
+
+            cmd = [
+                "ffuf", "-w", dir_wl, "-u", f"{curr_url}/FUZZ",
+                "-H", f"User-Agent: {self.user_agent}",
+                "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic",
+                "-t", str(threads), "-rate", str(rate)
+            ]
+            if waf_name:
+                cmd.extend(["-H", "Accept-Language: en-US,en;q=0.9", "-H", "Sec-Fetch-Dest: document"])
+            if dir_baseline:
+                cmd.extend(["-fs", ",".join(str(l) for l in dir_baseline)])
+
+            try:
+                stdout, _ = await self.run_command(cmd, timeout=75)
+                if stdout:
+                    for line in stdout.splitlines():
+                        try:
+                            data = json.loads(line.strip())
+                            res_list = data['results'] if 'results' in data else [data]
+                            for r in res_list:
+                                res_url = r['url']
+                                rel_path = res_url.replace(base_url, "").lstrip("/")
+                                res_word = rel_path.split("/")[-1].strip()
+                                
+                                # Check if it looks like a directory:
+                                # 301/302 redirects, or 200/401/403 on paths without file extension
+                                is_redirect = r['status'] in [301, 302, 307]
+                                has_file_ext = bool(re.search(r'\.[a-zA-Z0-9]{1,5}$', res_word, re.I))
+                                
+                                if is_redirect or not has_file_ext or res_url.endswith("/"):
+                                    new_dir = f"{curr_dir}/{res_word}".strip("/")
+                                    discovered_dirs.add(new_dir)
+                                    dir_depth = len(new_dir.split("/"))
+                                    if dir_depth <= max_depth and (len(visited_dirs) + len(queue)) < max_dirs_to_probe:
+                                        if new_dir not in visited_dirs and new_dir not in queue:
+                                            queue.append(new_dir)
+                                
+                                dir_results.append({
+                                    "path": rel_path,
+                                    "directory": curr_dir,
+                                    "status": r['status'],
+                                    "length": r.get('length', 0),
+                                    "words": r.get('words', 0),
+                                    "source": "dir_hunt"
+                                })
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.error(f"Directory hunt error on {curr_url}: {e}")
+
+        filtered_dir_results = self.filter_duplicate_lengths(dir_results, baseline_lengths=root_baseline, threshold=3)
+        logger.info(f"Phase 1 Complete: Discovered {len(discovered_dirs)} total directories on {base_url} (explored {len(visited_dirs)}).")
+        return discovered_dirs, filtered_dir_results
+
+    async def run_smart_file_enumeration(self, base_url: str, target: str, root_domain: str, discovered_dirs: set, tech_stack: list = None, task_id=None):
+        """
+        Phase 2: Smart file enumeration across all discovered directories.
+        - Dynamically selects technology-tailored wordlists (PHP, ASP.NET, Java/Spring, Node.js, Python, etc.)
+        - Incorporates brand, domain, and environment contextual permutations
+        - Verifies discovered files against SPA catch-all false positives
+        - When a technology is identified from discovered files (e.g. index.php -> PHP),
+          it dynamically updates the target's tech fingerprint in MongoDB and adds the tech
+          to active_tech so subsequent directories immediately use that tech's wordlist.
+        """
+        logger.info(f"Phase 2: Smart File Enumeration across {len(discovered_dirs)} discovered directories on {base_url}")
+        file_results = []
+        active_tech = list(dict.fromkeys(tech_stack or []))
+
         priority_keywords = [
             "admin", "api", "login", "auth", "config", "backup", "v1", "v2",
             "upload", "portal", "test", "dev", "private", "internal", "secret"
         ]
 
-        # Sort: Root first, then priority directories, then remaining directories
         def dir_priority(d: str):
-            d_lower = d.lower()
             if not d:
-                return (0, 0)
+                return (0, 0) # Root directory must ALWAYS be scanned first
+            d_lower = d.lower()
             if any(kw in d_lower for kw in priority_keywords):
                 return (1, len(d.split("/")))
             return (2, len(d.split("/")))
 
-        # Capped to top 15 to prevent queue stalling on massive CMS/news sites
-        all_dirs = sorted(list(discovered_dirs), key=dir_priority)[:15]
+        # Explore up to 20 discovered directories to ensure deep coverage
+        sorted_dirs = sorted(list(discovered_dirs), key=dir_priority)[:20]
 
-        for d_path in all_dirs:
-            # Heartbeat update to prevent task timeouts during multi-directory searches
+        spa_profile = await self.probe_soft_404_profile(base_url)
+        root_baseline = spa_profile.get("lengths", set())
+        waf_name = spa_profile.get("waf", "")
+        rate = "30" if waf_name else "60"
+        threads = "10" if waf_name else "20"
+
+        for d_path in sorted_dirs:
             if task_id:
                 try:
                     await self.tasks_col.update_one(
@@ -1451,25 +2037,27 @@ class DirectoryHunterAgent(BaseAgent):
                     pass
 
             target_url = f"{base_url}/{d_path}".rstrip("/")
-            logger.info(f"Phase 2: Searching files in directory: {target_url or '/'} using raft small files list")
+            logger.info(f"Phase 2 File Scan: {target_url or '/'} (Active Tech: {active_tech})")
 
-            # Per-directory baseline soft-404 detection
-            dir_baseline = await self.probe_soft_404_lengths(target_url)
+            dir_baseline = await self.probe_soft_404_lengths(target_url) if d_path else root_baseline
 
-            # Build file wordlist combining raft small files + curated sensitive files
-            active_wl = self.build_file_wordlist_for_dir(d_path, tech_stack, include_raft=True)
+            # Build smart file wordlist using current active_tech + brand/env permutations
+            active_wl = self.build_smart_file_wordlist_for_dir(d_path, tech_stack=active_tech, target=target, root_domain=root_domain)
             temp_wl_to_cleanup = active_wl
 
             cmd_file = [
                 "ffuf", "-w", active_wl, "-u", f"{target_url}/FUZZ",
                 "-H", f"User-Agent: {self.user_agent}",
-                "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic", "-t", "10", "-rate", "25"
+                "-mc", "200,204,301,302,307,401,403", "-s", "-json", "-ac", "-ic",
+                "-t", str(threads), "-rate", str(rate)
             ]
+            if waf_name:
+                cmd_file.extend(["-H", "Accept-Language: en-US,en;q=0.9", "-H", "Sec-Fetch-Dest: document"])
             if dir_baseline:
                 cmd_file.extend(["-fs", ",".join(str(l) for l in dir_baseline)])
 
             try:
-                stdout_f, _ = await self.run_command(cmd_file, timeout=120)
+                stdout_f, _ = await self.run_command(cmd_file, timeout=90)
                 if stdout_f:
                     for line in stdout_f.splitlines():
                         try:
@@ -1478,16 +2066,36 @@ class DirectoryHunterAgent(BaseAgent):
                             for r in res_list:
                                 f_url = r['url']
                                 f_rel_path = f_url.replace(base_url, "").lstrip("/")
-                                results.append({
+
+                                cand_item = {
                                     "path": f_rel_path,
                                     "directory": d_path,
                                     "status": r['status'],
                                     "length": r.get('length', 0),
-                                    "words": r.get('words', 0)
-                                })
-                        except: continue
+                                    "words": r.get('words', 0),
+                                    "source": "smart_file_hunt"
+                                }
+
+                                # Validate against SPA catch-all false positives
+                                is_genuine = await self.verify_discovered_file(base_url, cand_item, spa_profile=spa_profile)
+                                if not is_genuine:
+                                    continue
+
+                                # Identify technology from discovered file
+                                newly_found_techs = self.identify_tech_from_file_path(f_rel_path)
+                                if newly_found_techs:
+                                    unseen = [t for t in newly_found_techs if t not in active_tech]
+                                    if unseen:
+                                        for t in unseen:
+                                            active_tech.append(t)
+                                        logger.info(f"[+] Dynamic Tech Fingerprint: Identified {unseen} on {target} from {f_rel_path}")
+                                        await self.update_tech_fingerprint(target, root_domain, unseen, f_rel_path, base_url)
+
+                                file_results.append(cand_item)
+                        except Exception:
+                            continue
             except Exception as e:
-                logger.error(f"File search error for directory {target_url}: {e}")
+                logger.error(f"Smart file search error for directory {target_url}: {e}")
             finally:
                 if temp_wl_to_cleanup and temp_wl_to_cleanup.startswith("/tmp/"):
                     try:
@@ -1495,22 +2103,38 @@ class DirectoryHunterAgent(BaseAgent):
                     except Exception:
                         pass
 
-        # Deduplicate results by path while preserving directory metadata
-        unique_results = {}
-        for r in results:
+        # Deduplicate results by path
+        unique_files = {}
+        for r in file_results:
             p = r['path']
-            if p not in unique_results or (not unique_results[p].get("directory") and r.get("directory")):
-                unique_results[p] = {
-                    "directory": r.get("directory", ""),
-                    "status": r['status'],
-                    "length": r.get('length', 0),
-                    "words": r.get('words', 0)
-                }
+            if p not in unique_files or (not unique_files[p].get("directory") and r.get("directory")):
+                unique_files[p] = r
 
-        all_items = [{"path": k, **v} for k, v in unique_results.items()]
-        # Final pass: exclude duplicate response lengths across all results
-        final_filtered = self.filter_duplicate_lengths(all_items, baseline_lengths=root_baseline, threshold=3)
-        return final_filtered, discovered_dirs
+        all_items = list(unique_files.values())
+        filtered_files = self.filter_duplicate_lengths(all_items, baseline_lengths=root_baseline, threshold=3)
+        logger.info(f"Phase 2 Complete: Discovered {len(filtered_files)} files on {base_url} across scanned directories.")
+        return filtered_files, active_tech
+
+    async def run_ffuf_recursive(self, base_url, task_id=None, tech_stack=None, initial_dirs=None):
+        """
+        Backwards-compatible wrapper executing Phase 1 (recursive directory hunt)
+        followed by Phase 2 (smart file enumeration).
+        """
+        discovered_dirs, dir_items = await self.run_recursive_directory_hunt(
+            base_url,
+            initial_dirs=initial_dirs,
+            task_id=task_id
+        )
+        parsed_target = urllib.parse.urlparse(base_url).netloc.split(":")[0]
+        file_items, active_tech = await self.run_smart_file_enumeration(
+            base_url,
+            target=parsed_target,
+            root_domain=parsed_target,
+            discovered_dirs=discovered_dirs,
+            tech_stack=tech_stack,
+            task_id=task_id
+        )
+        return dir_items + file_items, discovered_dirs
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
@@ -1562,6 +2186,99 @@ class DirectoryHunterAgent(BaseAgent):
 
         await self.create_alert(title, description, target, risk, details, exploitation, response_size=item.get('length', 0), alert_type=alert_type)
 
+    async def dispatch_secondary_tasks(self, root_domain: str, target: str, item: dict, url: str):
+        """
+        Dispatches specialized secondary tasks (403 bypass, Spring Actuator, OpenAPI auto-extraction, Git extractor)
+        based on specific high-value findings.
+        """
+        path = item.get("path", "")
+        p_lower = path.lower()
+        status = item.get("status")
+
+        # 1. 403 Forbidden Bypass
+        if status == 403:
+            exists_bypass = await self.tasks_col.find_one({
+                "root_domain": root_domain,
+                "target": target,
+                "path": path,
+                "task_type": "bypass_403"
+            })
+            if not exists_bypass:
+                await self.tasks_col.insert_one({
+                    "root_domain": root_domain,
+                    "target": target,
+                    "path": path,
+                    "base_url": url,
+                    "task_type": "bypass_403",
+                    "status": "pending",
+                    "created_at": datetime.datetime.utcnow()
+                })
+                logger.info(f"Queued 403 BYPASS task for {url}/{path}")
+
+        # 2. Spring Boot Actuator Audit
+        if any(act in p_lower for act in ["actuator/health", "actuator/env", "actuator/metrics", "actuator/beans", "actuator"]) and status in [200, 401, 403]:
+            exists_act = await self.tasks_col.find_one({
+                "root_domain": root_domain,
+                "target": target,
+                "task_type": "actuator_audit"
+            })
+            if not exists_act:
+                await self.tasks_col.insert_one({
+                    "root_domain": root_domain,
+                    "target": target,
+                    "path": path,
+                    "base_url": url,
+                    "task_type": "actuator_audit",
+                    "status": "pending",
+                    "created_at": datetime.datetime.utcnow()
+                })
+                logger.info(f"Queued ACTUATOR_AUDIT task for {url}/{path}")
+
+        # 3. OpenAPI / Swagger Auto-Extraction
+        if any(sw in p_lower for sw in ["swagger.json", "openapi.json", "openapi.yaml", "swagger.yaml"]) and status == 200:
+            try:
+                schema_url = f"{url}/{path}".replace("//", "/").replace(":/", "://")
+                async with httpx.AsyncClient(verify=False, timeout=8.0, headers={"User-Agent": self.user_agent}) as client:
+                    resp = await client.get(schema_url)
+                    if resp.status_code == 200:
+                        parsed = resp.json() if "json" in p_lower else None
+                        if parsed and isinstance(parsed, dict) and "paths" in parsed:
+                            extracted = []
+                            for ep in parsed["paths"].keys():
+                                extracted.append({"path": ep, "method": "ANY", "source": "openapi_auto_extract"})
+                            if extracted:
+                                logger.info(f"[+] OpenAPI Auto-Extraction: Ingested {len(extracted)} API endpoints from {schema_url}")
+                                await self.domains_col.update_one(
+                                    {"domain": target.lower().strip()},
+                                    {"$addToSet": {"extracted_endpoints": {"$each": extracted}}}
+                                )
+                                if root_domain.lower().strip() != target.lower().strip():
+                                    await self.domains_col.update_one(
+                                        {"domain": root_domain.lower().strip()},
+                                        {"$addToSet": {"extracted_endpoints": {"$each": extracted}}}
+                                    )
+            except Exception as e:
+                logger.debug(f"OpenAPI auto-extraction error on {url}/{path}: {e}")
+
+        # 4. Git Repository Exposure Check
+        if any(g in p_lower for g in [".git/head", ".git/config"]) and status == 200:
+            exists_git = await self.tasks_col.find_one({
+                "root_domain": root_domain,
+                "target": target,
+                "task_type": "git_extractor"
+            })
+            if not exists_git:
+                await self.tasks_col.insert_one({
+                    "root_domain": root_domain,
+                    "target": target,
+                    "path": path,
+                    "base_url": url,
+                    "task_type": "git_extractor",
+                    "status": "pending",
+                    "created_at": datetime.datetime.utcnow()
+                })
+                logger.info(f"Queued GIT_EXTRACTOR task for {url}/{path}")
+
     async def process_tasks(self):
         task = await self.get_next_task("directory_hunt")
 
@@ -1580,19 +2297,29 @@ class DirectoryHunterAgent(BaseAgent):
             url = f"{protocol}://{target}:{port}"
 
         try:
-            # Query web_applications for target's detected tech stack
-            domain_doc = await self.domains_col.find_one({"domain": root_domain})
+            # Query web_applications and target document for detected tech stack
+            clean_target = target.lower().strip()
+            clean_root = root_domain.lower().strip()
+            target_doc = await self.domains_col.find_one({"domain": clean_target})
+            domain_doc = await self.domains_col.find_one({"domain": clean_root})
             target_tech = []
+            if target_doc:
+                target_tech.extend(target_doc.get("tech_stack", []))
             if domain_doc:
                 for app in domain_doc.get("web_applications", []):
-                    if app.get("target") == target:
-                        target_tech = app.get("tech_stack", [])
+                    if (app.get("target") or "").lower().strip() == clean_target:
+                        target_tech.extend(app.get("tech_stack", []))
                         break
+            target_tech = list(dict.fromkeys(target_tech))
 
             # Phase 0: Robots.txt & Sitemap extraction
             rb_data = await self.fetch_robots_and_sitemaps(url, target)
             rb_items = rb_data.get("items", [])
-            rb_dirs = rb_data.get("discovered_dirs", set())
+            rb_dirs = set(rb_data.get("discovered_dirs", set()))
+
+            # Harvest initial seed directories from Dynamic JS Collector findings & DB
+            js_seed_dirs = await self.harvest_initial_directories(target, root_domain)
+            rb_dirs.update(js_seed_dirs)
 
             # Phase 0.5: Favicon Fingerprinting & Well-Known Harvesting
             favicon_data = await self.fetch_favicon_fingerprint(url, target, root_domain)
@@ -1608,20 +2335,32 @@ class DirectoryHunterAgent(BaseAgent):
                 fw = favicon_data["framework"]
                 if fw not in target_tech:
                     target_tech.append(fw)
+                    await self.update_tech_fingerprint(target, root_domain, [fw], "favicon.ico", url)
 
             well_known_data = await self.harvest_well_known_profiles(url, target, root_domain)
             if well_known_data:
                 rb_items.extend(well_known_data.get("items", []))
                 rb_dirs.update(well_known_data.get("discovered_dirs", set()))
 
-            # Phase 1 & 2: ffuf directory mapping and file brute-force
-            found_items, discovered_dirs = await self.run_ffuf_recursive(
+            # Phase 1: Recursive directory mapping using wordlists (seeded with JS routes, robots, sitemaps)
+            discovered_dirs, dir_items = await self.run_recursive_directory_hunt(
                 url,
-                task_id=task["_id"],
-                tech_stack=target_tech,
-                initial_dirs=rb_dirs
+                initial_dirs=rb_dirs,
+                task_id=task["_id"]
             )
             discovered_dirs.update(rb_dirs)
+
+            # Phase 2: Smart file enumeration on all discovered directories with dynamic tech identification
+            file_items, updated_tech = await self.run_smart_file_enumeration(
+                url,
+                target=target,
+                root_domain=root_domain,
+                discovered_dirs=discovered_dirs,
+                tech_stack=target_tech,
+                task_id=task["_id"]
+            )
+            target_tech = list(dict.fromkeys(target_tech + updated_tech))
+            found_items = dir_items + file_items
 
             # Phase 3: HTTP Verb & Method Auditing on root and discovered directories
             http_methods_data = await self.audit_http_verbs(
@@ -1679,25 +2418,8 @@ class DirectoryHunterAgent(BaseAgent):
                                 if not is_rb_src or is_sensitive or item.get("status") in [401, 403]:
                                     await self.create_alert_for_item(root_domain, target, item, url)
                                 
-                                # Trigger 403 bypass for forbidden paths
-                                if item["status"] == 403:
-                                    exists_bypass = await self.tasks_col.find_one({
-                                        "root_domain": root_domain,
-                                        "target": target,
-                                        "path": path,
-                                        "task_type": "bypass_403"
-                                    })
-                                    if not exists_bypass:
-                                        await self.tasks_col.insert_one({
-                                            "root_domain": root_domain,
-                                            "target": target,
-                                            "path": path,
-                                            "base_url": url,
-                                            "task_type": "bypass_403",
-                                            "status": "pending",
-                                            "created_at": datetime.datetime.utcnow()
-                                        })
-                                        logger.info(f"Queued 403 BYPASS task for {url}/{path}")
+                                # Dispatch specialized secondary tasks (403 bypass, Spring Actuator, OpenAPI auto-extraction, Git extractor)
+                                await self.dispatch_secondary_tasks(root_domain, target, item, url)
                             
                             # Preserve directory, length, and source in stored record
                             existing_files[path] = {
@@ -1726,6 +2448,7 @@ class DirectoryHunterAgent(BaseAgent):
                             }
                         if http_methods_data:
                             app["http_methods"] = http_methods_data
+                        app["tech_stack"] = list(dict.fromkeys((app.get("tech_stack") or []) + target_tech))
                         app_found = True
                         break
                 
@@ -1740,24 +2463,8 @@ class DirectoryHunterAgent(BaseAgent):
                         if not is_rb_src or is_sensitive or item.get("status") in [401, 403]:
                             await self.create_alert_for_item(root_domain, target, item, url)
 
-                        if item["status"] == 403:
-                            exists_bypass = await self.tasks_col.find_one({
-                                "root_domain": root_domain,
-                                "target": target,
-                                "path": path,
-                                "task_type": "bypass_403"
-                            })
-                            if not exists_bypass:
-                                await self.tasks_col.insert_one({
-                                    "root_domain": root_domain,
-                                    "target": target,
-                                    "path": path,
-                                    "base_url": url,
-                                    "task_type": "bypass_403",
-                                    "status": "pending",
-                                    "created_at": datetime.datetime.utcnow()
-                                })
-                                logger.info(f"Queued 403 BYPASS task for {url}/{path}")
+                        # Dispatch specialized secondary tasks (403 bypass, Spring Actuator, OpenAPI auto-extraction, Git extractor)
+                        await self.dispatch_secondary_tasks(root_domain, target, item, url)
                         
                     web_apps.append({
                         "target": target,
@@ -1800,6 +2507,11 @@ class DirectoryHunterAgent(BaseAgent):
                             {"domain": target},
                             {"$set": {"web_applications": t_web_apps}}
                         )
+                if target_tech:
+                    await self.domains_col.update_one(
+                        {"domain": clean_target},
+                        {"$addToSet": {"tech_stack": {"$each": target_tech}}}
+                    )
             
             await self.tasks_col.update_one(
                 {"_id": task["_id"]},

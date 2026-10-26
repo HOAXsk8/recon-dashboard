@@ -2362,7 +2362,8 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "3. **Catalog Shadow Endpoints**: Incorporate discovered administrative paths into backend route fuzzing catalogs."
                     ),
                     extra_key=f"{target}|spa_routes",
-                    alert_type="js_client_framework_routes"
+                    alert_type="js_client_framework_routes",
+                    root_domain=root_domain
                 )
 
             # I) Third-Party Trackers & SDK Telemetry Pivots
@@ -2501,7 +2502,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "extracted_base64": list(all_base64.values())[:100],
                 "base64_count": len(all_base64),
                 "sourcemaps": all_sourcemaps,
-                "comments": final_comments,
+                "comments": [],
                 "comments_count": len(final_comments),
                 "interesting_comments_count": interesting_count,
                 "high_interest_comments_count": high_interest_count,
@@ -2523,6 +2524,12 @@ class DynamicJsCollectorAgent(BaseAgent):
             }
 
             # Attach findings to the specific web application entry in web_applications
+            now_iso = datetime.datetime.utcnow().isoformat()
+            sorted_endpoints = sorted(
+                list(all_endpoints.values()),
+                key=lambda x: (not x.get("is_in_scope", False), x.get("url", ""))
+            )[:500]
+
             webapp_set = {
                 "web_applications.$.dynamic_js": recon_summary,
                 "web_applications.$.comments": final_comments,
@@ -2537,8 +2544,13 @@ class DynamicJsCollectorAgent(BaseAgent):
                 "web_applications.$.hydration_payloads_count": len(all_hydration_payloads),
                 "web_applications.$.client_routes": unique_client_routes,
                 "web_applications.$.client_routes_count": len(unique_client_routes),
+                "web_applications.$.routes": unique_client_routes,
+                "web_applications.$.privileged_client_routes_count": len(privileged_routes),
+                "web_applications.$.extracted_endpoints": sorted_endpoints,
+                "web_applications.$.endpoints_count": len(all_endpoints),
                 "web_applications.$.trackers": unique_trackers,
                 "web_applications.$.trackers_count": len(unique_trackers),
+                "web_applications.$.js_scanned_at": now_iso,
             }
             if probed_cloud_assets:
                 webapp_set["web_applications.$.cloud_assets"] = [
@@ -2553,10 +2565,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                     }
                     for p in probed_cloud_assets
                 ]
-            res = await self.domains_col.update_one(
-                {"domain": root_domain, "web_applications.target": target},
-                {"$set": webapp_set}
-            )
+
             # Extract any client-side frameworks and CMS signatures discovered dynamically
             discovered_frameworks = set()
             for hyd in all_hydration_payloads:
@@ -2569,16 +2578,41 @@ class DynamicJsCollectorAgent(BaseAgent):
                     if gen_val and len(gen_val) < 60:
                         discovered_frameworks.add(gen_val)
 
-            if res.matched_count == 0:
-                # If target was not found by exact web_applications.target, try by URL hostname
-                res2 = await self.domains_col.update_one(
-                    {"domain": root_domain, "web_applications.url": {"$regex": f"://{re.escape(target)}(/|$|:)"}},
-                    {"$set": webapp_set}
-                )
-                if res2.matched_count == 0:
-                    # Push as a web application entry so findings are strictly preserved on this specific target
+            # Determine all relevant domain documents to update (task root_domain, target itself, and parent apex domain)
+            clean_target = re.sub(r'^https?://', '', target).split('/')[0].split(':')[0].strip().lower()
+            domains_to_update = set()
+            if root_domain:
+                domains_to_update.add(root_domain.strip().lower())
+            if clean_target:
+                domains_to_update.add(clean_target)
+
+            # Check if clean_target belongs to an apex parent domain
+            parts = clean_target.split(".")
+            for i in range(1, len(parts) - 1):
+                parent_candidate = ".".join(parts[i:])
+                p_doc = await self.domains_col.find_one({"domain": parent_candidate}, {"_id": 1})
+                if p_doc:
+                    domains_to_update.add(parent_candidate)
+
+            sub_parent = await self.domains_col.find_one({"infrastructure.subdomains.name": clean_target}, {"domain": 1})
+            if sub_parent and sub_parent.get("domain"):
+                domains_to_update.add(sub_parent["domain"].strip().lower())
+
+            # Update web_applications across all relevant domain records
+            for d_name in domains_to_update:
+                target_filter = {
+                    "domain": d_name,
+                    "$or": [
+                        {"web_applications.target": target},
+                        {"web_applications.target": clean_target},
+                        {"web_applications.url": {"$regex": f"://{re.escape(clean_target)}(/|$|:)"}}
+                    ]
+                }
+                res = await self.domains_col.update_one(target_filter, {"$set": webapp_set})
+                if res.matched_count == 0:
+                    # Push as a web application entry so findings are strictly preserved on this domain
                     new_app = {
-                        "target": target,
+                        "target": clean_target,
                         "url": target_url,
                         "tech_stack": list(discovered_frameworks),
                         "dynamic_js": recon_summary,
@@ -2594,53 +2628,67 @@ class DynamicJsCollectorAgent(BaseAgent):
                         "hydration_payloads_count": len(all_hydration_payloads),
                         "client_routes": unique_client_routes,
                         "client_routes_count": len(unique_client_routes),
+                        "routes": unique_client_routes,
+                        "privileged_client_routes_count": len(privileged_routes),
+                        "extracted_endpoints": sorted_endpoints,
+                        "endpoints_count": len(all_endpoints),
                         "trackers": unique_trackers,
                         "trackers_count": len(unique_trackers),
+                        "js_scanned_at": now_iso,
                     }
                     if probed_cloud_assets:
                         new_app["cloud_assets"] = webapp_set.get("web_applications.$.cloud_assets", [])
                     await self.domains_col.update_one(
-                        {"domain": root_domain},
+                        {"domain": d_name},
                         {"$push": {"web_applications": new_app}}
                     )
 
-            # Store in domain-level document ONLY if the scanned target was the root domain itself
-            if target.strip().lower() == root_domain.strip().lower():
-                await self.domains_col.update_one(
-                    {"domain": root_domain},
-                    {"$set": {
-                        "infrastructure.dynamic_js": recon_summary,
-                        "dynamic_js": recon_summary,
-                        "comments": final_comments,
-                        "comments_count": len(final_comments),
-                        "interesting_comments_count": interesting_count,
-                        "meta_tags": final_meta_tags,
-                        "meta_tags_count": len(final_meta_tags),
-                        "interesting_meta_tags_count": interesting_meta_count,
-                    }}
-                )
-
-            # Enrich web_application tech_stack with newly discovered frameworks
-            if discovered_frameworks:
-                await self.domains_col.update_one(
-                    {"domain": root_domain, "web_applications.target": target},
-                    {"$addToSet": {"web_applications.$.tech_stack": {"$each": list(discovered_frameworks)}}}
-                )
-
-            # Store any discovered API specs and GraphQL endpoints at the domain level for fast querying
-            if api_res and (api_res.get("openapi_specs") or api_res.get("graphql_endpoints") or api_res.get("api_ui_endpoints")):
-                add_to_set = {}
-                if api_res.get("openapi_specs"):
-                    add_to_set["api_specifications"] = {"$each": api_res["openapi_specs"]}
-                if api_res.get("graphql_endpoints"):
-                    add_to_set["graphql_endpoints"] = {"$each": api_res["graphql_endpoints"]}
-                if api_res.get("api_ui_endpoints"):
-                    add_to_set["api_ui_endpoints"] = {"$each": api_res["api_ui_endpoints"]}
-                if add_to_set:
+                # Store in domain-level document if the scanned target matches this domain
+                if clean_target == d_name:
                     await self.domains_col.update_one(
-                        {"domain": root_domain},
-                        {"$addToSet": add_to_set}
+                        {"domain": d_name},
+                        {"$set": {
+                            "infrastructure.dynamic_js": recon_summary,
+                            "dynamic_js": recon_summary,
+                            "comments": final_comments,
+                            "comments_count": len(final_comments),
+                            "interesting_comments_count": interesting_count,
+                            "meta_tags": final_meta_tags,
+                            "meta_tags_count": len(final_meta_tags),
+                            "interesting_meta_tags_count": interesting_meta_count,
+                            "client_routes": unique_client_routes,
+                            "client_routes_count": len(unique_client_routes),
+                        }}
                     )
+
+                # Enrich web_application tech_stack with newly discovered frameworks
+                if discovered_frameworks:
+                    await self.domains_col.update_one(
+                        {
+                            "domain": d_name,
+                            "$or": [
+                                {"web_applications.target": target},
+                                {"web_applications.target": clean_target},
+                                {"web_applications.url": {"$regex": f"://{re.escape(clean_target)}(/|$|:)"}}
+                            ]
+                        },
+                        {"$addToSet": {"web_applications.$.tech_stack": {"$each": list(discovered_frameworks)}}}
+                    )
+
+                # Store any discovered API specs and GraphQL endpoints at domain level
+                if api_res and (api_res.get("openapi_specs") or api_res.get("graphql_endpoints") or api_res.get("api_ui_endpoints")):
+                    add_to_set = {}
+                    if api_res.get("openapi_specs"):
+                        add_to_set["api_specifications"] = {"$each": api_res["openapi_specs"]}
+                    if api_res.get("graphql_endpoints"):
+                        add_to_set["graphql_endpoints"] = {"$each": api_res["graphql_endpoints"]}
+                    if api_res.get("api_ui_endpoints"):
+                        add_to_set["api_ui_endpoints"] = {"$each": api_res["api_ui_endpoints"]}
+                    if add_to_set:
+                        await self.domains_col.update_one(
+                            {"domain": d_name},
+                            {"$addToSet": add_to_set}
+                        )
 
             logger.info(
                 f"Dynamic JS Recon Complete for {target}: "
