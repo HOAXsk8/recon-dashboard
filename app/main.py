@@ -5406,10 +5406,13 @@ async def get_tools(user: dict = Depends(get_current_user)):
     now = datetime.utcnow()
     
     results = []
+    stale_keys_to_clean = []
+
     for t in tools:
         t["_id"] = str(t["_id"])
         last_hb = t.get("last_heartbeat")
         status = t.get("status", "Stopped")
+        is_active = True
         
         if last_hb:
             if isinstance(last_hb, datetime):
@@ -5417,17 +5420,46 @@ async def get_tools(user: dict = Depends(get_current_user)):
             else:
                 last_hb_dt = datetime.utcfromtimestamp(last_hb / 1000.0)
             
+            # If heartbeat is older than 120s, tool is not running
             if (now - last_hb_dt).total_seconds() > 120:
-                # Only mark as stopped if it wasn't already explicitly stopped
-                if status != "Stopped":
-                    status = "Stopped"
+                is_active = False
+                status = "Stopped"
+                key = t.get("key", "")
+                if re.match(r"^[a-zA-Z0-9_]+_\d+$", key) or key == "loop" or key == "directory_hunter":
+                    stale_keys_to_clean.append(key)
         else:
+            is_active = False
             status = "Stopped"
+            key = t.get("key", "")
+            if re.match(r"^[a-zA-Z0-9_]+_\d+$", key) or key == "loop" or key == "directory_hunter":
+                stale_keys_to_clean.append(key)
             
         t["status"] = status
-        results.append(t)
+        # Only return active tools/containers that are currently running
+        if is_active and status != "Stopped":
+            results.append(t)
+
+    # Automatically prune any stale dynamic workers from DB so they never linger
+    if stale_keys_to_clean:
+        try:
+            await scanners_col.delete_many({"key": {"$in": stale_keys_to_clean}})
+        except Exception:
+            pass
+
     results.sort(key=lambda x: (x.get("name") or x.get("key") or "").lower())
     return results
+
+@app.get("/api/autoscaler/status")
+async def get_autoscaler_status(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    doc = await settings_col.find_one({"key": "autoscaler"})
+    if not doc:
+        doc = await settings_col.find_one({"key": "directory_hunter_autoscaler"})
+    if doc:
+        doc["_id"] = str(doc["_id"])
+        return doc
+    return {"status": "initializing", "message": "Autoscaler telemetry starting up"}
 
 @app.get("/api/domains/search-simple")
 async def search_simple_domains(request: Request, q: Optional[str] = None, user: dict = Depends(get_current_user)):

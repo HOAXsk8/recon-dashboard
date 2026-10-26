@@ -530,15 +530,15 @@ services:
       - db
       - dashboard
 
-  directory-hunter-autoscaler:
+  autoscaler:
     image: recon-dashboard:latest
-    container_name: directory-hunter-autoscaler
+    container_name: autoscaler
     environment:
       - MONGO_HOST=localhost
       - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - PYTHONUNBUFFERED=1
       - DOCKER_SOCKET=/var/run/docker.sock
-    command: [ "python", "tools/directory_hunter_autoscaler.py" ]
+    command: [ "python", "tools/autoscaler.py" ]
     volumes:
       - ./tools:/app/tools
       - /var/run/docker.sock:/var/run/docker.sock

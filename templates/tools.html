@@ -44,6 +44,46 @@
         </div>
     </div>
 
+    <!-- Autoscaler Telemetry Banner -->
+    <div id="autoscaler-banner" class="bg-tech-panel/90 p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-1.5 h-full bg-tech-accent"></div>
+        <div class="flex items-center space-x-3.5 pl-2">
+            <div class="w-10 h-10 rounded-xl bg-tech-accent/10 border border-tech-accent/30 flex items-center justify-center text-tech-accent shrink-0 shadow-inner">
+                <svg class="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <h3 class="text-xs font-black uppercase tracking-wider text-white">RECON PIPELINE AUTOSCALER</h3>
+                    <span id="autoscaler-status-badge" class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-tech-success/20 text-tech-success border border-tech-success/30">ACTIVE</span>
+                </div>
+                <p class="text-[11px] font-mono text-slate-400 mt-0.5">Multi-tool dynamic concurrency &bull; Resource Ceiling: <span class="text-tech-accent font-bold">&lt; 80%</span></p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs font-mono">
+            <!-- CPU & RAM Vitals -->
+            <div class="bg-slate-900/90 px-3.5 py-1.5 rounded-xl border border-slate-800 flex items-center space-x-2 shadow-inner">
+                <span class="text-slate-500 uppercase text-[10px]">CPU</span>
+                <span id="autoscaler-cpu-val" class="font-bold text-white">--%</span>
+                <span class="text-slate-700">|</span>
+                <span class="text-slate-500 uppercase text-[10px]">RAM</span>
+                <span id="autoscaler-ram-val" class="font-bold text-white">--%</span>
+            </div>
+
+            <!-- Active Workers Count -->
+            <div class="bg-slate-900/90 px-3.5 py-1.5 rounded-xl border border-slate-800 flex items-center space-x-2 shadow-inner">
+                <span class="text-slate-500 uppercase text-[10px]">Active Workers</span>
+                <span id="autoscaler-workers-val" class="font-bold text-tech-accent">--</span>
+            </div>
+
+            <!-- Pending Queue Depth -->
+            <div class="bg-slate-900/90 px-3.5 py-1.5 rounded-xl border border-slate-800 flex items-center space-x-2 shadow-inner">
+                <span class="text-slate-500 uppercase text-[10px]">Pending Tasks</span>
+                <span id="autoscaler-pending-val" class="font-bold text-orange-400">0</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Active Engines Section -->
     <div class="space-y-4">
         <div class="flex items-center justify-between">
@@ -488,15 +528,21 @@
             if (!resp.ok) throw new Error('Failed to fetch tools');
             const data = await resp.json();
             
+            // Only keep active/running tools (exclude any stopped or non-running containers)
+            const activeData = (data || []).filter(t => t.status && t.status.toLowerCase() !== 'stopped');
+            
             // Sort Alphabetically by display name (A -> Z)
-            data.sort((a, b) => {
+            activeData.sort((a, b) => {
                 const nameA = (a.name || a.key || '').toLowerCase();
                 const nameB = (b.name || b.key || '').toLowerCase();
                 return nameA.localeCompare(nameB);
             });
             
-            currentTools = data;
-            document.getElementById('tools-count-badge').innerText = `${currentTools.length} ENGINES`;
+            currentTools = activeData;
+            const badge = document.getElementById('tools-count-badge');
+            if (badge) {
+                badge.innerText = `${currentTools.length} ACTIVE ENGINES`;
+            }
             renderTools(currentTools);
         } catch (e) {
             console.error('Fetch Error:', e);
@@ -1063,17 +1109,54 @@
         banner.classList.add('hidden');
     }
 
+    async function fetchAutoscalerStatus() {
+        try {
+            const resp = await fetch('/api/autoscaler/status');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data && (data.status === 'active' || data.cpu_percent !== undefined)) {
+                const cpuEl = document.getElementById('autoscaler-cpu-val');
+                const ramEl = document.getElementById('autoscaler-ram-val');
+                const workersEl = document.getElementById('autoscaler-workers-val');
+                const pendingEl = document.getElementById('autoscaler-pending-val');
+                const badgeEl = document.getElementById('autoscaler-status-badge');
+
+                if (badgeEl) {
+                    badgeEl.innerText = (data.status || 'ACTIVE').toUpperCase();
+                    if (data.status === 'active') {
+                        badgeEl.className = 'px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-tech-success/20 text-tech-success border border-tech-success/30';
+                    }
+                }
+                if (cpuEl && data.cpu_percent !== undefined) cpuEl.innerText = `${data.cpu_percent}%`;
+                if (ramEl && data.ram_percent !== undefined) ramEl.innerText = `${data.ram_percent}%`;
+                if (workersEl) workersEl.innerText = `${data.total_workers || currentTools.length}`;
+                
+                let totalPending = 0;
+                if (data.tools) {
+                    Object.values(data.tools).forEach(t => {
+                        totalPending += (t.pending || 0);
+                    });
+                }
+                if (pendingEl) pendingEl.innerText = `${totalPending}`;
+            }
+        } catch (e) {
+            console.debug('Autoscaler telemetry fetch error:', e);
+        }
+    }
+
     // --- Init ---
     document.addEventListener('DOMContentLoaded', () => {
         // Set initial view mode button states
         setViewMode(currentViewMode);
         fetchTools();
         fetchSettings();
+        fetchAutoscalerStatus();
     });
 
     setInterval(() => {
         fetchTools();
         fetchSettings();
-    }, 10000);
+        fetchAutoscalerStatus();
+    }, 6000);
 </script>
 {% endblock %}

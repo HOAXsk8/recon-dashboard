@@ -33,8 +33,13 @@ CHANGE_ALERT_TYPES = {
 
 class BaseAgent:
     def __init__(self, agent_key, agent_name, type="script"):
-        self.agent_key = agent_key
-        self.agent_name = agent_name
+        instance_id = os.getenv("INSTANCE_ID", "").strip()
+        if instance_id and not str(agent_key).endswith(f"_{instance_id}"):
+            self.agent_key = f"{agent_key}_{instance_id}"
+            self.agent_name = f"{agent_name} #{instance_id}"
+        else:
+            self.agent_key = agent_key
+            self.agent_name = agent_name
         self.type = type
         self.user_agent = COMMON_USER_AGENT
         self.default_headers = {

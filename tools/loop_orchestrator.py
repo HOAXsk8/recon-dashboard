@@ -422,23 +422,23 @@ class ContinuousLoopAgent(BaseAgent):
     async def main_loop(self):
         # Fallback / Backup Autoscaler: if dedicated autoscaler container isn't running, run in-process
         try:
-            from directory_hunter_autoscaler import DirectoryHunterAutoscaler, DockerUnixClient
+            from autoscaler import ReconAutoscaler, DockerUnixClient
             docker_client = DockerUnixClient()
             status, containers = docker_client.request("GET", "/v1.41/containers/json")
             autoscaler_container_running = False
             if status == 200 and isinstance(containers, list):
                 for c in containers:
                     for name in c.get("Names", []):
-                        if "directory-hunter-autoscaler" in name:
+                        if "autoscaler" in name:
                             autoscaler_container_running = True
                             break
 
             if not autoscaler_container_running:
-                logger.info("Loop Orchestrator: Launching in-process Directory Hunter autoscaler daemon.")
-                self.dh_autoscaler = DirectoryHunterAutoscaler(db_client=self.client)
-                asyncio.create_task(self.dh_autoscaler.run())
+                logger.info("Loop Orchestrator: Launching in-process Recon Autoscaler daemon.")
+                self.autoscaler = ReconAutoscaler(db_client=self.client)
+                asyncio.create_task(self.autoscaler.run())
             else:
-                logger.info("Loop Orchestrator: Dedicated directory-hunter-autoscaler container active.")
+                logger.info("Loop Orchestrator: Dedicated autoscaler container active.")
         except Exception as e:
             logger.debug(f"Loop Orchestrator autoscaler startup check error: {e}")
 
