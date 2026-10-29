@@ -2111,6 +2111,7 @@
     </div>
 
     <script>
+        window.CURRENT_USER = {{ user.username | tojson if user else 'null' }};
         function openDomainOverviewModal(domain) {
             if (!domain) return;
             const modal = document.getElementById('domain-overview-modal');

@@ -27,6 +27,7 @@ tasks_col = db["tasks"]
 source_maps_col = db["recovered_source_maps"]
 findings_col = db["findings"]
 workspaces_col = db["workspaces"]
+hunt_activities_col = db["hunt_activities"]
 
 # Sync client for setup scripts
 sync_client = MongoClient(MONGO_URI)
@@ -37,3 +38,5 @@ sync_settings_col = sync_db["settings"]
 sync_tasks_col = sync_db["tasks"]
 sync_findings_col = sync_db["findings"]
 sync_workspaces_col = sync_db["workspaces"]
+sync_hunt_activities_col = sync_db["hunt_activities"]
+

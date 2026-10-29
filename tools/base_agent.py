@@ -56,6 +56,7 @@ class BaseAgent:
         self.fingerprints_col = self.db["alert_fingerprints"]
         self.settings_col = self.db["settings"]
         self.workspaces_col = self.db["workspaces"]
+        self.hunt_activities_col = self.db["hunt_activities"]
         self.pause_event = asyncio.Event()
         self.pause_event.set() # Default to running
         self._last_serviced_ws = None
@@ -874,6 +875,71 @@ class BaseAgent:
             except Exception as se:
                 logger.warning(f"Could not update subdomains.scanned for {root_domain}: {se}")
             logger.info(f"Root domain {root_domain} fully scanned.")
+
+            # Threat Hunting: Check if already-covered domain has newly expanded perimeter
+            try:
+                doc = await self.domains_col.find_one({"domain": root_domain})
+                if doc and doc.get("threat_hunt"):
+                    hunt = doc["threat_hunt"]
+                    if hunt.get("status") == "covered":
+                        sub_count = len(doc.get("infrastructure", {}).get("subdomains") or [])
+                        port_count = sum(len(sys.get("ports", [])) for sys in (doc.get("systems") or []))
+                        cf = doc.get("infrastructure", {}).get("cloud_footprint") or {}
+                        bucket_count = sum(len(cf.get(k, [])) for k in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"])
+
+                        prev_snap = hunt.get("last_recon_snapshot_count") or {}
+                        prev_subs = prev_snap.get("subdomains", 0)
+                        prev_ports = prev_snap.get("open_ports", 0)
+                        prev_buckets = prev_snap.get("cloud_buckets", 0)
+
+                        new_subs = max(0, sub_count - prev_subs)
+                        new_ports = max(0, port_count - prev_ports)
+                        new_buckets = max(0, bucket_count - prev_buckets)
+
+                        if new_subs > 0 or new_ports > 0 or new_buckets > 0:
+                            delta_reasons = []
+                            if new_subs > 0:
+                                delta_reasons.append(f"{new_subs} new subdomain(s)")
+                            if new_ports > 0:
+                                delta_reasons.append(f"{new_ports} new open port(s)")
+                            if new_buckets > 0:
+                                delta_reasons.append(f"{new_buckets} new cloud bucket(s)")
+                            reason_str = ", ".join(delta_reasons)
+
+                            hist_entry = {
+                                "action": "surface_changed",
+                                "user": "System (Recon Engine)",
+                                "timestamp": now_iso,
+                                "details": f"Automated attack surface delta detected since signoff: {reason_str}. Retesting recommended."
+                            }
+                            await self.domains_col.update_one(
+                                {"domain": root_domain},
+                                {
+                                    "$set": {
+                                        "threat_hunt.status": "surface_changed",
+                                        "threat_hunt.surface_changed": True
+                                    },
+                                    "$push": {
+                                        "threat_hunt.history": hist_entry
+                                    }
+                                }
+                            )
+                            if hasattr(self, "hunt_activities_col") and self.hunt_activities_col is not None:
+                                await self.hunt_activities_col.insert_one({
+                                    "domain": root_domain,
+                                    "action": "surface_changed",
+                                    "user": "System",
+                                    "timestamp": now_iso,
+                                    "delta": {
+                                        "new_subdomains": new_subs,
+                                        "new_ports": new_ports,
+                                        "new_cloud_buckets": new_buckets
+                                    },
+                                    "details": f"Automated delta detected: {reason_str}"
+                                })
+                            logger.info(f"[Threat Hunting] Attack surface expanded for covered domain {root_domain}: {reason_str}. Flagged as surface_changed.")
+            except Exception as he:
+                logger.warning(f"Error checking threat hunt attack surface delta for {root_domain}: {he}")
 
     async def run_command(self, cmd, timeout=300):
         """Helper to run shell commands asynchronously with a timeout."""

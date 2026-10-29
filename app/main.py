@@ -24,7 +24,7 @@ from app.resource_monitor import read_system_vitals, estimate_pipeline_footprint
 
 logger = logging.getLogger(__name__)
 
-from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col, workspaces_col
+from app.database import domains_col, users_col, audit_logs_col, leads_col, scanners_col, settings_col, tasks_col, source_maps_col, findings_col, workspaces_col, hunt_activities_col
 from app.security import (
     verify_password, 
     create_access_token, 
@@ -106,6 +106,26 @@ def format_domain_item(d: dict):
         "last_scanned": d.get("last_scanned", "Never")
     }
 
+def get_default_threat_hunt():
+    return {
+        "status": "unassessed",
+        "claimed_by": None,
+        "claimed_at": None,
+        "covered_by": None,
+        "covered_at": None,
+        "last_assessed_at": None,
+        "scope_type": "in_scope_full",
+        "methodology": [],
+        "notes": "",
+        "surface_changed": False,
+        "last_recon_snapshot_count": {
+            "subdomains": 0,
+            "open_ports": 0,
+            "cloud_buckets": 0
+        },
+        "history": []
+    }
+
 def get_flattened_pipeline(
     root_query: dict,
     q: Optional[str] = None,
@@ -170,7 +190,8 @@ def get_flattened_pipeline(
                 "on_hold": 1,
                 "added_at": 1,
                 "scan_interval": 1,
-                "single_domain_only": 1
+                "single_domain_only": 1,
+                "threat_hunt": {"$ifNull": ["$threat_hunt", {}]}
             }
         },
         {"$unwind": "$targets"},
@@ -195,6 +216,7 @@ def get_flattened_pipeline(
                 "dangling_takeover": {"$ifNull": ["$targets.dangling_takeover", False]},
                 "cname": {"$ifNull": ["$targets.cname", None]},
                 "takeover_provider": {"$ifNull": ["$targets.takeover_provider", None]},
+                "threat_hunt": "$threat_hunt",
                 "system": {
                     "$arrayElemAt": [
                         {
@@ -305,6 +327,7 @@ def get_flattened_pipeline(
                 "dangling_takeover": 1,
                 "cname": 1,
                 "takeover_provider": 1,
+                "threat_hunt": 1,
                 "system": 1,
                 "target_ips": 1,
                 "web_app": 1,
@@ -1825,7 +1848,8 @@ async def get_workspace_topology(request: Request, user: dict = Depends(get_curr
         "asn": 1,
         "as_org": 1,
         "cidr": 1,
-        "scanned": 1
+        "scanned": 1,
+        "threat_hunt": 1
     }).limit(200)
 
     docs = await cursor.to_list(length=200)
@@ -1858,6 +1882,7 @@ async def get_workspace_topology(request: Request, user: dict = Depends(get_curr
         waf = d.get("infrastructure", {}).get("waf")
 
         domains_list.append({
+            "id": str(d["_id"]),
             "domain": d_name,
             "single_domain_only": d.get("single_domain_only", False),
             "ip": ips[0] if ips else d.get("ip"),
@@ -1868,7 +1893,8 @@ async def get_workspace_topology(request: Request, user: dict = Depends(get_curr
             "asn": d.get("asn"),
             "as_org": d.get("as_org"),
             "cidr": d.get("cidr"),
-            "scanned": bool(d.get("scanned"))
+            "scanned": bool(d.get("scanned")),
+            "threat_hunt": d.get("threat_hunt") or {"status": "unassessed"}
         })
 
     return {
@@ -4207,7 +4233,8 @@ async def get_domains(
             "has_graphql": bool(d.get("has_graphql", False)),
             "subdomain_drift_count": sub_drift_count,
             "latest_subdomain_drift_time": latest_drift_time,
-            "has_subdomain_drift": sub_drift_count > 0
+            "has_subdomain_drift": sub_drift_count > 0,
+            "threat_hunt": d.get("threat_hunt") or {"status": "unassessed"}
         })
     
     return {"domains": results, "total": total, "page": page, "limit": limit}
@@ -4356,7 +4383,8 @@ async def add_domain(
         "notes": "",
         "added_at": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "initial_scan_completed": False,
-        "scan_cycle_count": 0
+        "scan_cycle_count": 0,
+        "threat_hunt": get_default_threat_hunt()
     })
     
     # Queue initial tasks: for single targets (including subdomains), run alive verification and port scan
@@ -4482,7 +4510,8 @@ async def bulk_add_domains(
             "notes": "",
             "added_at": now_str,
             "initial_scan_completed": True if scanned_val else False,
-            "scan_cycle_count": 1 if scanned_val else 0
+            "scan_cycle_count": 1 if scanned_val else 0,
+            "threat_hunt": get_default_threat_hunt()
         })
         
         if not scanned_val and not on_hold_val:
@@ -4705,6 +4734,446 @@ async def update_domain_notes(domain_id: str, request: Request, notes: str = For
         raise HTTPException(status_code=400, detail="Invalid domain ID format")
     await domains_col.update_one({"_id": obj_id}, {"$set": {"notes": notes}})
     return {"status": "success"}
+
+# =========================================================================
+# Threat Hunting & Penetration Testing Coverage APIs
+# =========================================================================
+
+def get_default_threat_hunt():
+    return {
+        "status": "unassessed",
+        "claimed_by": None,
+        "claimed_at": None,
+        "covered_by": None,
+        "covered_at": None,
+        "last_assessed_at": None,
+        "scope_type": "in_scope_full",
+        "methodology": [],
+        "notes": "",
+        "surface_changed": False,
+        "last_recon_snapshot_count": {
+            "subdomains": 0,
+            "open_ports": 0,
+            "cloud_buckets": 0
+        },
+        "history": []
+    }
+
+def calculate_recon_snapshot(domain_doc: dict) -> dict:
+    subs = domain_doc.get("infrastructure", {}).get("subdomains") or []
+    sub_count = len(subs)
+
+    ports_set = set()
+    for sys in domain_doc.get("systems") or []:
+        if isinstance(sys, dict):
+            ip_str = sys.get("ip") or sys.get("target") or ""
+            for p in sys.get("open_ports") or sys.get("ports") or []:
+                port_num = p.get("port") if isinstance(p, dict) else p
+                if port_num:
+                    ports_set.add(f"{ip_str}:{port_num}")
+
+    cloud_fp = domain_doc.get("infrastructure", {}).get("cloud_footprint") or {}
+    cloud_count = 0
+    if isinstance(cloud_fp, dict):
+        cloud_count = (
+            len(cloud_fp.get("s3_buckets") or []) +
+            len(cloud_fp.get("azure_blobs") or []) +
+            len(cloud_fp.get("gcp_buckets") or []) +
+            len(cloud_fp.get("other_buckets") or [])
+        )
+    elif isinstance(cloud_fp, list):
+        cloud_count = len(cloud_fp)
+
+    return {
+        "subdomains": sub_count,
+        "open_ports": len(ports_set),
+        "cloud_buckets": cloud_count
+    }
+
+@app.post("/api/domains/{domain_id}/hunt/claim")
+async def claim_domain_hunt(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Claim a domain target for threat hunting / penetration testing."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    username = user["username"]
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # If already claimed by someone else, verify force flag
+    if hunt.get("status") == "in_progress" and hunt.get("claimed_by") and hunt.get("claimed_by") != username:
+        force = False
+        try:
+            body = await request.json()
+            force = bool(body.get("force"))
+        except Exception:
+            pass
+        if not force:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Target is already claimed by @{hunt.get('claimed_by')}. Force override to take over."
+            )
+
+    hunt["status"] = "in_progress"
+    hunt["claimed_by"] = username
+    hunt["claimed_at"] = now_iso
+
+    history_entry = {
+        "action": "claimed",
+        "username": username,
+        "timestamp": now_iso
+    }
+    history = hunt.get("history") or []
+    history.append(history_entry)
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": username,
+        "action": "claim",
+        "details": f"Claimed target for threat hunting"
+    })
+    await log_audit(username, "HUNT_CLAIM", f"Claimed target {domain_doc['domain']} for threat hunting", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
+@app.post("/api/domains/{domain_id}/hunt/release")
+async def release_domain_hunt(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Release a target claim back to unassessed (or covered if previously assessed)."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    username = user["username"]
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    new_status = "covered" if hunt.get("covered_by") else "unassessed"
+    prev_claimer = hunt.get("claimed_by")
+    hunt["status"] = new_status
+    hunt["claimed_by"] = None
+    hunt["claimed_at"] = None
+
+    history_entry = {
+        "action": "released",
+        "username": username,
+        "timestamp": now_iso,
+        "prev_claimer": prev_claimer
+    }
+    history = hunt.get("history") or []
+    history.append(history_entry)
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": username,
+        "action": "release",
+        "details": f"Released claim on target"
+    })
+    await log_audit(username, "HUNT_RELEASE", f"Released claim on target {domain_doc['domain']}", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
+@app.post("/api/domains/{domain_id}/hunt/cover")
+async def mark_domain_covered(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Mark a domain target as covered with methodology checklist, operator notes, and snapshot."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        try:
+            form = await request.form()
+            payload = dict(form)
+        except Exception:
+            pass
+
+    notes = payload.get("notes", "").strip() if payload.get("notes") else ""
+    methodology = payload.get("methodology") or []
+    if isinstance(methodology, str):
+        methodology = [m.strip() for m in methodology.split(",") if m.strip()]
+    scope_type = payload.get("scope_type", "in_scope_full")
+
+    username = user["username"]
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    snapshot = calculate_recon_snapshot(domain_doc)
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    hunt["status"] = "covered"
+    hunt["covered_by"] = username
+    hunt["covered_at"] = now_iso
+    hunt["last_assessed_at"] = now_iso
+    hunt["claimed_by"] = None
+    hunt["claimed_at"] = None
+    hunt["scope_type"] = scope_type
+    hunt["methodology"] = methodology
+    hunt["notes"] = notes
+    hunt["surface_changed"] = False
+    hunt["last_recon_snapshot_count"] = snapshot
+
+    history_entry = {
+        "action": "marked_covered",
+        "username": username,
+        "timestamp": now_iso,
+        "methodology": methodology,
+        "notes": notes,
+        "scope_type": scope_type,
+        "snapshot": snapshot
+    }
+    history = hunt.get("history") or []
+    history.append(history_entry)
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": username,
+        "action": "mark_covered",
+        "details": f"Marked covered with {len(methodology)} methodology tags"
+    })
+    await log_audit(username, "HUNT_COVERED", f"Marked {domain_doc['domain']} as covered by {username}", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
+@app.post("/api/domains/{domain_id}/hunt/note")
+async def add_domain_hunt_note(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Append or update a threat hunting note on a target."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        try:
+            form = await request.form()
+            payload = dict(form)
+        except Exception:
+            pass
+
+    new_note = str(payload.get("note") or payload.get("notes") or "").strip()
+    append_mode = bool(payload.get("append", True))
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    username = user["username"]
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if append_mode and hunt.get("notes"):
+        existing = hunt.get("notes", "").strip()
+        formatted = f"{existing}\n[{now_iso}] @{username}: {new_note}"
+        hunt["notes"] = formatted
+    else:
+        hunt["notes"] = new_note
+
+    history_entry = {
+        "action": "note_added",
+        "username": username,
+        "timestamp": now_iso,
+        "note_snippet": (new_note[:100] + "...") if len(new_note) > 100 else new_note
+    }
+    history = hunt.get("history") or []
+    history.append(history_entry)
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": username,
+        "action": "add_note",
+        "details": f"Added testing note"
+    })
+    await log_audit(username, "HUNT_NOTE", f"Updated hunting notes on {domain_doc['domain']}", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
+@app.get("/api/threat-hunting/stats")
+async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_current_user)):
+    """Aggregate estate-wide threat hunting coverage metrics and tester activities."""
+    if not user:
+        raise HTTPException(status_code=401)
+
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    query = ws_clause if ws_clause else {}
+
+    # Aggregate counts by threat_hunt.status
+    pipeline = [
+        {"$match": query},
+        {
+            "$group": {
+                "_id": {
+                    "$ifNull": ["$threat_hunt.status", "unassessed"]
+                },
+                "count": {"$sum": 1}
+            }
+        }
+    ]
+
+    status_counts = {
+        "unassessed": 0,
+        "in_progress": 0,
+        "covered": 0,
+        "findings_flagged": 0,
+        "surface_changed": 0
+    }
+    total = 0
+
+    async for doc in domains_col.aggregate(pipeline):
+        st = doc["_id"] or "unassessed"
+        c = doc["count"]
+        total += c
+        status_counts[st] = status_counts.get(st, 0) + c
+
+    # By tester aggregation
+    tester_pipeline = [
+        {
+            "$match": {
+                **query,
+                "$or": [
+                    {"threat_hunt.covered_by": {"$exists": True, "$ne": None}},
+                    {"threat_hunt.claimed_by": {"$exists": True, "$ne": None}}
+                ]
+            }
+        },
+        {
+            "$project": {
+                "covered_by": "$threat_hunt.covered_by",
+                "claimed_by": "$threat_hunt.claimed_by",
+                "status": "$threat_hunt.status"
+            }
+        }
+    ]
+
+    testers_map = {}
+    async for d in domains_col.aggregate(tester_pipeline):
+        cov = d.get("covered_by")
+        clm = d.get("claimed_by")
+        if cov:
+            testers_map.setdefault(cov, {"username": cov, "covered": 0, "claimed": 0})
+            testers_map[cov]["covered"] += 1
+        if clm and d.get("status") == "in_progress":
+            testers_map.setdefault(clm, {"username": clm, "covered": 0, "claimed": 0})
+            testers_map[clm]["claimed"] += 1
+
+    testers_list = sorted(list(testers_map.values()), key=lambda x: (x["covered"], x["claimed"]), reverse=True)
+
+    # Recent activities (last 15)
+    ws_str = str(active_ws["_id"])
+    act_query = {"workspace_id": ws_str} if not active_ws.get("is_default") else {}
+    recent_cursor = hunt_activities_col.find(act_query).sort("timestamp", -1).limit(15)
+    recent_acts = await recent_cursor.to_list(length=15)
+    for act in recent_acts:
+        act["_id"] = str(act["_id"])
+
+    coverage_pct = round((status_counts.get("covered", 0) / total * 100), 1) if total > 0 else 0.0
+
+    return {
+        "workspace_id": ws_str,
+        "workspace_name": active_ws.get("name", "Active Workspace"),
+        "total_domains": total,
+        "status_counts": status_counts,
+        "coverage_percentage": coverage_pct,
+        "testers": testers_list,
+        "recent_activities": recent_acts
+    }
+
+@app.get("/api/threat-hunting/my-targets")
+async def get_my_threat_hunting_targets(request: Request, user: dict = Depends(get_current_user)):
+    """Fetch all targets assigned to or covered by the logged-in user in active workspace."""
+    if not user:
+        raise HTTPException(status_code=401)
+
+    username = user["username"]
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
+    user_criteria = {
+        "$or": [
+            {"threat_hunt.claimed_by": username},
+            {"threat_hunt.covered_by": username}
+        ]
+    }
+    query = {"$and": [ws_clause, user_criteria]} if ws_clause else user_criteria
+
+    cursor = domains_col.find(query, {
+        "domain": 1,
+        "single_domain_only": 1,
+        "ip": 1,
+        "target_ips": 1,
+        "scanned": 1,
+        "threat_hunt": 1,
+        "systems": 1,
+        "infrastructure.subdomains": 1
+    }).limit(100)
+
+    docs = await cursor.to_list(length=100)
+    results = []
+    for d in docs:
+        subs = d.get("infrastructure", {}).get("subdomains") or []
+        hunt = d.get("threat_hunt") or get_default_threat_hunt()
+        results.append({
+            "id": str(d["_id"]),
+            "domain": d.get("domain"),
+            "single_domain_only": d.get("single_domain_only", False),
+            "ip": d.get("ip"),
+            "subdomains_count": len(subs),
+            "scanned": bool(d.get("scanned")),
+            "threat_hunt": hunt
+        })
+
+    return {
+        "username": username,
+        "targets": results,
+        "count": len(results)
+    }
+
 
 @app.post("/api/domains/{domain_id}/scan-now")
 async def scan_now(domain_id: str, request: Request, user: dict = Depends(get_current_user)):

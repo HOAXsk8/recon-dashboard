@@ -352,6 +352,42 @@
                 </div>
             </div>
         </div>
+</div>
+
+<!-- Threat Hunting Quick Action Modal -->
+<div id="threat-hunt-modal" class="fixed inset-0 z-[125] hidden overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700/80 rounded-3xl shadow-2xl max-w-xl w-full p-6 text-slate-100 relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+        <!-- Header -->
+        <div class="flex items-start justify-between border-b border-slate-800 pb-4 mb-4">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">🎯</span>
+                    <h3 id="th-modal-domain" class="text-xl font-bold font-mono text-white">domain.com</h3>
+                </div>
+                <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span id="th-modal-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">Unassessed</span>
+                    <span id="th-modal-attribution" class="text-xs text-slate-400 font-mono"></span>
+                </div>
+            </div>
+            <button onclick="closeThreatHuntModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <!-- Dynamic Action Content Container -->
+        <div id="th-modal-actions-container" class="space-y-4">
+            <!-- Dynamically populated via JS -->
+        </div>
+
+        <!-- History Timeline -->
+        <div class="mt-6 pt-4 border-t border-slate-800">
+            <h4 class="text-xs font-mono uppercase text-slate-400 font-bold tracking-wider mb-2 flex items-center gap-1.5">
+                <span>🕒</span> Audit Trail & History
+            </h4>
+            <div id="th-modal-history-list" class="space-y-2 max-h-40 overflow-y-auto text-xs font-mono text-slate-300">
+                <span class="text-slate-500 italic">No activity recorded yet.</span>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1327,8 +1363,22 @@
             case 'overview':
                 const stats = data.stats || { open_alerts: 0, true_positives: 0, false_positives: 0 };
                 const reconDate = data.recon_date ? new Date(data.recon_date).toLocaleString() : 'N/A';
+                const overviewHunt = data.threat_hunt || { status: 'unassessed' };
+                let overviewHuntBadgeClass = 'bg-slate-700/60 text-slate-300 border-slate-600/50';
+                let overviewHuntLabel = 'Unassessed';
+                if (overviewHunt.status === 'covered') {
+                    overviewHuntBadgeClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+                    overviewHuntLabel = 'Covered';
+                } else if (overviewHunt.status === 'in_progress') {
+                    overviewHuntBadgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+                    overviewHuntLabel = overviewHunt.claimed_by ? `Active: ${overviewHunt.claimed_by}` : 'Active';
+                } else if (overviewHunt.status === 'surface_changed') {
+                    overviewHuntBadgeClass = 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
+                    overviewHuntLabel = 'Delta Alert';
+                }
+
                 content.innerHTML = `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                         <div class="bg-white dark:bg-tech-bg p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                             <h4 class="text-xs font-bold text-slate-500 uppercase mb-2">Capture Timestamp</h4>
                             <p class="text-lg font-mono text-slate-800 dark:text-slate-300">${reconDate}</p>
@@ -1339,6 +1389,23 @@
                                 ${data.infrastructure?.waf?.firewall || (data.infrastructure?.waf?.scanned_at ? 'None found' : 'Not yet scanned')}
                             </p>
                             ${data.infrastructure?.waf?.manufacturer ? `<p class="text-xs text-slate-500 mt-1">${data.infrastructure.waf.manufacturer}</p>` : ''}
+                        </div>
+                        <div class="bg-white dark:bg-tech-bg p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <h4 class="text-xs font-bold text-slate-500 uppercase">Threat Hunting</h4>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${overviewHuntBadgeClass}">${overviewHuntLabel}</span>
+                                </div>
+                                <p class="text-xs text-slate-400 font-mono truncate">
+                                    ${overviewHunt.status === 'covered' ? `Assessed by @${overviewHunt.covered_by || 'tester'}` :
+                                      overviewHunt.status === 'in_progress' ? `Claimed by @${overviewHunt.claimed_by || 'tester'}` :
+                                      overviewHunt.status === 'surface_changed' ? `Perimeter expanded since signoff` : 'Awaiting tester coverage'}
+                                </p>
+                            </div>
+                            <button onclick="window.openThreatHuntModal(currentDetailData)" class="mt-3 w-full py-1.5 px-3 bg-tech-cyan/10 hover:bg-tech-cyan/20 border border-tech-cyan/30 text-tech-cyan rounded-xl text-xs font-mono font-bold transition-all text-center flex items-center justify-center gap-1.5 shadow-sm">
+                                <span>🎯</span>
+                                <span>Coverage Signoff & Notes</span>
+                            </button>
                         </div>
                     </div>
 
@@ -1567,6 +1634,16 @@
                                         <span id="topo-scope-sub-label"></span>
                                         <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Target View">×</button>
                                     </span>
+                                    <!-- Threat Hunting Coverage Indicator -->
+                                    <div id="topo-coverage-indicator" class="flex items-center gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-1 rounded-xl text-xs font-mono" title="Workspace Threat Hunting & Pentest Coverage">
+                                        <span class="text-slate-400 font-bold flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Coverage:
+                                        </span>
+                                        <div class="w-20 sm:w-28 h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                                            <div id="topo-coverage-bar-fill" class="h-full bg-gradient-to-r from-emerald-500 to-tech-accent transition-all duration-500" style="width: 0%;"></div>
+                                        </div>
+                                        <span id="topo-coverage-stat-text" class="text-tech-accent font-bold">0%</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1599,6 +1676,31 @@
                                 </button>
                                 <button id="topo-filter-load_balancer" onclick="window.topologyToggleFilter('load_balancer')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all cursor-pointer" title="Toggle Load Balancers & Proxies">
                                     <span class="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block"></span> Load Balancers
+                                </button>
+                            </div>
+
+                            <!-- Interactive Threat Hunting Coverage Filters -->
+                            <div class="flex items-center gap-2 text-xs font-mono flex-wrap bg-slate-900/80 p-2.5 rounded-2xl border border-slate-800">
+                                <span class="text-slate-400 text-[11px] uppercase tracking-wider font-bold mr-1 flex items-center gap-1.5">
+                                    <span class="text-amber-400">🎯</span> Threat Hunting:
+                                </span>
+                                <button id="topo-hunt-all" onclick="window.topologySetHuntFilter('all')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-tech-accent text-tech-bg font-bold cursor-pointer transition-all">
+                                    All
+                                </button>
+                                <button id="topo-hunt-unassessed" onclick="window.topologySetHuntFilter('unassessed')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all" title="Filter to unassessed targets ready for hunting">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block"></span> Unassessed
+                                </button>
+                                <button id="topo-hunt-in_progress" onclick="window.topologySetHuntFilter('in_progress')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all" title="Filter to targets currently claimed / being tested">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block animate-pulse"></span> Claimed / Active
+                                </button>
+                                <button id="topo-hunt-my" onclick="window.topologySetHuntFilter('my')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all" title="Targets claimed or assessed by you">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-sky-400 inline-block"></span> Claimed by Me
+                                </button>
+                                <button id="topo-hunt-covered" onclick="window.topologySetHuntFilter('covered')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all" title="Targets tested and signed off">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Covered
+                                </button>
+                                <button id="topo-hunt-surface_changed" onclick="window.topologySetHuntFilter('surface_changed')" class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all" title="Targets requiring re-test due to attack surface changes">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Surface Changed
                                 </button>
                             </div>
 
@@ -5043,8 +5145,29 @@
             }
             subtitle.textContent = `Asset ID: ${data._id || 'N/A'} • Recorded: ${recordedText}`;
 
+            // Threat Hunting Status Badge
+            const hunt = data.threat_hunt || { status: 'unassessed' };
+            const huntStatus = hunt.status || 'unassessed';
+            let huntBadgeClass = 'bg-slate-700/60 text-slate-300 border-slate-600/50';
+            let huntLabel = 'Unassessed';
+            if (huntStatus === 'covered') {
+                huntBadgeClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+                huntLabel = 'Covered';
+            } else if (huntStatus === 'in_progress') {
+                huntBadgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+                huntLabel = hunt.claimed_by ? `Active: ${hunt.claimed_by}` : 'Active';
+            } else if (huntStatus === 'surface_changed') {
+                huntBadgeClass = 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
+                huntLabel = 'Delta Alert';
+            }
+
             // Inject Actions
             actions.innerHTML = `
+                <button onclick="window.openThreatHuntModal(currentDetailData)" class="flex items-center space-x-1.5 px-3 py-1.5 bg-tech-cyan/10 hover:bg-tech-cyan/20 border border-tech-cyan/30 hover:border-tech-cyan text-tech-cyan rounded-lg text-xs font-mono font-bold transition-all shadow-sm" title="Threat Hunting & Coverage Signoff">
+                    <span>🎯</span>
+                    <span>Threat Hunt</span>
+                    <span id="detail-hunt-badge" class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full border ${huntBadgeClass}">${huntLabel}</span>
+                </button>
                 <button onclick="blacklistDomain('${data._id}')" class="p-2 bg-slate-800 hover:bg-orange-500/20 text-slate-400 hover:text-orange-500 rounded-lg transition-all" title="Blacklist Domain">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
                 </button>
@@ -5181,6 +5304,9 @@
         }
 
         fetchInventory();
+        if (window.refreshThreatHuntingStats) {
+            window.refreshThreatHuntingStats();
+        }
     });
 
     async function deleteDomain(domainId) {
@@ -5550,6 +5676,414 @@
         topoBuildAndLayoutGraph();
     };
 
+    // Threat Hunting Coverage State & Actions
+    topoState.huntFilter = 'all';
+
+    window.topologySetHuntFilter = function(filterKey) {
+        topoState.huntFilter = filterKey;
+        const keys = ['all', 'unassessed', 'in_progress', 'my', 'covered', 'surface_changed'];
+        keys.forEach(k => {
+            const btn = document.getElementById(`topo-hunt-${k}`);
+            if (!btn) return;
+            if (k === filterKey) {
+                btn.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-tech-accent text-tech-bg font-bold cursor-pointer transition-all';
+            } else {
+                btn.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 cursor-pointer transition-all';
+            }
+        });
+        topoTriggerDraw();
+    };
+
+    function showHuntToast(message, type = 'success') {
+        let container = document.getElementById('hunt-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'hunt-toast-container';
+            container.className = 'fixed bottom-5 right-5 z-[200] flex flex-col gap-2 pointer-events-none';
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        const bg = type === 'success' ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200' : (type === 'error' ? 'bg-rose-950/95 border-rose-500/50 text-rose-200' : 'bg-slate-900/95 border-slate-700 text-slate-200');
+        toast.className = `flex items-center gap-2 px-4 py-3 rounded-2xl border shadow-2xl backdrop-blur-md text-xs font-mono transition-all transform translate-y-2 opacity-0 pointer-events-auto ${bg}`;
+        toast.innerHTML = `<span class="font-bold text-sm">${type === 'success' ? '✓' : (type === 'error' ? '✕' : 'ℹ')}</span><span>${message}</span>`;
+        container.appendChild(toast);
+        requestAnimationFrame(() => {
+            toast.classList.remove('translate-y-2', 'opacity-0');
+        });
+        setTimeout(() => {
+            toast.classList.add('opacity-0', 'translate-y-2');
+            setTimeout(() => toast.remove(), 300);
+        }, 3500);
+    }
+
+    function getCoverFormHtml(hunt) {
+        const methodologies = [
+            { id: 'manual_web_app', label: 'Manual Web App & Burp Review' },
+            { id: 'port_service_review', label: 'Port & Service Audit' },
+            { id: 'auth_bypass_check', label: 'Auth & 403 Bypass Testing' },
+            { id: 'cloud_storage_audit', label: 'Cloud Storage & Bucket Audit' },
+            { id: 'api_graphql_fuzz', label: 'API & GraphQL Inspection' },
+            { id: 'subdomain_takeover', label: 'Subdomain Takeover Check' }
+        ];
+        const checkedMeth = hunt?.methodology || [];
+
+        return `
+        <div class="space-y-3 pt-2">
+            <div>
+                <label class="text-[11px] font-mono text-slate-400 uppercase font-bold block mb-1">Testing Scope</label>
+                <select id="th-form-scope" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-tech-accent">
+                    <option value="in_scope_full" ${hunt?.scope_type === 'in_scope_full' ? 'selected' : ''}>In Scope - Full Testing</option>
+                    <option value="osint_only" ${hunt?.scope_type === 'osint_only' ? 'selected' : ''}>OSINT & External Only</option>
+                    <option value="third_party_saas" ${hunt?.scope_type === 'third_party_saas' ? 'selected' : ''}>Third Party / SaaS Integration</option>
+                    <option value="out_of_scope" ${hunt?.scope_type === 'out_of_scope' ? 'selected' : ''}>Out of Scope</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-[11px] font-mono text-slate-400 uppercase font-bold block mb-1.5">Methodology Completed</label>
+                <div class="grid grid-cols-2 gap-2" id="th-methodology-checkboxes">
+                    ${methodologies.map(m => `
+                    <label class="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer text-xs font-mono">
+                        <input type="checkbox" value="${m.id}" ${checkedMeth.includes(m.id) ? 'checked' : ''} class="rounded border-slate-700 text-emerald-500 focus:ring-0">
+                        <span class="text-slate-300 truncate">${m.label}</span>
+                    </label>`).join('')}
+                </div>
+            </div>
+            <div>
+                <label class="text-[11px] font-mono text-slate-400 uppercase font-bold block mb-1">Tester Notes & Sign-Off Details</label>
+                <textarea id="th-form-notes" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-tech-accent" placeholder="Document verified ports, manual test boundaries, or 403 bypass results...">${hunt?.notes || ''}</textarea>
+            </div>
+            <button onclick="window.submitHuntCover()" class="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold text-sm font-mono shadow-lg transition-all flex items-center justify-center gap-2">
+                <span>✅</span> Confirm Coverage & Sign Off
+            </button>
+        </div>`;
+    }
+
+    window.toggleCoverForm = function() {
+        const sec = document.getElementById('th-direct-cover-section');
+        if (sec) sec.classList.toggle('hidden');
+    };
+
+    window.activeHuntNodeInfo = null;
+
+    window.openThreatHuntModal = function(info) {
+        if (!info) return;
+        window.activeHuntNodeInfo = info;
+        const modal = document.getElementById('threat-hunt-modal');
+        if (!modal) return;
+
+        const domainTitle = document.getElementById('th-modal-domain');
+        const statusBadge = document.getElementById('th-modal-status-badge');
+        const attribution = document.getElementById('th-modal-attribution');
+        const actionsContainer = document.getElementById('th-modal-actions-container');
+        const historyList = document.getElementById('th-modal-history-list');
+
+        const domainName = info.domain || info.label || 'Target';
+        const hunt = info.threat_hunt || { status: 'unassessed' };
+        const curUser = window.CURRENT_USER || 'analyst';
+
+        if (domainTitle) domainTitle.textContent = domainName;
+
+        let badgeClass = 'bg-slate-800 text-slate-300 border-slate-700';
+        let statusLabel = 'Unassessed';
+        if (hunt.status === 'covered') {
+            badgeClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+            statusLabel = 'Covered';
+        } else if (hunt.status === 'in_progress') {
+            badgeClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+            statusLabel = 'Claimed / In Progress';
+        } else if (hunt.status === 'surface_changed' || hunt.surface_changed) {
+            badgeClass = 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+            statusLabel = 'Surface Changed (Retest Needed)';
+        }
+        if (statusBadge) {
+            statusBadge.className = `px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border ${badgeClass}`;
+            statusBadge.textContent = statusLabel;
+        }
+
+        if (attribution) {
+            if (hunt.status === 'covered' && hunt.covered_by) {
+                attribution.textContent = `Assessed by @${hunt.covered_by} on ${hunt.covered_at ? new Date(hunt.covered_at).toLocaleDateString() : ''}`;
+            } else if (hunt.status === 'in_progress' && hunt.claimed_by) {
+                attribution.textContent = `Claimed by @${hunt.claimed_by}`;
+            } else {
+                attribution.textContent = 'Awaiting tester assignment';
+            }
+        }
+
+        let html = '';
+        const isClaimedByMe = (hunt.claimed_by === curUser);
+        const isClaimedByOther = (hunt.status === 'in_progress' && hunt.claimed_by && hunt.claimed_by !== curUser);
+
+        if (hunt.status === 'unassessed' || hunt.status === 'surface_changed' || hunt.surface_changed) {
+            if (hunt.status === 'surface_changed' || hunt.surface_changed) {
+                html += `
+                <div class="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs font-mono flex items-center gap-2">
+                    <span class="text-rose-400 font-bold">⚠️ Attack Surface Changed:</span>
+                    <span>Continuous recon discovered new subdomains/ports since last coverage sign-off.</span>
+                </div>`;
+            }
+            html += `
+            <div class="space-y-3">
+                <button onclick="window.submitHuntAction('claim')" class="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm font-mono shadow-lg transition-all flex items-center justify-center gap-2">
+                    <span>🎯</span> Claim This Target for Threat Hunting
+                </button>
+                <div class="text-center">
+                    <button onclick="window.toggleCoverForm()" class="text-xs text-slate-400 hover:text-white underline font-mono">Or mark as covered directly</button>
+                </div>
+                <div id="th-direct-cover-section" class="hidden">
+                    ${getCoverFormHtml(hunt)}
+                </div>
+            </div>`;
+        } else if (hunt.status === 'in_progress') {
+            if (isClaimedByOther) {
+                html += `
+                <div class="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs font-mono flex items-center justify-between gap-2">
+                    <div>
+                        <span class="font-bold">⚡ Currently claimed by @${hunt.claimed_by}</span>
+                        <p class="text-[11px] text-amber-400/80 mt-0.5">Contact operator or take over claim if they are inactive.</p>
+                    </div>
+                    <button onclick="window.submitHuntAction('claim', { force: true })" class="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs font-mono transition-all">
+                        Take Over Claim
+                    </button>
+                </div>`;
+            } else {
+                html += `
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono">
+                        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> Active Threat Hunt Claim (You)</span>
+                        <button onclick="window.submitHuntAction('release')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono transition-colors">
+                            Release Claim
+                        </button>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-mono uppercase text-slate-400 font-bold tracking-wider mb-2">Sign-Off & Methodology Checklist</h4>
+                        ${getCoverFormHtml(hunt)}
+                    </div>
+                </div>`;
+            }
+        } else if (hunt.status === 'covered') {
+            html += `
+            <div class="space-y-3">
+                <div class="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-xs font-mono space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-emerald-400 font-bold flex items-center gap-1.5">
+                            <span>✓</span> Covered by @${hunt.covered_by || 'tester'}
+                        </span>
+                        <span class="text-slate-400">${hunt.covered_at ? new Date(hunt.covered_at).toLocaleString() : ''}</span>
+                    </div>
+                    ${hunt.scope_type ? `<div class="text-slate-300"><span class="text-slate-500">SCOPE:</span> <span class="capitalize text-slate-200">${hunt.scope_type.replace(/_/g, ' ')}</span></div>` : ''}
+                    ${hunt.methodology && hunt.methodology.length ? `
+                    <div>
+                        <span class="text-slate-500">METHODOLOGY:</span>
+                        <div class="flex flex-wrap gap-1 mt-1">
+                            ${hunt.methodology.map(m => `<span class="px-2 py-0.5 rounded-md bg-emerald-900/60 text-emerald-300 border border-emerald-700/40 text-[10px]">${m.replace(/_/g, ' ')}</span>`).join('')}
+                        </div>
+                    </div>` : ''}
+                    ${hunt.notes ? `
+                    <div class="pt-2 border-t border-slate-800">
+                        <span class="text-slate-500">NOTES:</span>
+                        <p class="text-slate-200 mt-1 whitespace-pre-wrap">${hunt.notes}</p>
+                    </div>` : ''}
+                </div>
+
+                <div class="flex items-center gap-2 pt-1">
+                    <button onclick="window.submitHuntAction('claim')" class="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs font-bold transition-all flex items-center justify-center gap-1.5">
+                        <span>🔄</span> Claim for Retest
+                    </button>
+                    <button onclick="window.promptAddNote()" class="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs font-bold transition-all flex items-center justify-center gap-1.5">
+                        <span>📝</span> Add Note
+                    </button>
+                </div>
+            </div>`;
+        }
+
+        if (actionsContainer) actionsContainer.innerHTML = html;
+
+        if (historyList) {
+            const history = hunt.history || [];
+            if (history.length === 0) {
+                historyList.innerHTML = '<span class="text-slate-500 italic">No activity recorded yet.</span>';
+            } else {
+                historyList.innerHTML = history.slice().reverse().map(h => {
+                    const timeStr = h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : '';
+                    return `
+                    <div class="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-start justify-between gap-2">
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-amber-400 font-bold uppercase text-[10px]">${(h.action || '').replace(/_/g, ' ')}</span>
+                                <span class="text-slate-400">by @${h.username || 'system'}</span>
+                            </div>
+                            ${h.notes ? `<p class="text-slate-300 text-[11px] mt-0.5">${h.notes}</p>` : ''}
+                            ${h.note_snippet ? `<p class="text-slate-300 text-[11px] mt-0.5">${h.note_snippet}</p>` : ''}
+                            ${h.details ? `<p class="text-slate-400 text-[11px] mt-0.5">${h.details}</p>` : ''}
+                        </div>
+                        <span class="text-[10px] text-slate-500 whitespace-nowrap">${timeStr}</span>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    };
+
+    window.closeThreatHuntModal = function() {
+        const modal = document.getElementById('threat-hunt-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    };
+
+    window.submitHuntAction = async function(action, extraPayload = {}) {
+        const info = window.activeHuntNodeInfo;
+        if (!info) return;
+        const domainId = info.id || info._id;
+        if (!domainId) {
+            alert('Domain ID is missing for this node.');
+            return;
+        }
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/hunt/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(extraPayload)
+            });
+            const res = await resp.json();
+            if (resp.ok) {
+                info.threat_hunt = res.threat_hunt;
+                if (window.currentDetailData && (window.currentDetailData._id === domainId || window.currentDetailData.domain === info.domain)) {
+                    window.currentDetailData.threat_hunt = res.threat_hunt;
+                    const badge = document.getElementById('detail-hunt-badge');
+                    if (badge) {
+                        const s = res.threat_hunt?.status || 'unassessed';
+                        let bClass = 'bg-slate-700/60 text-slate-300 border-slate-600/50';
+                        let bLabel = 'Unassessed';
+                        if (s === 'covered') {
+                            bClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+                            bLabel = 'Covered';
+                        } else if (s === 'in_progress') {
+                            bClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+                            bLabel = res.threat_hunt.claimed_by ? `Active: ${res.threat_hunt.claimed_by}` : 'Active';
+                        } else if (s === 'surface_changed') {
+                            bClass = 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
+                            bLabel = 'Delta Alert';
+                        }
+                        badge.className = `ml-1 text-[10px] px-1.5 py-0.5 rounded-full border ${bClass}`;
+                        badge.textContent = bLabel;
+                    }
+                }
+                if (topoState.isWorkspaceMode && topoState.workspaceData?.domains) {
+                    const d = topoState.workspaceData.domains.find(x => x.domain === info.domain);
+                    if (d) d.threat_hunt = res.threat_hunt;
+                    topoBuildWorkspaceGraph(topoState.workspaceData);
+                } else if (topoState.data) {
+                    topoState.data.threat_hunt = res.threat_hunt;
+                    topoBuildAndLayoutGraph();
+                }
+                window.openThreatHuntModal(info);
+                window.refreshThreatHuntingStats();
+                showHuntToast(`Threat hunting ${action} recorded for ${info.domain || info.label}!`, 'success');
+            } else {
+                alert('Action failed: ' + (res.detail || 'Server error'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Network error submitting threat hunt action.');
+        }
+    };
+
+    window.submitHuntCover = async function() {
+        const info = window.activeHuntNodeInfo;
+        if (!info) return;
+        const domainId = info.id || info._id;
+        if (!domainId) {
+            alert('Domain ID is missing for this node.');
+            return;
+        }
+        const scopeEl = document.getElementById('th-form-scope');
+        const notesEl = document.getElementById('th-form-notes');
+        const checkboxes = document.querySelectorAll('#th-methodology-checkboxes input:checked');
+        const methodology = Array.from(checkboxes).map(cb => cb.value);
+
+        const payload = {
+            scope_type: scopeEl ? scopeEl.value : 'in_scope_full',
+            notes: notesEl ? notesEl.value.trim() : '',
+            methodology: methodology
+        };
+
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/hunt/cover`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const res = await resp.json();
+            if (resp.ok) {
+                info.threat_hunt = res.threat_hunt;
+                if (window.currentDetailData && (window.currentDetailData._id === domainId || window.currentDetailData.domain === info.domain)) {
+                    window.currentDetailData.threat_hunt = res.threat_hunt;
+                    const badge = document.getElementById('detail-hunt-badge');
+                    if (badge) {
+                        const s = res.threat_hunt?.status || 'unassessed';
+                        let bClass = 'bg-slate-700/60 text-slate-300 border-slate-600/50';
+                        let bLabel = 'Unassessed';
+                        if (s === 'covered') {
+                            bClass = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+                            bLabel = 'Covered';
+                        } else if (s === 'in_progress') {
+                            bClass = 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse';
+                            bLabel = res.threat_hunt.claimed_by ? `Active: ${res.threat_hunt.claimed_by}` : 'Active';
+                        } else if (s === 'surface_changed') {
+                            bClass = 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
+                            bLabel = 'Delta Alert';
+                        }
+                        badge.className = `ml-1 text-[10px] px-1.5 py-0.5 rounded-full border ${bClass}`;
+                        badge.textContent = bLabel;
+                    }
+                }
+                if (topoState.isWorkspaceMode && topoState.workspaceData?.domains) {
+                    const d = topoState.workspaceData.domains.find(x => x.domain === info.domain);
+                    if (d) d.threat_hunt = res.threat_hunt;
+                    topoBuildWorkspaceGraph(topoState.workspaceData);
+                } else if (topoState.data) {
+                    topoState.data.threat_hunt = res.threat_hunt;
+                    topoBuildAndLayoutGraph();
+                }
+                window.openThreatHuntModal(info);
+                window.refreshThreatHuntingStats();
+                showHuntToast(`Marked ${info.domain || info.label} as COVERED!`, 'success');
+            } else {
+                alert('Sign-off failed: ' + (res.detail || 'Server error'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Network error marking coverage.');
+        }
+    };
+
+    window.promptAddNote = async function() {
+        const info = window.activeHuntNodeInfo;
+        if (!info) return;
+        const note = prompt('Enter threat hunting note to append:');
+        if (!note || !note.trim()) return;
+        await window.submitHuntAction('note', { note: note.trim(), append: true });
+    };
+
+    window.refreshThreatHuntingStats = async function() {
+        try {
+            const resp = await fetch('/api/threat-hunting/stats');
+            if (!resp.ok) return;
+            const stats = await resp.json();
+            const barFill = document.getElementById('topo-coverage-bar-fill');
+            const statText = document.getElementById('topo-coverage-stat-text');
+            if (barFill) barFill.style.width = `${stats.coverage_percentage || 0}%`;
+            if (statText) statText.textContent = `${stats.coverage_percentage || 0}% (${stats.status_counts?.covered || 0}/${stats.total_domains || 0})`;
+        } catch (e) {
+            console.warn('Could not refresh coverage stats:', e);
+        }
+    };
+
     window.topologySetScope = function(subName) {
         if (topoState.isWorkspaceMode) {
             topoState.isWorkspaceMode = false;
@@ -5597,6 +6131,9 @@
             topoState.isWorkspaceMode = true;
             topoState.workspaceData = wsData;
             topoBuildWorkspaceGraph(wsData);
+            if (window.refreshThreatHuntingStats) {
+                window.refreshThreatHuntingStats();
+            }
         } catch (err) {
             console.error('Workspace topology error:', err);
             if (statsText) statsText.textContent = 'Error loading workspace map: ' + err.message;
@@ -5750,22 +6287,41 @@
             const dX = Math.cos(angle) * dist;
             const dY = Math.sin(angle) * dist;
 
+            const hunt = d.threat_hunt || { status: 'unassessed' };
+            let nodeColor = d.single_domain_only ? '#0284c7' : '#334155';
+            let strokeColor = d.single_domain_only ? '#38bdf8' : '#64748b';
+            if (hunt.status === 'covered') {
+                nodeColor = '#059669';
+                strokeColor = '#34d399';
+            } else if (hunt.status === 'in_progress') {
+                nodeColor = '#d97706';
+                strokeColor = '#fbbf24';
+            } else if (hunt.status === 'surface_changed' || hunt.surface_changed) {
+                nodeColor = '#e11d48';
+                strokeColor = '#fb7185';
+            } else if (hunt.status === 'findings_flagged') {
+                nodeColor = '#7c3aed';
+                strokeColor = '#c084fc';
+            }
+
             const domNode = {
                 id: domId,
                 label: d.domain,
                 type: 'root',
-                color: d.single_domain_only ? '#38bdf8' : '#10b981',
-                strokeColor: d.single_domain_only ? '#7dd3fc' : '#34d399',
+                color: nodeColor,
+                strokeColor: strokeColor,
                 radius: 20,
                 x: dX,
                 y: dY,
                 info: {
+                    id: d.id,
                     domain: d.domain,
                     ip: d.ip || 'Unknown',
                     subdomainsCount: d.subdomains_count || 0,
                     scanned: d.scanned,
                     waf: d.waf?.firewall || null,
-                    load_balancer: d.load_balancer ? (d.load_balancer.vendor || d.load_balancer.lb_type || 'Detected') : null
+                    load_balancer: d.load_balancer ? (d.load_balancer.vendor || d.load_balancer.lb_type || 'Detected') : null,
+                    threat_hunt: hunt
                 }
             };
             nodesMap.set(domId, domNode);
@@ -5939,23 +6495,42 @@
         const rootWaf = getTargetWaf(rootDomain, null, data);
         const rootLb = getTargetLb(rootDomain, null, data);
 
+        const rootHunt = data.threat_hunt || { status: 'unassessed' };
+        let rootColor = '#334155';
+        let rootStroke = '#64748b';
+        if (rootHunt.status === 'covered') {
+            rootColor = '#059669';
+            rootStroke = '#34d399';
+        } else if (rootHunt.status === 'in_progress') {
+            rootColor = '#d97706';
+            rootStroke = '#fbbf24';
+        } else if (rootHunt.status === 'surface_changed' || rootHunt.surface_changed) {
+            rootColor = '#e11d48';
+            rootStroke = '#fb7185';
+        } else if (rootHunt.status === 'findings_flagged') {
+            rootColor = '#7c3aed';
+            rootStroke = '#c084fc';
+        }
+
         const rootNode = {
             id: 'root',
             label: rootDomain,
             type: 'root',
-            color: '#10b981',
-            strokeColor: '#34d399',
+            color: rootColor,
+            strokeColor: rootStroke,
             radius: 24,
             x: focused ? -220 : 0,
             y: 0,
             fixed: true,
             info: {
+                id: data._id,
                 domain: rootDomain,
                 ip: data.system?.ip || (data.target_ips && data.target_ips[0]) || 'Unknown',
                 subdomainsCount: 0,
                 scanned: Boolean(data.scanned),
                 waf: rootWaf ? (rootWaf.firewall || 'WAF Detected') : null,
-                load_balancer: rootLb ? `${rootLb.vendor || (rootLb.method && !rootLb.method.toLowerCase().includes('dns round-robin') ? rootLb.method.split('•')[0].trim() : 'LB')}: ${rootLb.lb_type || (rootLb.ips?.length > 1 ? 'Round Robin' : 'Detected')}` : null
+                load_balancer: rootLb ? `${rootLb.vendor || (rootLb.method && !rootLb.method.toLowerCase().includes('dns round-robin') ? rootLb.method.split('•')[0].trim() : 'LB')}: ${rootLb.lb_type || (rootLb.ips?.length > 1 ? 'Round Robin' : 'Detected')}` : null,
+                threat_hunt: rootHunt
             }
         };
         nodesMap.set('root', rootNode);
@@ -6997,6 +7572,13 @@
                         return;
                     }
                 }
+                // If clicked a root/domain node without dragging, open Threat Hunt Quick Action Modal!
+                if (distMoved < 6 && (clickedNode.type === 'root' || clickedNode.info?.threat_hunt)) {
+                    if (window.openThreatHuntModal) {
+                        window.openThreatHuntModal(clickedNode.info);
+                        return;
+                    }
+                }
                 topoTriggerDraw();
             }
             if (topoState.isPanning) {
@@ -7176,6 +7758,32 @@
             const isHovered = topoState.hoveredNode === n;
             const isDragged = topoState.draggedNode === n;
 
+            // Threat Hunting Filter Dimming
+            let isDimmed = false;
+            if (topoState.huntFilter && topoState.huntFilter !== 'all') {
+                const hStatus = n.info?.threat_hunt?.status || 'unassessed';
+                const hClaimed = n.info?.threat_hunt?.claimed_by;
+                const hCovered = n.info?.threat_hunt?.covered_by;
+                const curUser = window.CURRENT_USER;
+
+                if (n.type === 'root') {
+                    if (topoState.huntFilter === 'my') {
+                        if (hClaimed !== curUser && hCovered !== curUser) isDimmed = true;
+                    } else if (topoState.huntFilter === 'in_progress') {
+                        if (hStatus !== 'in_progress') isDimmed = true;
+                    } else if (topoState.huntFilter === 'covered') {
+                        if (hStatus !== 'covered') isDimmed = true;
+                    } else if (topoState.huntFilter === 'surface_changed') {
+                        if (hStatus !== 'surface_changed' && !n.info?.threat_hunt?.surface_changed) isDimmed = true;
+                    } else if (topoState.huntFilter === 'unassessed') {
+                        if (hStatus !== 'unassessed') isDimmed = true;
+                    }
+                } else if (n.type === 'subdomain') {
+                    isDimmed = true;
+                }
+            }
+            if (isDimmed) ctx.globalAlpha = 0.15;
+
             // Outer Glow if Hovered or Takeover or Root or Shared IP or WAF or LB
             if (isHovered || isDragged || n.type === 'takeover' || n.type === 'root' || n.type === 'waf' || n.type === 'load_balancer' || (n.type === 'ip' && (n.info?.hostedCount || 1) > 1)) {
                 ctx.beginPath();
@@ -7262,6 +7870,83 @@
                 ctx.fillText('L', badgeX, badgeY);
             }
 
+            // Draw Threat Hunting Status Ring & Badges on Domain Nodes
+            const hunt = n.info?.threat_hunt;
+            if (hunt && (n.type === 'root' || n.type === 'subdomain')) {
+                if (hunt.status === 'covered') {
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, n.radius + 5, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // Checkmark Badge
+                    const badgeX = n.x + n.radius - 2;
+                    const badgeY = n.y + n.radius - 2;
+                    ctx.beginPath();
+                    ctx.arc(badgeX, badgeY, 6.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#059669';
+                    ctx.fill();
+                    ctx.strokeStyle = '#34d399';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.font = 'bold 8px sans-serif';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('✓', badgeX, badgeY);
+                } else if (hunt.status === 'in_progress') {
+                    const nowPulse = (Math.sin(Date.now() / 250) + 1) * 2;
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, n.radius + 4 + nowPulse, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([3, 2]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Initials Badge
+                    const badgeX = n.x + n.radius - 2;
+                    const badgeY = n.y + n.radius - 2;
+                    const initials = (hunt.claimed_by || 'OP').slice(0, 2).toUpperCase();
+                    ctx.beginPath();
+                    ctx.arc(badgeX, badgeY, 7.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#d97706';
+                    ctx.fill();
+                    ctx.strokeStyle = '#fbbf24';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.font = 'bold 7px sans-serif';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(initials, badgeX, badgeY);
+                } else if (hunt.status === 'surface_changed' || hunt.surface_changed) {
+                    const nowPulse = (Math.sin(Date.now() / 200) + 1) * 3;
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, n.radius + 4 + nowPulse, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(244, 63, 94, 0.9)';
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+
+                    // Alert Badge
+                    const badgeX = n.x + n.radius - 2;
+                    const badgeY = n.y + n.radius - 2;
+                    ctx.beginPath();
+                    ctx.arc(badgeX, badgeY, 6.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#e11d48';
+                    ctx.fill();
+                    ctx.strokeStyle = '#fb7185';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.font = 'bold 8px sans-serif';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('!', badgeX, badgeY);
+                }
+            }
+
             // Node Label
             ctx.font = `${n.type === 'root' ? 'bold 12px' : '10px'} JetBrains Mono, monospace`;
             ctx.textAlign = 'center';
@@ -7277,6 +7962,8 @@
 
             ctx.fillStyle = isHovered ? '#38bdf8' : (n.type === 'takeover' ? '#fca5a5' : (n.type === 'root' ? '#34d399' : (n.type === 'waf' ? '#67e8f9' : (n.type === 'load_balancer' ? '#d8b4fe' : '#cbd5e1'))));
             ctx.fillText(labelText, n.x, textY);
+
+            if (isDimmed) ctx.globalAlpha = 1.0;
         });
 
         ctx.restore();
@@ -7307,7 +7994,7 @@
             else if (n.type === 'takeover') cardHeight = 115;
             else if (n.type === 'cloud') cardHeight = 100;
             else if (n.type === 'asn') cardHeight = 95;
-            else if (n.type === 'root') cardHeight = (info.waf || info.load_balancer) ? 120 : 90;
+            else if (n.type === 'root') cardHeight = (info.waf || info.load_balancer) ? 145 : 120;
             else if (n.type === 'waf') cardHeight = 105;
             else if (n.type === 'load_balancer') cardHeight = 105;
             else if (info.waf || info.load_balancer || info.takeover) cardHeight = 125;
@@ -7366,13 +8053,31 @@
             } else if (n.type === 'root') {
                 ctx.fillText(`SUBDOMAINS: ${info.subdomainsCount || 0} cataloged`, cx + 12, cy + 54);
                 ctx.fillText(`DEFAULT IP: ${info.ip || 'Unknown'}`, cx + 12, cy + 70);
+                let curY = 86;
                 if (info.waf) {
                     ctx.fillStyle = '#06b6d4';
-                    ctx.fillText(`🛡️ WAF: ${info.waf}`.slice(0, 32), cx + 12, cy + 86);
-                }
-                if (info.load_balancer) {
+                    ctx.fillText(`🛡️ WAF: ${info.waf}`.slice(0, 32), cx + 12, cy + curY);
+                    curY += 16;
+                } else if (info.load_balancer) {
                     ctx.fillStyle = '#a855f7';
-                    ctx.fillText(`⚖️ LB: ${info.load_balancer}`.slice(0, 32), cx + 12, cy + 102);
+                    ctx.fillText(`⚖️ LB: ${info.load_balancer}`.slice(0, 32), cx + 12, cy + curY);
+                    curY += 16;
+                }
+                const th = info.threat_hunt;
+                if (th) {
+                    if (th.status === 'covered') {
+                        ctx.fillStyle = '#10b981';
+                        ctx.fillText(`🎯 COVERED: @${th.covered_by || 'tester'}`, cx + 12, cy + curY);
+                    } else if (th.status === 'in_progress') {
+                        ctx.fillStyle = '#f59e0b';
+                        ctx.fillText(`⚡ IN PROGRESS: @${th.claimed_by || 'tester'}`, cx + 12, cy + curY);
+                    } else if (th.status === 'surface_changed' || th.surface_changed) {
+                        ctx.fillStyle = '#f43f5e';
+                        ctx.fillText(`⚠️ RETEST: Surface Changed`, cx + 12, cy + curY);
+                    } else {
+                        ctx.fillStyle = '#94a3b8';
+                        ctx.fillText(`🎯 HUNT: Unassessed (Click to open)`, cx + 12, cy + curY);
+                    }
                 }
             } else if (n.type === 'waf') {
                 ctx.fillText(`FIREWALL: ${info.firewall || 'WAF'}`, cx + 12, cy + 54);
