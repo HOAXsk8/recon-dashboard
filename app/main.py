@@ -1631,28 +1631,6 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         if parent_doc and parent_doc.get("infrastructure", {}).get("cloud_footprint"):
             cf = parent_doc["infrastructure"]["cloud_footprint"]
 
-    # Also merge any osint.cloud_assets if present
-    osint_assets = domain_data.get("osint", {}).get("cloud_assets") or []
-    for asset in osint_assets:
-        if isinstance(asset, dict):
-            p = asset.get("provider", "AWS S3")
-            status = "open" if asset.get("risk") == "Critical" or "open" in asset.get("status", "").lower() else "secured"
-            actual_source = (asset.get("source_app") or domain_name).lower().strip()
-            b_obj = {
-                "name": asset.get("name") or asset.get("url"),
-                "raw": asset.get("name") or asset.get("url"),
-                "url": asset.get("url"),
-                "provider": p,
-                "status": status,
-                "http_status": 200 if status == "open" else 403,
-                "details": f"{p} bucket ({status})",
-                "source_app": actual_source,
-                "discovered_by": "osint_agent"
-            }
-            cat = "s3_buckets" if "s3" in p.lower() else ("gcp_buckets" if "google" in p.lower() or "gcp" in p.lower() else "other_buckets")
-            if cat not in cf: cf[cat] = []
-            cf[cat].append(b_obj)
-
     scoped_cf = {}
     for bucket_key in ["s3_buckets", "azure_blobs", "gcp_buckets", "other_buckets"]:
         items = cf.get(bucket_key) or []
@@ -1661,8 +1639,16 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
         for b in items:
             if not isinstance(b, dict):
                 continue
+            disc_by = str(b.get("discovered_by") or "").strip().lower()
+            has_script = bool(b.get("source_script"))
+            is_genuine = has_script or disc_by == "dynamic_js_collector" or b.get("source") == "code_analysis"
+            if disc_by == "osint_agent" and not has_script:
+                continue
+            if not is_genuine and not has_script:
+                continue
+
             src = (b.get("source_app") or domain_name).lower().strip()
-            # If viewing root domain: show all buckets in the domain's entire footprint
+            # If viewing root domain: show all genuine buckets in the domain's footprint
             # If viewing a specific subdomain: ONLY show buckets explicitly detected on this subdomain
             if not is_root_view:
                 if src != target_lower:
@@ -1734,8 +1720,163 @@ async def search(request: Request, q: str, user: dict = Depends(get_current_user
             domain_data["history"] = [ev for ev in all_sorted if is_sub_match(ev)][:150]
         else:
             domain_data["history"] = all_sorted[:150]
-        
+
+    # Ensure system and target_ips are populated for single domain scans and root overview
+    if not domain_data.get("system") and domain_data.get("systems"):
+        domain_data["system"] = domain_data["systems"][0]
+
+    resolved_target_ips = []
+    if domain_data.get("ip") and str(domain_data["ip"]).strip() not in ("Unknown", "N/A", ""):
+        resolved_target_ips.append(str(domain_data["ip"]).strip())
+    for tip in domain_data.get("target_ips") or []:
+        if tip and str(tip).strip() not in ("Unknown", "N/A", ""):
+            resolved_target_ips.append(str(tip).strip())
+    if domain_data.get("system", {}).get("ip") and str(domain_data["system"]["ip"]).strip() not in ("Unknown", "N/A", ""):
+        resolved_target_ips.append(str(domain_data["system"]["ip"]).strip())
+    for s in domain_data.get("systems") or []:
+        if isinstance(s, dict) and s.get("ip") and str(s["ip"]).strip() not in ("Unknown", "N/A", ""):
+            resolved_target_ips.append(str(s["ip"]).strip())
+    for dns_a in domain_data.get("dns_records", {}).get("a") or []:
+        if dns_a and str(dns_a).strip() not in ("Unknown", "N/A", ""):
+            resolved_target_ips.append(str(dns_a).strip())
+    for dns_aaaa in domain_data.get("dns_records", {}).get("aaaa") or []:
+        if dns_aaaa and str(dns_aaaa).strip() not in ("Unknown", "N/A", ""):
+            resolved_target_ips.append(str(dns_aaaa).strip())
+    lb_dict = (domain_data.get("infrastructure", {}).get("load_balancer") or
+               domain_data.get("infrastructure", {}).get("root_load_balancer") or {})
+    for lb_ip in lb_dict.get("ips") or []:
+        if lb_ip and str(lb_ip).strip() not in ("Unknown", "N/A", ""):
+            resolved_target_ips.append(str(lb_ip).strip())
+
+    resolved_target_ips = list(dict.fromkeys(resolved_target_ips))
+    if resolved_target_ips:
+        domain_data["target_ips"] = resolved_target_ips
+        if not domain_data.get("ip") or domain_data.get("ip") in ("Unknown", "N/A"):
+            domain_data["ip"] = resolved_target_ips[0]
+        if not domain_data.get("system"):
+            domain_data["system"] = {"ip": resolved_target_ips[0], "target": domain_name}
+        elif not domain_data["system"].get("ip") or domain_data["system"].get("ip") in ("Unknown", "N/A"):
+            domain_data["system"]["ip"] = resolved_target_ips[0]
+
+    # Discover co-hosted sister domains in the same workspace sharing any of the resolved IPs
+    co_hosted = []
+    if resolved_target_ips:
+        try:
+            ip_clause = {
+                "domain": {"$ne": domain_data.get("domain")},
+                "$or": [
+                    {"ip": {"$in": resolved_target_ips}},
+                    {"target_ips": {"$in": resolved_target_ips}},
+                    {"systems.ip": {"$in": resolved_target_ips}},
+                    {"dns_records.a": {"$in": resolved_target_ips}},
+                    {"infrastructure.subdomains.ip": {"$in": resolved_target_ips}},
+                    {"infrastructure.load_balancer.ips": {"$in": resolved_target_ips}},
+                ]
+            }
+            co_query = scoped_query(ip_clause)
+            co_cursor = domains_col.find(co_query, {
+                "domain": 1,
+                "ip": 1,
+                "target_ips": 1,
+                "dns_records.a": 1,
+                "infrastructure.load_balancer": 1
+            }).limit(20)
+            co_docs = await co_cursor.to_list(length=20)
+            seen_co = set()
+            for cd in co_docs:
+                cd_name = cd.get("domain")
+                if cd_name and cd_name not in seen_co:
+                    seen_co.add(cd_name)
+                    cd_ips = set(cd.get("target_ips") or [])
+                    if cd.get("ip"): cd_ips.add(cd["ip"])
+                    if cd.get("dns_records", {}).get("a"): cd_ips.update(cd["dns_records"]["a"])
+                    shared = list(cd_ips.intersection(set(resolved_target_ips)))
+                    co_hosted.append({
+                        "domain": cd_name,
+                        "shared_ips": shared,
+                        "ip": shared[0] if shared else cd.get("ip"),
+                        "reason": "Shared IP / Edge Infrastructure"
+                    })
+        except Exception as e:
+            logger.warning(f"Error querying co-hosted domains: {e}")
+    domain_data["co_hosted_domains"] = co_hosted
+
     return domain_data
+
+@app.get("/api/workspace/topology")
+async def get_workspace_topology(request: Request, user: dict = Depends(get_current_user)):
+    """Return topology of all domains, load balancers, and shared IPs across the active workspace."""
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+    query = ws_clause if ws_clause else {}
+
+    cursor = domains_col.find(query, {
+        "domain": 1,
+        "single_domain_only": 1,
+        "ip": 1,
+        "target_ips": 1,
+        "dns_records.a": 1,
+        "dns_records.aaaa": 1,
+        "systems": 1,
+        "infrastructure": 1,
+        "asn": 1,
+        "as_org": 1,
+        "cidr": 1,
+        "scanned": 1
+    }).limit(200)
+
+    docs = await cursor.to_list(length=200)
+
+    domains_list = []
+    for d in docs:
+        d_name = d.get("domain")
+        if not d_name:
+            continue
+
+        ips = []
+        if d.get("ip") and str(d["ip"]).strip() not in ("Unknown", "N/A", ""):
+            ips.append(str(d["ip"]).strip())
+        for tip in d.get("target_ips") or []:
+            if tip and str(tip).strip() not in ("Unknown", "N/A", ""):
+                ips.append(str(tip).strip())
+        for dns_a in d.get("dns_records", {}).get("a") or []:
+            if dns_a and str(dns_a).strip() not in ("Unknown", "N/A", ""):
+                ips.append(str(dns_a).strip())
+        for s in d.get("systems") or []:
+            if isinstance(s, dict) and s.get("ip") and str(s["ip"]).strip() not in ("Unknown", "N/A", ""):
+                ips.append(str(s["ip"]).strip())
+        lb = d.get("infrastructure", {}).get("load_balancer") or {}
+        for lb_ip in lb.get("ips") or []:
+            if lb_ip and str(lb_ip).strip() not in ("Unknown", "N/A", ""):
+                ips.append(str(lb_ip).strip())
+
+        ips = list(dict.fromkeys(ips))
+        subs = d.get("infrastructure", {}).get("subdomains") or []
+        waf = d.get("infrastructure", {}).get("waf")
+
+        domains_list.append({
+            "domain": d_name,
+            "single_domain_only": d.get("single_domain_only", False),
+            "ip": ips[0] if ips else d.get("ip"),
+            "target_ips": ips,
+            "subdomains_count": len(subs),
+            "waf": waf,
+            "load_balancer": lb if (lb.get("detected") or lb.get("vendor") or lb.get("method") or lb.get("ips")) else None,
+            "asn": d.get("asn"),
+            "as_org": d.get("as_org"),
+            "cidr": d.get("cidr"),
+            "scanned": bool(d.get("scanned"))
+        })
+
+    return {
+        "workspace_id": str(active_ws["_id"]),
+        "workspace_name": active_ws.get("name", "Active Workspace"),
+        "domains": domains_list
+    }
+
 
 @app.get("/api/suggestions")
 async def get_suggestions(request: Request, q: str, user: dict = Depends(get_current_user)):
@@ -5085,8 +5226,27 @@ async def get_system_resources_api(request: Request, user: dict = Depends(get_cu
             "est_ram_mb": est_ram_mb
         })
         
+    limit_doc = await settings_col.find_one({"key": "resource_limit"})
+    resource_limit_pct = 80.0
+    if limit_doc and "target_percent" in limit_doc:
+        try:
+            resource_limit_pct = float(limit_doc["target_percent"])
+        except (ValueError, TypeError):
+            resource_limit_pct = 80.0
+
+    cpu_percent = float(vitals.get("cpu", {}).get("percent", 0.0))
+    ram_percent = float(vitals.get("memory", {}).get("percent", 0.0))
+    peak_pct = round(max(cpu_percent, ram_percent), 1)
+    governing_resource = "CPU" if cpu_percent >= ram_percent else "RAM"
+    headroom_pct = round(resource_limit_pct - peak_pct, 1)
+
     return {
         "vitals": vitals,
+        "resource_limit_percent": resource_limit_pct,
+        "governing_resource": governing_resource,
+        "peak_percent": peak_pct,
+        "headroom_percent": headroom_pct,
+        "is_capped": peak_pct >= resource_limit_pct,
         "containers": containers,
         "scanners": containers,
         "workspaces": workspaces_load,
@@ -5096,6 +5256,63 @@ async def get_system_resources_api(request: Request, user: dict = Depends(get_cu
         "circuit_breaker_reason": cb_reason if cb_reason else ("System vitals reached capacity limits (>=92%)." if vitals_raw.get("is_critical") else ""),
         "timestamp": vitals_raw.get("timestamp")
     }
+
+@app.get("/api/system/resource-limit")
+async def get_resource_limit_api(user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    limit_doc = await settings_col.find_one({"key": "resource_limit"})
+    limit_pct = 80.0
+    if limit_doc and "target_percent" in limit_doc:
+        try:
+            limit_pct = float(limit_doc["target_percent"])
+        except (ValueError, TypeError):
+            limit_pct = 80.0
+    return {"limit_percent": limit_pct}
+
+@app.post("/api/system/resource-limit")
+async def set_resource_limit_api(request: Request, user: dict = Depends(get_current_user)):
+    if not user:
+        raise HTTPException(status_code=401)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+    raw_val = body.get("limit_percent")
+    if raw_val is None:
+        raise HTTPException(status_code=400, detail="Missing limit_percent")
+        
+    try:
+        limit_pct = round(float(raw_val), 1)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="limit_percent must be a numeric value")
+        
+    if limit_pct < 10.0 or limit_pct > 90.0:
+        raise HTTPException(status_code=400, detail="limit_percent must be between 10.0% and 90.0%")
+        
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    await settings_col.update_one(
+        {"key": "resource_limit"},
+        {"$set": {
+            "key": "resource_limit",
+            "target_percent": limit_pct,
+            "updated_at": now_iso,
+            "updated_by": user.get("username", "admin")
+        }},
+        upsert=True
+    )
+    
+    # Also update target_ceiling in autoscaler document so telemetry reflects it immediately
+    await settings_col.update_one(
+        {"key": "autoscaler"},
+        {"$set": {"target_ceiling": limit_pct}}
+    )
+    
+    await log_audit(user.get("username", "admin"), "resource_limit_update", f"Updated system resource limit to {limit_pct}%", request)
+    logger.info(f"System resource usage limit updated to {limit_pct}% by {user.get('username')}")
+    return {"status": "ok", "limit_percent": limit_pct}
 
 @app.post("/api/workspaces/{workspace_id}/estimate-resources")
 async def estimate_workspace_resources_api(

@@ -395,15 +395,28 @@ class DirectoryHunterAgent(BaseAgent):
         except Exception as e:
             logger.debug(f"Error creating tech discovery alert: {e}")
 
-    def _extract_dirs_from_path(self, path: str, dir_set: set):
-        """Extracts directory prefix hierarchy from a route or endpoint path."""
+    def _extract_dirs_from_path(self, path: str, dir_set: set, target: str = "", root_domain: str = ""):
+        """Extracts directory prefix hierarchy from an in-scope route or endpoint path."""
         if not path or not isinstance(path, str):
             return
         if path.startswith("http://") or path.startswith("https://"):
             try:
-                path = urllib.parse.urlparse(path).path
+                parsed = urllib.parse.urlparse(path)
+                u_host = (parsed.hostname or "").lower().strip()
+                clean_target = (target or "").lower().strip()
+                clean_root = (root_domain or "").lower().strip()
+                # Verify that absolute URLs belong to our target or root_domain
+                if clean_target or clean_root:
+                    in_scope = False
+                    if clean_target and (u_host == clean_target or u_host.endswith("." + clean_target)):
+                        in_scope = True
+                    elif clean_root and (u_host == clean_root or u_host.endswith("." + clean_root)):
+                        in_scope = True
+                    if not in_scope:
+                        return
+                path = parsed.path
             except Exception:
-                pass
+                return
         path = path.split("?")[0].split("#")[0].strip()
         parts = [p.strip() for p in path.strip("/").split("/") if p.strip()]
         if not parts:
@@ -417,7 +430,7 @@ class DirectoryHunterAgent(BaseAgent):
     async def harvest_initial_directories(self, target: str, root_domain: str) -> set:
         """
         Harvests initial seed directories from:
-        1. Dynamic JS Collector routes & endpoints stored in web_applications and domain docs
+        1. Dynamic JS Collector in-scope routes & endpoints stored in web_applications and domain docs
         2. Prior discovered directories
         """
         initial_dirs = set([""]) # Always start with root
@@ -439,10 +452,12 @@ class DirectoryHunterAgent(BaseAgent):
                 # Top level routes if any
                 for r in doc.get("client_routes", []) + doc.get("dynamic_js", {}).get("client_routes", []):
                     path = r.get("path") if isinstance(r, dict) else str(r)
-                    self._extract_dirs_from_path(path, initial_dirs)
+                    self._extract_dirs_from_path(path, initial_dirs, target=clean_target, root_domain=clean_root)
                 for ep in doc.get("extracted_endpoints", []) + doc.get("dynamic_js", {}).get("extracted_endpoints", []):
+                    if isinstance(ep, dict) and ep.get("is_in_scope") is False:
+                        continue
                     path = ep.get("path") or ep.get("url") if isinstance(ep, dict) else str(ep)
-                    self._extract_dirs_from_path(path, initial_dirs)
+                    self._extract_dirs_from_path(path, initial_dirs, target=clean_target, root_domain=clean_root)
 
                 # Web applications
                 for app in doc.get("web_applications", []):
@@ -455,7 +470,7 @@ class DirectoryHunterAgent(BaseAgent):
                         )
                         for r in all_routes:
                             path = r.get("path") if isinstance(r, dict) else str(r)
-                            self._extract_dirs_from_path(path, initial_dirs)
+                            self._extract_dirs_from_path(path, initial_dirs, target=clean_target, root_domain=clean_root)
 
                         all_eps = (
                             (app.get("extracted_endpoints") or []) +
@@ -463,8 +478,10 @@ class DirectoryHunterAgent(BaseAgent):
                             (app.get("dynamic_js", {}).get("api_discovered_routes") or [])
                         )
                         for ep in all_eps:
+                            if isinstance(ep, dict) and ep.get("is_in_scope") is False:
+                                continue
                             path = ep.get("path") or ep.get("url") if isinstance(ep, dict) else str(ep)
-                            self._extract_dirs_from_path(path, initial_dirs)
+                            self._extract_dirs_from_path(path, initial_dirs, target=clean_target, root_domain=clean_root)
 
                         for dd in app.get("discovered_directories", []):
                             dp = dd.get("path") if isinstance(dd, dict) else str(dd)
@@ -1723,9 +1740,10 @@ class DirectoryHunterAgent(BaseAgent):
     async def probe_soft_404_profile(self, base_url: str) -> dict:
         """
         Probes target to detect:
-        1. Baseline soft-404 / custom-404 response sizes
+        1. Baseline soft-404 / custom-404 response sizes (both raw 302 and followed responses)
         2. Web Application Firewall (WAF) signatures
         3. SPA (Single Page App) title & index markers for zero false-positive filtering
+        4. Baseline redirect destinations to catch wildcard redirects
         Caches results per base_url across multiple worker requests.
         """
         cached = self.probe_cache.get(base_url)
@@ -1734,6 +1752,8 @@ class DirectoryHunterAgent(BaseAgent):
 
         profile = {
             "lengths": set(),
+            "raw_lengths": set(),
+            "redirect_destinations": set(),
             "waf": "",
             "spa_title": "",
             "spa_detected": False
@@ -1742,12 +1762,31 @@ class DirectoryHunterAgent(BaseAgent):
         test_tokens = [
             f"rnd_soft404_{secrets.token_hex(6)}",
             f"test_probe_{secrets.token_hex(6)}.html",
-            f"probe_nonexistent_{secrets.token_hex(6)}.zip"
+            f"probe_nonexistent_{secrets.token_hex(6)}.zip",
+            f"probe_check_{secrets.token_hex(6)}.php"
         ]
 
         try:
+            # 1. Probe with follow_redirects=False to catch raw 301/302 response lengths & locations (as ffuf sees them!)
+            async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=False, headers={"User-Agent": self.user_agent}) as client_raw:
+                for token in test_tokens:
+                    probe_url = f"{base_url.rstrip('/')}/{token}"
+                    try:
+                        r_raw = await client_raw.get(probe_url)
+                        raw_len = len(r_raw.content)
+                        if raw_len > 0:
+                            profile["lengths"].add(raw_len)
+                            profile["raw_lengths"].add(raw_len)
+                        if r_raw.status_code in (301, 302, 303, 307, 308):
+                            loc = (r_raw.headers.get("location") or "").strip()
+                            if loc:
+                                profile["redirect_destinations"].add(loc)
+                                logger.info(f"Soft-404 raw redirect probe on {base_url}: detected baseline redirect to '{loc}' ({raw_len}B, Status {r_raw.status_code})")
+                    except Exception:
+                        pass
+
+            # 2. Probe with follow_redirects=True to catch root signatures, SPA baseline, and followed page sizes
             async with httpx.AsyncClient(verify=False, timeout=8.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
-                # 1. Probe root for WAF and SPA signature
                 try:
                     root_resp = await client.get(base_url)
                     profile["waf"] = self.detect_waf(root_resp.headers)
@@ -1763,21 +1802,23 @@ class DirectoryHunterAgent(BaseAgent):
                 except Exception as e:
                     logger.debug(f"Root probe error for {base_url}: {e}")
 
-                # 2. Probe random non-existent paths
                 for token in test_tokens:
                     probe_url = f"{base_url.rstrip('/')}/{token}"
-                    resp = await client.get(probe_url)
-                    body_len = len(resp.content)
-                    if body_len > 0:
-                        profile["lengths"].add(body_len)
-                        logger.info(f"Soft-404 probe on {base_url}: detected baseline length {body_len} (Status {resp.status_code})")
+                    try:
+                        resp = await client.get(probe_url)
+                        body_len = len(resp.content)
+                        if body_len > 0:
+                            profile["lengths"].add(body_len)
+                            logger.info(f"Soft-404 probe on {base_url}: detected baseline length {body_len} (Status {resp.status_code})")
 
-                    # If a .zip probe returns 200 with text/html, target is an SPA catch-all!
-                    if token.endswith(".zip") and resp.status_code == 200:
-                        ct = (resp.headers.get("content-type") or "").lower()
-                        if "text/html" in ct:
-                            profile["spa_detected"] = True
-                            logger.info(f"[*] SPA Catch-All 200 OK behavior confirmed on {base_url}")
+                        # If a .zip probe returns 200 with text/html, target is an SPA catch-all!
+                        if token.endswith(".zip") and resp.status_code == 200:
+                            ct = (resp.headers.get("content-type") or "").lower()
+                            if "text/html" in ct:
+                                profile["spa_detected"] = True
+                                logger.info(f"[*] SPA Catch-All 200 OK behavior confirmed on {base_url}")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"Soft-404 profile probe exception on {base_url}: {e}")
 
@@ -1790,43 +1831,86 @@ class DirectoryHunterAgent(BaseAgent):
 
     async def verify_discovered_file(self, base_url: str, item: dict, spa_profile: dict = None) -> bool:
         """
-        Verifies if a 200 OK discovery is a genuine file or an SPA catch-all / custom error page.
+        Verifies if a discovery is genuine or a catch-all redirect / SPA false positive.
         Returns True if genuine, False if false positive.
         """
         status = item.get("status")
         path = item.get("path", "").lower()
+        redirect_loc = (item.get("redirectlocation") or "").strip().lower()
 
-        # Non-200 responses (e.g. 401, 403, 301, 302) are real server responses
+        # 1. 3xx Redirect verification
+        if status in [301, 302, 303, 307, 308]:
+            if not redirect_loc:
+                try:
+                    file_url = f"{base_url}/{item['path']}".replace("//", "/").replace(":/", "://")
+                    async with httpx.AsyncClient(verify=False, timeout=5.0, follow_redirects=False, headers={"User-Agent": self.user_agent}) as client:
+                        r_hd = await client.head(file_url)
+                        redirect_loc = (r_hd.headers.get("location") or "").strip().lower()
+                except Exception:
+                    pass
+
+            if redirect_loc:
+                # Catch-all redirect indicators (e.g. bouncing everything to /login, /, /auth, /error)
+                common_targets = ["/", "/login", "/signin", "/auth", "/home", "/index", "/dashboard", "/error", "/404"]
+                if redirect_loc in common_targets or any(redirect_loc.endswith(tgt) for tgt in ["/login", "/signin", "/auth"]):
+                    logger.info(f"Filtering out catch-all redirect: {item['path']} redirects to common target '{redirect_loc}'")
+                    return False
+
+                # If matches baseline soft-404 redirect destination
+                if spa_profile and spa_profile.get("redirect_destinations"):
+                    for baseline_dest in spa_profile["redirect_destinations"]:
+                        b_clean = baseline_dest.strip().lower()
+                        if redirect_loc == b_clean or redirect_loc.rstrip("/") == b_clean.rstrip("/"):
+                            logger.info(f"Filtering out baseline catch-all redirect: {item['path']} matches soft-404 destination '{redirect_loc}'")
+                            return False
+
+            return True
+
+        # Non-200 non-3xx (e.g. 401, 403) are preserved as real server responses
         if status != 200:
             return True
 
-        # Non-HTML sensitive file extensions
-        non_html_extensions = (
-            ".zip", ".tar.gz", ".tgz", ".sql", ".sqlite", ".db", ".env", ".key",
-            ".pem", ".crt", ".pfx", ".p12", ".bak", ".old", ".json", ".xml",
-            ".yaml", ".yml", ".ini", ".conf", ".properties", ".log", ".gz"
-        )
-        is_binary_or_data = any(path.endswith(ext) or f"{ext}." in path for ext in non_html_extensions)
-        if not is_binary_or_data:
-            return True
-
-        # Verify Content-Type & HTML body
+        # 2. Status 200 OK Verification
         file_url = f"{base_url}/{item['path']}".replace("//", "/").replace(":/", "://")
         try:
             async with httpx.AsyncClient(verify=False, timeout=6.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                 resp = await client.get(file_url)
                 ct = (resp.headers.get("content-type") or "").lower()
+                body_start = resp.text[:2000].lower()
+                is_html = "text/html" in ct or "<!doctype html" in body_start or "<html" in body_start
 
-                # A zip/sql/env/json file must not return an HTML web page
-                if "text/html" in ct or "text/plain" in ct:
-                    body_start = resp.text[:1500].lower()
-                    if any(marker in body_start for marker in ["<!doctype html", "<html", "<head", "<body", "<div id=\"root\"", "<div id=\"app\"", "<app-root"]):
-                        if spa_profile and spa_profile.get("spa_title"):
-                            if spa_profile["spa_title"].lower() in body_start:
-                                logger.info(f"Filtering out SPA catch-all false positive: {item['path']} matches SPA title '{spa_profile['spa_title']}'")
-                                return False
-                        logger.info(f"Filtering out SPA catch-all false positive: {item['path']} returned Content-Type '{ct}' with HTML document body")
+                # Non-HTML sensitive file extensions
+                non_html_extensions = (
+                    ".zip", ".tar.gz", ".tgz", ".sql", ".sqlite", ".db", ".env", ".key",
+                    ".pem", ".crt", ".pfx", ".p12", ".bak", ".old", ".json", ".xml",
+                    ".yaml", ".yml", ".ini", ".conf", ".properties", ".log", ".gz",
+                    ".txt", ".toml", ".cfg"
+                )
+                if any(path.endswith(ext) or f"{ext}." in path for ext in non_html_extensions):
+                    if is_html:
+                        logger.info(f"Filtering out SPA catch-all false positive: {item['path']} returned HTML instead of data/binary file")
                         return False
+
+                # Code file extensions (.php, .jsp, .aspx, .py, .js)
+                if is_html:
+                    if spa_profile and spa_profile.get("spa_title"):
+                        if spa_profile["spa_title"].lower() in body_start:
+                            logger.info(f"Filtering out SPA catch-all false positive: {item['path']} matches SPA title '{spa_profile['spa_title']}'")
+                            return False
+                    if any(marker in body_start for marker in ["<div id=\"root\"", "<div id=\"app\"", "<app-root", "ng-version"]):
+                        logger.info(f"Filtering out SPA catch-all false positive: {item['path']} contains SPA root container")
+                        return False
+
+                # Structured format verification
+                if path.endswith(".json") and not is_html:
+                    stripped = resp.text.strip()
+                    if not (stripped.startswith("{") or stripped.startswith("[")):
+                        return False
+                if (path.endswith(".xml") or path.endswith("web.config")) and not is_html:
+                    stripped = resp.text.strip()
+                    if not ("<" in stripped and ">" in stripped):
+                        return False
+
         except Exception as e:
             logger.debug(f"Verification request failed for {file_url}: {e}")
 
@@ -1873,9 +1957,9 @@ class DirectoryHunterAgent(BaseAgent):
     async def run_recursive_directory_hunt(self, base_url: str, initial_dirs=None, task_id=None):
         """
         Phase 1: Recursively hunt for directories starting from initial seed directories
-        (harvested from JS Collector routes/endpoints, robots.txt, sitemaps, well-known)
+        (harvested from in-scope JS Collector routes/endpoints, robots.txt, sitemaps, well-known)
         using curated high-priority directory wordlists with adaptive WAF rate control.
-        Explores newly discovered directories recursively up to depth 3 without hanging or timing out.
+        Explores newly discovered directories recursively up to depth 3-4 without hanging or timing out.
         """
         logger.info(f"Phase 1: Recursive directory hunting on {base_url}")
         discovered_dirs = set([""]) # Always include root
@@ -1901,7 +1985,7 @@ class DirectoryHunterAgent(BaseAgent):
         if waf_name:
             logger.info(f"[*] Adaptive WAF Tuning: Throttling scan rate to {rate} req/s ({threads} threads) for {waf_name} on {base_url}")
 
-        # Build exploration queue
+        # Build exploration queue with BFS ordering
         priority_keywords = [
             "api", "v1", "v2", "admin", "auth", "login", "app", "portal",
             "users", "user", "account", "dashboard", "manage", "internal", "config"
@@ -1914,7 +1998,7 @@ class DirectoryHunterAgent(BaseAgent):
                 queue.append(s)
 
         visited_dirs = set()
-        max_dirs_to_probe = 20
+        max_dirs_to_probe = 60
         max_depth = 3
 
         while queue and len(visited_dirs) < max_dirs_to_probe:
@@ -1960,18 +2044,29 @@ class DirectoryHunterAgent(BaseAgent):
                                 rel_path = res_url.replace(base_url, "").lstrip("/")
                                 res_word = rel_path.split("/")[-1].strip()
                                 
-                                # Check if it looks like a directory:
-                                # 301/302 redirects, or 200/401/403 on paths without file extension
                                 is_redirect = r['status'] in [301, 302, 307]
                                 has_file_ext = bool(re.search(r'\.[a-zA-Z0-9]{1,5}$', res_word, re.I))
-                                
+
+                                # Reject catch-all redirects (e.g. bouncing everything to /login or /)
+                                if is_redirect:
+                                    red_loc = (r.get('redirectlocation') or "").strip().lower()
+                                    common_redirect_targets = ["/", "/login", "/signin", "/auth", "/home", "/index", "/dashboard", "/error", "/404"]
+                                    if red_loc in common_redirect_targets or any(red_loc.endswith(tgt) for tgt in ["/login", "/signin", "/auth"]):
+                                        continue
+                                    if profile.get("redirect_destinations"):
+                                        if any(red_loc == bd.lower() or red_loc.rstrip("/") == bd.lower().rstrip("/") for bd in profile["redirect_destinations"]):
+                                            continue
+
                                 if is_redirect or not has_file_ext or res_url.endswith("/"):
                                     new_dir = f"{curr_dir}/{res_word}".strip("/")
                                     discovered_dirs.add(new_dir)
                                     dir_depth = len(new_dir.split("/"))
-                                    if dir_depth <= max_depth and (len(visited_dirs) + len(queue)) < max_dirs_to_probe:
-                                        if new_dir not in visited_dirs and new_dir not in queue:
-                                            queue.append(new_dir)
+                                    if dir_depth <= max_depth and len(visited_dirs) < max_dirs_to_probe:
+                                        # Skip queuing static asset directories to preserve recursion budget for functional branches
+                                        static_asset_dirs = {"assets", "static", "images", "img", "css", "js", "fonts", "webfonts", "media", "icons", "vendor", "node_modules"}
+                                        if res_word.lower() not in static_asset_dirs:
+                                            if new_dir not in visited_dirs and new_dir not in queue:
+                                                queue.append(new_dir)
                                 
                                 dir_results.append({
                                     "path": rel_path,
@@ -1979,6 +2074,7 @@ class DirectoryHunterAgent(BaseAgent):
                                     "status": r['status'],
                                     "length": r.get('length', 0),
                                     "words": r.get('words', 0),
+                                    "redirectlocation": r.get('redirectlocation', ""),
                                     "source": "dir_hunt"
                                 })
                         except Exception:
@@ -1996,9 +2092,9 @@ class DirectoryHunterAgent(BaseAgent):
         - Dynamically selects technology-tailored wordlists (PHP, ASP.NET, Java/Spring, Node.js, Python, etc.)
         - Incorporates brand, domain, and environment contextual permutations
         - Verifies discovered files against SPA catch-all false positives
-        - When a technology is identified from discovered files (e.g. index.php -> PHP),
-          it dynamically updates the target's tech fingerprint in MongoDB and adds the tech
-          to active_tech so subsequent directories immediately use that tech's wordlist.
+        - When a technology is identified from verified files with status == 200,
+          it updates the target's tech fingerprint in MongoDB and adds the tech
+          to active_tech after duplicate length filtering.
         """
         logger.info(f"Phase 2: Smart File Enumeration across {len(discovered_dirs)} discovered directories on {base_url}")
         file_results = []
@@ -2017,8 +2113,8 @@ class DirectoryHunterAgent(BaseAgent):
                 return (1, len(d.split("/")))
             return (2, len(d.split("/")))
 
-        # Explore up to 20 discovered directories to ensure deep coverage
-        sorted_dirs = sorted(list(discovered_dirs), key=dir_priority)[:20]
+        # Explore up to 60 discovered directories with priority ordering
+        sorted_dirs = sorted(list(discovered_dirs), key=dir_priority)[:60]
 
         spa_profile = await self.probe_soft_404_profile(base_url)
         root_baseline = spa_profile.get("lengths", set())
@@ -2073,23 +2169,20 @@ class DirectoryHunterAgent(BaseAgent):
                                     "status": r['status'],
                                     "length": r.get('length', 0),
                                     "words": r.get('words', 0),
+                                    "redirectlocation": r.get('redirectlocation', ""),
                                     "source": "smart_file_hunt"
                                 }
 
-                                # Validate against SPA catch-all false positives
+                                # If discovered path in file enumeration is actually a directory, add to discovered_dirs
+                                if cand_item["status"] in [301, 302, 307] or f_rel_path.endswith("/"):
+                                    clean_dp = f_rel_path.strip("/")
+                                    if clean_dp and not bool(re.search(r'\.[a-zA-Z0-9]{1,5}$', clean_dp.split("/")[-1], re.I)):
+                                        discovered_dirs.add(clean_dp)
+
+                                # Validate against catch-all redirects & SPA false positives
                                 is_genuine = await self.verify_discovered_file(base_url, cand_item, spa_profile=spa_profile)
                                 if not is_genuine:
                                     continue
-
-                                # Identify technology from discovered file
-                                newly_found_techs = self.identify_tech_from_file_path(f_rel_path)
-                                if newly_found_techs:
-                                    unseen = [t for t in newly_found_techs if t not in active_tech]
-                                    if unseen:
-                                        for t in unseen:
-                                            active_tech.append(t)
-                                        logger.info(f"[+] Dynamic Tech Fingerprint: Identified {unseen} on {target} from {f_rel_path}")
-                                        await self.update_tech_fingerprint(target, root_domain, unseen, f_rel_path, base_url)
 
                                 file_results.append(cand_item)
                         except Exception:
@@ -2112,6 +2205,19 @@ class DirectoryHunterAgent(BaseAgent):
 
         all_items = list(unique_files.values())
         filtered_files = self.filter_duplicate_lengths(all_items, baseline_lengths=root_baseline, threshold=3)
+
+        # Identify technology ONLY from surviving verified files that returned HTTP 200 OK
+        for f_item in filtered_files:
+            if f_item.get("status") == 200:
+                newly_found_techs = self.identify_tech_from_file_path(f_item["path"])
+                if newly_found_techs:
+                    unseen = [t for t in newly_found_techs if t not in active_tech]
+                    if unseen:
+                        for t in unseen:
+                            active_tech.append(t)
+                        logger.info(f"[+] Dynamic Tech Fingerprint: Identified {unseen} on {target} from verified 200 OK file {f_item['path']}")
+                        await self.update_tech_fingerprint(target, root_domain, unseen, f_item["path"], base_url)
+
         logger.info(f"Phase 2 Complete: Discovered {len(filtered_files)} files on {base_url} across scanned directories.")
         return filtered_files, active_tech
 

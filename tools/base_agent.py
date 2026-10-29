@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import datetime
 import logging
 import urllib.parse
@@ -111,13 +112,103 @@ class BaseAgent:
         })
         return doc is not None
 
+    _cached_resource_limit = 80.0
+    _last_limit_fetch = 0.0
+    _cached_vitals = {"cpu_percent": 0.0, "ram_percent": 0.0}
+    _last_vitals_fetch = 0.0
+    _last_stat_sample = None
+    _last_throttle_log = 0.0
+
+    async def get_resource_limit_threshold(self) -> float:
+        """Fetch user-configured resource limit percentage (cached 3s)."""
+        now = time.time()
+        if (now - self._last_limit_fetch) < 3.0:
+            return self._cached_resource_limit
+        try:
+            doc = await self.settings_col.find_one({"key": "resource_limit"})
+            if doc and "target_percent" in doc:
+                self._cached_resource_limit = float(doc["target_percent"])
+            else:
+                doc2 = await self.settings_col.find_one({"key": "autoscaler"})
+                if doc2 and "target_ceiling" in doc2:
+                    self._cached_resource_limit = float(doc2["target_ceiling"])
+                else:
+                    self._cached_resource_limit = 80.0
+        except Exception:
+            pass
+        self._last_limit_fetch = now
+        return self._cached_resource_limit
+
+    def get_cached_vitals(self) -> dict:
+        """Read real-time CPU & RAM utilization from /proc (cached 2s)."""
+        now = time.time()
+        if (now - self._last_vitals_fetch) < 2.0:
+            return self._cached_vitals
+        try:
+            # RAM Usage from /proc/meminfo
+            ram_pct = 0.0
+            with open("/proc/meminfo", "r") as f:
+                raw_mem = {}
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        k = parts[0].strip()
+                        v = parts[1].strip().split()[0]
+                        if v.isdigit():
+                            raw_mem[k] = int(v)
+            total = raw_mem.get("MemTotal", 0)
+            avail = raw_mem.get("MemAvailable", raw_mem.get("MemFree", 0))
+            if total > 0:
+                ram_pct = round(((total - avail) / total) * 100.0, 1)
+
+            # CPU Usage from /proc/stat
+            cpu_pct = 0.0
+            with open("/proc/stat", "r") as f:
+                fields = [float(x) for x in f.readline().split()[1:]]
+            idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+            total_cpu = sum(fields)
+            if self._last_stat_sample:
+                last_idle, last_tot = self._last_stat_sample
+                d_idle = idle - last_idle
+                d_tot = total_cpu - last_tot
+                if d_tot > 0:
+                    cpu_pct = round(100.0 * (1.0 - (d_idle / d_tot)), 1)
+            self._last_stat_sample = (idle, total_cpu)
+
+            self._cached_vitals = {
+                "cpu_percent": max(0.0, min(100.0, cpu_pct)),
+                "ram_percent": max(0.0, min(100.0, ram_pct))
+            }
+        except Exception:
+            pass
+        self._last_vitals_fetch = now
+        return self._cached_vitals
+
     async def get_next_task(self, task_type: str):
         """
         Fetch the next valid, in-scope pending task for task_type using fair-share
         round-robin across active workspaces. Paused workspaces are strictly excluded.
         Automatically discards and cancels tasks for deleted/inactive domains or out-of-scope targets.
+        Throttles starting new jobs when system resource utilization exceeds the user-configured limit.
         """
         while True:
+            # Check resource threshold: if current resource usage exceeds configured limit,
+            # wait for resources to drop below threshold before starting a new job.
+            limit_threshold = await self.get_resource_limit_threshold()
+            vitals = self.get_cached_vitals()
+            peak_pct = max(vitals.get("cpu_percent", 0.0), vitals.get("ram_percent", 0.0))
+
+            if peak_pct >= limit_threshold:
+                now_t = time.time()
+                if (now_t - self._last_throttle_log) > 15.0:
+                    logger.info(
+                        f"[{self.agent_name}] Resource limit active ({peak_pct}% >= {limit_threshold}% threshold). "
+                        f"Waiting for utilization to drop below {limit_threshold}% before starting new jobs."
+                    )
+                    self._last_throttle_log = now_t
+                await asyncio.sleep(2.5)
+                continue
+
             now = datetime.datetime.utcnow()
 
             # 1. Identify any paused workspaces

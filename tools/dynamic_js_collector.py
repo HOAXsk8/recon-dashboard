@@ -15,6 +15,46 @@ from playwright.async_api import async_playwright
 from api_schema_discovery import ApiSchemaDiscovery
 
 
+THIRD_PARTY_DOMAINS = {
+    # Analytics, Tag Managers & Ad Networks
+    "google.com", "googleapis.com", "googletagmanager.com", "google-analytics.com",
+    "doubleclick.net", "facebook.net", "facebook.com", "twitter.com", "linkedin.com",
+    "hotjar.com", "clarity.ms", "segment.com", "segment.io", "mixpanel.com", "intercom.io",
+    "intercomcdn.com", "amplitude.com", "heap.io", "crazyegg.com", "mouseflow.com",
+    # Telemetry, Error Reporting & APM
+    "sentry.io", "sentry-cdn.com", "datadoghq.com", "datadoghq-browser-agent.com",
+    "newrelic.com", "nr-data.net", "bugsnag.com", "rollbar.com", "logrocket.com",
+    # Payment & Auth Gateways
+    "stripe.com", "paypal.com", "recaptcha.net", "hcaptcha.com", "auth0.com",
+    # Generic Public CDNs (unless hosted on target's own subdomain)
+    "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com", "polyfill.io"
+}
+
+def is_in_scope_js(script_url: str, root_domain: str, target_host: str = "") -> bool:
+    """
+    Returns True if a script belongs to the target domain or its subdomains.
+    Returns False for Google, CDN trackers, or external third-party hosts.
+    """
+    if not script_url:
+        return False
+    if script_url.startswith(("#", "/")) or not urllib.parse.urlparse(script_url).netloc:
+        return True
+    parsed = urllib.parse.urlparse(script_url)
+    host = (parsed.hostname or "").lower().strip()
+    if not host:
+        return True
+    for tp in THIRD_PARTY_DOMAINS:
+        if host == tp or host.endswith("." + tp):
+            return False
+    clean_root = (root_domain or "").lower().strip()
+    clean_target = (target_host or "").lower().strip()
+    if clean_target and (host == clean_target or host.endswith("." + clean_target)):
+        return True
+    if clean_root and (host == clean_root or host.endswith("." + clean_root)):
+        return True
+    return False
+
+
 class CommentExtractor:
     """
     High-performance extractor and classifier for HTML and JavaScript comments.
@@ -1456,11 +1496,7 @@ class DynamicJsCollectorAgent(BaseAgent):
             target_origin = ""
 
         # Check if the script itself is 1st-party
-        is_first_party_script = is_inline or (
-            script_host == root_domain
-            or script_host.endswith("." + root_domain)
-            or (target_host and (script_host == target_host or script_host.endswith("." + target_host)))
-        )
+        is_first_party_script = is_inline or is_in_scope_js(script_url, root_domain, target_host)
 
         # 1. In-Scope Subdomains: *.root_domain
         escaped_root = re.escape(root_domain)
@@ -1473,32 +1509,34 @@ class DynamicJsCollectorAgent(BaseAgent):
             if sub and sub != root_domain:
                 subdomains.add(sub)
 
-        # 2. Third-Party Cloud Assets & Object Storage Buckets
+        # 2. Third-Party Cloud Assets & Object Storage Buckets (First-party scripts only)
         cloud_assets_dict: Dict[str, dict] = {}
-        for rule in self.cloud_patterns:
-            for match in rule["pattern"].finditer(content):
-                raw_match = match.group(0).lower().strip("/")
-                bucket_name = match.group(1).lower()
+        if is_first_party_script:
+            for rule in self.cloud_patterns:
+                for match in rule["pattern"].finditer(content):
+                    raw_match = match.group(0).lower().strip("/")
+                    bucket_name = match.group(1).lower()
 
-                # Filter out common false-positive names / noise
-                if bucket_name in ["s3", "storage", "blob", "com", "www", "static", "assets", "public", "dev", "prod", "null", "undefined"]:
-                    continue
+                    # Filter out common false-positive names / noise
+                    if bucket_name in ["s3", "storage", "blob", "com", "www", "static", "assets", "public", "dev", "prod", "null", "undefined"]:
+                        continue
 
-                if rule["type"] == "do_spaces":
-                    region = match.group(2).lower()
-                    probe_url = rule["url_template"].format(bucket=bucket_name, region=region)
-                elif "{bucket}" in rule["url_template"]:
-                    probe_url = rule["url_template"].format(bucket=bucket_name)
-                else:
-                    probe_url = rule["url_template"].format(raw=raw_match)
+                    if rule["type"] == "do_spaces":
+                        region = match.group(2).lower()
+                        probe_url = rule["url_template"].format(bucket=bucket_name, region=region)
+                    elif "{bucket}" in rule["url_template"]:
+                        probe_url = rule["url_template"].format(bucket=bucket_name)
+                    else:
+                        probe_url = rule["url_template"].format(raw=raw_match)
 
-                cloud_assets_dict[raw_match] = {
-                    "raw": raw_match,
-                    "bucket_name": bucket_name,
-                    "provider": rule["provider"],
-                    "probe_url": probe_url,
-                    "type": rule["type"]
-                }
+                    cloud_assets_dict[raw_match] = {
+                        "raw": raw_match,
+                        "bucket_name": bucket_name,
+                        "provider": rule["provider"],
+                        "probe_url": probe_url,
+                        "type": rule["type"],
+                        "source_script": script_url
+                    }
 
         # 3. API Endpoints
         # Helper to register an endpoint
@@ -1677,6 +1715,7 @@ class DynamicJsCollectorAgent(BaseAgent):
             "sourcemaps": sourcemaps,
             "jwts": jwts,
             "base64_strings": base64_strings,
+            "is_first_party": is_first_party_script,
         }
 
     async def correlate_trackers_in_workspace(self, trackers: List[dict], current_target: str, root_domain: str) -> List[dict]:
@@ -1916,12 +1955,13 @@ class DynamicJsCollectorAgent(BaseAgent):
                     if b["raw"] not in all_base64:
                         all_base64[b["raw"]] = b
 
-                # Extract Client-Side SPA Routes
-                try:
-                    c_routes = ClientRouterExtractor.extract_from_code(content, script_url)
-                    all_client_routes.extend(c_routes)
-                except Exception as cre:
-                    logger.debug(f"Error extracting client routes from {script_url}: {cre}")
+                # Extract Client-Side SPA Routes (only for first-party in-scope scripts)
+                if analysis.get("is_first_party", True):
+                    try:
+                        c_routes = ClientRouterExtractor.extract_from_code(content, script_url)
+                        all_client_routes.extend(c_routes)
+                    except Exception as cre:
+                        logger.debug(f"Error extracting client routes from {script_url}: {cre}")
 
                 # Extract Trackers & SDK telemetry IDs
                 try:
@@ -1933,6 +1973,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                 script_summaries.append({
                     "url": script_url,
                     "is_inline": "#inline-script-" in script_url,
+                    "is_first_party": analysis.get("is_first_party", True),
                     "size_bytes": len(content),
                     "subdomains_found": len(analysis["subdomains"]),
                     "endpoints_found": len(analysis["endpoints"]),
@@ -2412,6 +2453,7 @@ class DynamicJsCollectorAgent(BaseAgent):
                     "http_status": c.get("http_status"),
                     "details": c.get("details", ""),
                     "source_app": target,
+                    "source_script": c.get("source_script", ""),
                     "discovered_by": "dynamic_js_collector",
                     "discovered_at": datetime.datetime.utcnow().isoformat()
                 }
@@ -2602,14 +2644,25 @@ class DynamicJsCollectorAgent(BaseAgent):
             for d_name in domains_to_update:
                 target_filter = {
                     "domain": d_name,
-                    "$or": [
-                        {"web_applications.target": target},
-                        {"web_applications.target": clean_target},
-                        {"web_applications.url": {"$regex": f"://{re.escape(clean_target)}(/|$|:)"}}
-                    ]
+                    "web_applications": {
+                        "$elemMatch": {
+                            "$or": [
+                                {"target": target},
+                                {"target": clean_target},
+                                {"url": {"$regex": f"://{re.escape(clean_target)}(/|$|:)"}}
+                            ]
+                        }
+                    }
                 }
-                res = await self.domains_col.update_one(target_filter, {"$set": webapp_set})
-                if res.matched_count == 0:
+                updated = False
+                try:
+                    res = await self.domains_col.update_one(target_filter, {"$set": webapp_set})
+                    if res.matched_count > 0:
+                        updated = True
+                except Exception as e:
+                    logger.warning(f"Positional update failed for domain {d_name}: {e}")
+
+                if not updated:
                     # Push as a web application entry so findings are strictly preserved on this domain
                     new_app = {
                         "target": clean_target,
@@ -2663,17 +2716,13 @@ class DynamicJsCollectorAgent(BaseAgent):
 
                 # Enrich web_application tech_stack with newly discovered frameworks
                 if discovered_frameworks:
-                    await self.domains_col.update_one(
-                        {
-                            "domain": d_name,
-                            "$or": [
-                                {"web_applications.target": target},
-                                {"web_applications.target": clean_target},
-                                {"web_applications.url": {"$regex": f"://{re.escape(clean_target)}(/|$|:)"}}
-                            ]
-                        },
-                        {"$addToSet": {"web_applications.$.tech_stack": {"$each": list(discovered_frameworks)}}}
-                    )
+                    try:
+                        await self.domains_col.update_one(
+                            target_filter,
+                            {"$addToSet": {"web_applications.$.tech_stack": {"$each": list(discovered_frameworks)}}}
+                        )
+                    except Exception as e:
+                        logger.debug(f"Could not update tech_stack with positional operator for {d_name}: {e}")
 
                 # Store any discovered API specs and GraphQL endpoints at domain level
                 if api_res and (api_res.get("openapi_specs") or api_res.get("graphql_endpoints") or api_res.get("api_ui_endpoints")):

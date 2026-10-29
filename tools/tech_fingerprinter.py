@@ -2072,9 +2072,41 @@ class TechFingerprinterAgent(BaseAgent):
                     if app.get("target") == target:
                         old_tech = app.get("tech_stack", [])
                         
+                        # Determine active tech signals from live probes
+                        active_probe_tech = merge_and_deduplicate_tech(
+                            httpx_tech,
+                            whatweb_tech_tuples,
+                            header_techs,
+                            html_techs,
+                            favicon_techs,
+                            [server_banner] if server_banner else [],
+                            cookie_frameworks
+                        )
+
+                        # Sanitize old_tech if it contains conflicting backend runtimes from old file false positives
+                        PRIMARY_RUNTIMES = {"php", "python", "ruby on rails", "asp.net", "java"}
+                        active_runtime_keys = {t.split(":")[0].lower() for t in active_probe_tech if t.split(":")[0].lower() in PRIMARY_RUNTIMES}
+                        old_runtime_keys = {t.split(":")[0].lower() for t in old_tech if t.split(":")[0].lower() in PRIMARY_RUNTIMES}
+
+                        sanitized_old_tech = []
+                        if len(old_runtime_keys) > 1 and active_runtime_keys:
+                            for item in old_tech:
+                                k = item.split(":")[0].lower()
+                                if k in PRIMARY_RUNTIMES and k not in active_runtime_keys:
+                                    continue
+                                sanitized_old_tech.append(item)
+                        elif len(old_runtime_keys) >= 3 and not active_runtime_keys:
+                            for item in old_tech:
+                                k = item.split(":")[0].lower()
+                                if k in PRIMARY_RUNTIMES:
+                                    continue
+                                sanitized_old_tech.append(item)
+                        else:
+                            sanitized_old_tech = old_tech
+
                         # Merge and deduplicate across all discovery engines
                         tech_stack = merge_and_deduplicate_tech(
-                            old_tech,
+                            sanitized_old_tech,
                             httpx_tech,
                             whatweb_tech_tuples,
                             header_techs,
@@ -2084,10 +2116,10 @@ class TechFingerprinterAgent(BaseAgent):
                             cookie_frameworks
                         )
                         
-                        tech_changed = set(old_tech) != set(tech_stack)
-                        if tech_changed and old_tech:
+                        newly_added_tech = set(tech_stack) - set(old_tech)
+                        if newly_added_tech and old_tech:
                             await self.create_tech_alert(root_domain, target, old_tech, tech_stack, url)
-                            # Force a re-run of directory hunt because the web app changed
+                            # Force a re-run of directory hunt because a NEW tech was genuinely discovered
                             await self.tasks_col.delete_many({
                                 "root_domain": root_domain,
                                 "target": target,
@@ -2103,7 +2135,7 @@ class TechFingerprinterAgent(BaseAgent):
                                 "status": "pending",
                                 "created_at": datetime.datetime.utcnow()
                             })
-                            logger.info(f"Forced NEW directory hunt for {target}:{port} due to tech stack change.")
+                            logger.info(f"Forced NEW directory hunt for {target}:{port} due to genuine tech stack addition: {newly_added_tech}")
                         
                         # Check for header regressions
                         old_headers = app.get("security_headers", {})

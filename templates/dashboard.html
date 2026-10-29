@@ -1559,10 +1559,13 @@
                                 
                                 <!-- Interactive Scope Bar & Reset -->
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <button onclick="window.topologySetScope(null)" id="topo-scope-root-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all">All Assets (Root)</button>
+                                    <button onclick="window.topologySetScope(null)" id="topo-scope-root-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all">Target View</button>
+                                    <button onclick="window.topologyLoadWorkspace()" id="topo-scope-workspace-btn" class="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5" title="View all domains, load balancers, and shared IPs across this workspace">
+                                        <span>🌐</span> Workspace Map
+                                    </button>
                                     <span id="topo-scope-sub-pill" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
                                         <span id="topo-scope-sub-label"></span>
-                                        <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Root Overview">×</button>
+                                        <button onclick="window.topologySetScope(null)" class="text-slate-400 hover:text-white ml-1 font-bold" title="Return to Target View">×</button>
                                     </span>
                                 </div>
                             </div>
@@ -5548,8 +5551,56 @@
     };
 
     window.topologySetScope = function(subName) {
+        if (topoState.isWorkspaceMode) {
+            topoState.isWorkspaceMode = false;
+            topoState.workspaceData = null;
+            const rootBtn = document.getElementById('topo-scope-root-btn');
+            const wsBtn = document.getElementById('topo-scope-workspace-btn');
+            if (rootBtn) {
+                rootBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all';
+            }
+            if (wsBtn) {
+                wsBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5';
+            }
+        }
         topoState.focusedSubdomain = subName ? subName.trim().toLowerCase() : null;
         topoBuildAndLayoutGraph();
+    };
+
+    window.topologyLoadWorkspace = async function() {
+        const statsText = document.getElementById('topology-stats-text');
+        const badge = document.getElementById('topology-scope-badge');
+        const rootBtn = document.getElementById('topo-scope-root-btn');
+        const wsBtn = document.getElementById('topo-scope-workspace-btn');
+        const subPill = document.getElementById('topo-scope-sub-pill');
+
+        if (statsText) statsText.textContent = 'Loading workspace topology...';
+        if (wsBtn) {
+            wsBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-tech-accent text-tech-bg transition-all flex items-center gap-1.5';
+        }
+        if (rootBtn) {
+            rootBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-slate-800 text-slate-400 hover:text-white transition-all';
+        }
+        if (subPill) {
+            subPill.classList.remove('flex');
+            subPill.classList.add('hidden');
+        }
+        if (badge) {
+            badge.textContent = 'Workspace Map';
+            badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30';
+        }
+
+        try {
+            const resp = await fetch('/api/workspace/topology');
+            if (!resp.ok) throw new Error('Failed to load workspace topology');
+            const wsData = await resp.json();
+            topoState.isWorkspaceMode = true;
+            topoState.workspaceData = wsData;
+            topoBuildWorkspaceGraph(wsData);
+        } catch (err) {
+            console.error('Workspace topology error:', err);
+            if (statsText) statsText.textContent = 'Error loading workspace map: ' + err.message;
+        }
     };
 
     window.topologyZoom = function(factor) {
@@ -5665,6 +5716,210 @@
         return null;
     }
 
+    function topoBuildWorkspaceGraph(wsData) {
+        if (!wsData || !wsData.domains) return;
+        const container = document.getElementById('topology-container');
+        const canvas = topoState.canvas;
+        const width = Math.max(canvas ? canvas.clientWidth : (container ? container.clientWidth : 800), 400);
+        const height = Math.max(canvas ? canvas.clientHeight : (container ? container.clientHeight : 720), 400);
+
+        const nodesMap = new Map();
+        const rawEdges = [];
+        const domains = wsData.domains;
+
+        // 1. Group domains and LBs by IP
+        const ipToDomains = new Map();
+        domains.forEach(d => {
+            (d.target_ips || []).forEach(ip => {
+                if (!ip || ip === 'Unknown' || ip === 'N/A') return;
+                if (!ipToDomains.has(ip)) {
+                    ipToDomains.set(ip, { domains: [], asn: d.asn, as_org: d.as_org, cidr: d.cidr });
+                }
+                if (!ipToDomains.get(ip).domains.includes(d.domain)) {
+                    ipToDomains.get(ip).domains.push(d.domain);
+                }
+            });
+        });
+
+        // 2. Place Domains along perimeter
+        const numDomains = domains.length;
+        domains.forEach((d, idx) => {
+            const domId = `ws_dom_${d.domain}`;
+            const angle = (idx / Math.max(numDomains, 1)) * Math.PI * 2;
+            const dist = 320;
+            const dX = Math.cos(angle) * dist;
+            const dY = Math.sin(angle) * dist;
+
+            const domNode = {
+                id: domId,
+                label: d.domain,
+                type: 'root',
+                color: d.single_domain_only ? '#38bdf8' : '#10b981',
+                strokeColor: d.single_domain_only ? '#7dd3fc' : '#34d399',
+                radius: 20,
+                x: dX,
+                y: dY,
+                info: {
+                    domain: d.domain,
+                    ip: d.ip || 'Unknown',
+                    subdomainsCount: d.subdomains_count || 0,
+                    scanned: d.scanned,
+                    waf: d.waf?.firewall || null,
+                    load_balancer: d.load_balancer ? (d.load_balancer.vendor || d.load_balancer.lb_type || 'Detected') : null
+                }
+            };
+            nodesMap.set(domId, domNode);
+
+            // WAF Node
+            if (d.waf) {
+                const wafId = `ws_waf_${d.domain}`;
+                nodesMap.set(wafId, {
+                    id: wafId,
+                    label: `🛡️ ${d.waf.firewall || 'WAF'}`,
+                    type: 'waf',
+                    color: '#06b6d4',
+                    strokeColor: '#67e8f9',
+                    radius: 12,
+                    x: dX * 1.25,
+                    y: dY * 1.25,
+                    info: { firewall: d.waf.firewall, target: d.domain }
+                });
+                rawEdges.push({ source: domId, target: wafId, type: 'waf' });
+            }
+
+            // Load Balancer Node
+            let parentSource = domId;
+            if (d.load_balancer) {
+                const lbId = `ws_lb_${d.domain}`;
+                const lbVendor = d.load_balancer.vendor || 'Load Balancer';
+                nodesMap.set(lbId, {
+                    id: lbId,
+                    label: `⚖️ ${lbVendor.slice(0, 14)}`,
+                    type: 'load_balancer',
+                    color: '#a855f7',
+                    strokeColor: '#d8b4fe',
+                    radius: 13,
+                    x: dX * 0.7,
+                    y: dY * 0.7,
+                    info: {
+                        name: lbVendor,
+                        vendor: d.load_balancer.vendor,
+                        ips: d.load_balancer.ips,
+                        target: d.domain
+                    }
+                });
+                rawEdges.push({ source: domId, target: lbId, type: 'load_balancer' });
+                parentSource = lbId;
+            }
+
+            // Connect domain or LB to its resolved IPs
+            (d.target_ips || []).forEach(ip => {
+                if (!ip || ip === 'Unknown' || ip === 'N/A') return;
+                const ipId = `ws_ip_${ip}`;
+                rawEdges.push({ source: parentSource, target: ipId, type: 'ip' });
+            });
+        });
+
+        // 3. Place IP nodes in center ring
+        const numIps = ipToDomains.size;
+        let ipIndex = 0;
+        ipToDomains.forEach((ipData, ip) => {
+            const ipId = `ws_ip_${ip}`;
+            const angle = (ipIndex / Math.max(numIps, 1)) * Math.PI * 2 + 0.3;
+            const dist = 140 + (ipIndex % 2) * 35;
+            ipIndex++;
+
+            const hostedCount = ipData.domains.length;
+            const isShared = hostedCount > 1;
+
+            nodesMap.set(ipId, {
+                id: ipId,
+                label: isShared ? `${ip} (${hostedCount} targets)` : ip,
+                type: 'ip',
+                color: isShared ? '#6366f1' : '#4f46e5',
+                strokeColor: isShared ? '#a5b4fc' : '#818cf8',
+                radius: isShared ? 16 : 12,
+                x: Math.cos(angle) * dist,
+                y: Math.sin(angle) * dist,
+                info: {
+                    ip: ip,
+                    hostedCount: hostedCount,
+                    hostedDomains: ipData.domains,
+                    cidr: ipData.cidr,
+                    asn: ipData.asn,
+                    as_org: ipData.as_org
+                }
+            });
+
+            // ASN link
+            if (ipData.asn) {
+                const cleanAsn = String(ipData.asn).replace(/[^0-9]/g, '');
+                if (cleanAsn) {
+                    const asnKey = `ws_asn_${cleanAsn}`;
+                    if (!nodesMap.has(asnKey)) {
+                        nodesMap.set(asnKey, {
+                            id: asnKey,
+                            label: `AS${cleanAsn}${ipData.as_org ? ' - ' + String(ipData.as_org).slice(0, 14) : ''}`,
+                            type: 'asn',
+                            color: '#8b5cf6',
+                            strokeColor: '#c4b5fd',
+                            radius: 14,
+                            x: 0,
+                            y: (ipIndex % 2 === 0 ? -1 : 1) * (dist * 0.4),
+                            info: { asn: cleanAsn, org: ipData.as_org, cidr: ipData.cidr }
+                        });
+                    }
+                    rawEdges.push({ source: ipId, target: asnKey, type: 'asn' });
+                }
+            }
+        });
+
+        // Layout de-collision
+        const rawList = Array.from(nodesMap.values());
+        for (let iter = 0; iter < 25; iter++) {
+            for (let i = 0; i < rawList.length; i++) {
+                const n1 = rawList[i];
+                for (let j = i + 1; j < rawList.length; j++) {
+                    const n2 = rawList[j];
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distSq = dx * dx + dy * dy;
+                    const minDist = n1.radius + n2.radius + 18;
+                    if (distSq < minDist * minDist && distSq > 0) {
+                        const dist = Math.sqrt(distSq);
+                        const push = ((minDist - dist) / dist) * 0.25;
+                        n1.x -= dx * push; n1.y -= dy * push;
+                        n2.x += dx * push; n2.y += dy * push;
+                    }
+                }
+            }
+        }
+
+        // Auto-scale
+        if (rawList.length > 1) {
+            let maxDist = 0;
+            rawList.forEach(n => {
+                const d = Math.sqrt(n.x * n.x + n.y * n.y);
+                if (d > maxDist) maxDist = d;
+            });
+            const availableRadius = Math.min(width, height) / 2 - 50;
+            topoState.scale = Math.max(0.25, Math.min(1.0, availableRadius / (maxDist || 1)));
+        }
+
+        topoState.nodes = rawList;
+        topoState.edges = rawEdges;
+
+        const badgeText = document.getElementById('topology-stats-text');
+        if (badgeText) {
+            badgeText.textContent = `Workspace Map (${domains.length} Domains, ${numIps} IPs, ${rawEdges.length} Connections)`;
+        }
+
+        topoState.panX = width / 2;
+        topoState.panY = height / 2;
+        topoSimulateAndDraw();
+        topoTriggerDraw();
+    }
+
     function topoBuildAndLayoutGraph() {
         const data = topoState.data;
         if (!data) return;
@@ -5776,6 +6031,14 @@
         rawBuckets.forEach(b => {
             const bName = b.name || b.raw || b.url;
             if (!bName) return;
+
+            // Strictly filter out guessed / unreferenced buckets: only genuine code-referenced assets allowed
+            const discBy = String(b.discovered_by || '').toLowerCase();
+            const hasScript = Boolean(b.source_script);
+            const isGenuine = hasScript || discBy === 'dynamic_js_collector' || b.source === 'code_analysis';
+            if (discBy === 'osint_agent' && !hasScript) return;
+            if (!isGenuine && !hasScript) return;
+
             const bKey = String(bName).toLowerCase().trim();
             if (!seenBuckets.has(bKey)) {
                 seenBuckets.add(bKey);
@@ -6142,16 +6405,37 @@
             });
             orderedSubs.push(...unassignedSubs.slice(0, 20));
 
-            // Root IP
-            if (data.system?.ip && data.system.ip !== 'Unknown') {
-                const rootIp = String(data.system.ip).trim();
-                if (!ipToDomainsMap.has(rootIp)) {
-                    ipToDomainsMap.set(rootIp, { domains: [], asn: data.asn, as_org: data.as_org, cidr: data.cidr });
-                }
-                if (!ipToDomainsMap.get(rootIp).domains.includes(rootDomain)) {
-                    ipToDomainsMap.get(rootIp).domains.unshift(rootDomain);
-                }
+            // Collect all target IPs from data (ensuring single domain scans and root targets have all IPs)
+            const allTargetIps = [];
+            if (data.system?.ip && data.system.ip !== 'Unknown' && data.system.ip !== 'N/A') {
+                allTargetIps.push(String(data.system.ip).trim());
             }
+            if (data.ip && data.ip !== 'Unknown' && data.ip !== 'N/A') {
+                allTargetIps.push(String(data.ip).trim());
+            }
+            (data.target_ips || []).forEach(ip => {
+                if (ip && ip !== 'Unknown' && ip !== 'N/A') allTargetIps.push(String(ip).trim());
+            });
+            (data.dns_records?.a || []).forEach(ip => {
+                if (ip && ip !== 'Unknown' && ip !== 'N/A') allTargetIps.push(String(ip).trim());
+            });
+            (data.dns_records?.aaaa || []).forEach(ip => {
+                if (ip && ip !== 'Unknown' && ip !== 'N/A') allTargetIps.push(String(ip).trim());
+            });
+            const lbIps = (data.infrastructure?.load_balancer?.ips || data.infrastructure?.root_load_balancer?.ips || []);
+            lbIps.forEach(ip => {
+                if (ip && ip !== 'Unknown' && ip !== 'N/A') allTargetIps.push(String(ip).trim());
+            });
+            const uniqueTargetIps = Array.from(new Set(allTargetIps));
+
+            uniqueTargetIps.forEach(ip => {
+                if (!ipToDomainsMap.has(ip)) {
+                    ipToDomainsMap.set(ip, { domains: [], asn: data.asn, as_org: data.as_org, cidr: data.cidr });
+                }
+                if (!ipToDomainsMap.get(ip).domains.includes(rootDomain)) {
+                    ipToDomainsMap.get(ip).domains.unshift(rootDomain);
+                }
+            });
 
             const totalSubs = orderedSubs.length;
             orderedSubs.forEach((item, idx) => {
@@ -6287,22 +6571,48 @@
                 }
             });
 
+            const isSingleTargetView = (totalSubs === 0);
+            if (isSingleTargetView) {
+                // Layout in a clean horizontal pipeline: Domain -> LB (if any) -> IPs -> ASN
+                rootNode.x = -240;
+                rootNode.y = 0;
+                const rootWafNode = nodesMap.get('waf_root');
+                if (rootWafNode) {
+                    rootWafNode.x = -240;
+                    rootWafNode.y = -90;
+                }
+                const rootLbNode = nodesMap.get('lb_root');
+                if (rootLbNode) {
+                    rootLbNode.x = -60;
+                    rootLbNode.y = 0;
+                }
+            }
+
             // IP Address Nodes
             let ipIdx = 0;
             const totalIps = ipToDomainsMap.size;
             ipToDomainsMap.forEach((ipData, cleanIp) => {
                 const ipId = `ip_${cleanIp}`;
-                let sumSin = 0, sumCos = 0, count = 0;
-                ipData.domains.forEach(dName => {
-                    const n = nodesMap.get(`sub_${dName}`);
-                    if (n && typeof n.angle === 'number') {
-                        sumSin += Math.sin(n.angle);
-                        sumCos += Math.cos(n.angle);
-                        count++;
-                    }
-                });
-                const angle = count > 0 ? Math.atan2(sumSin, sumCos) : ((ipIdx / Math.max(totalIps, 1)) * Math.PI * 2 + 0.5);
-                const dist = 310 + (ipIdx % 3) * 35;
+                let angle = 0, dist = 0, ipX = 0, ipY = 0;
+
+                if (isSingleTargetView) {
+                    ipX = nodesMap.has('lb_root') ? 120 : 60;
+                    ipY = totalIps === 1 ? 0 : (ipIdx - (totalIps - 1) / 2) * 70;
+                } else {
+                    let sumSin = 0, sumCos = 0, count = 0;
+                    ipData.domains.forEach(dName => {
+                        const n = nodesMap.get(`sub_${dName}`);
+                        if (n && typeof n.angle === 'number') {
+                            sumSin += Math.sin(n.angle);
+                            sumCos += Math.cos(n.angle);
+                            count++;
+                        }
+                    });
+                    angle = count > 0 ? Math.atan2(sumSin, sumCos) : ((ipIdx / Math.max(totalIps, 1)) * Math.PI * 2 + 0.5);
+                    dist = 310 + (ipIdx % 3) * 35;
+                    ipX = Math.cos(angle) * dist;
+                    ipY = Math.sin(angle) * dist;
+                }
                 ipIdx++;
 
                 const hostedCount = ipData.domains.length;
@@ -6315,8 +6625,8 @@
                     color: isShared ? '#6366f1' : '#4f46e5',
                     strokeColor: isShared ? '#a5b4fc' : '#818cf8',
                     radius: isShared ? 16 : 12,
-                    x: Math.cos(angle) * dist,
-                    y: Math.sin(angle) * dist,
+                    x: ipX,
+                    y: ipY,
                     angle: angle,
                     info: {
                         ip: cleanIp,
@@ -6330,7 +6640,11 @@
                 nodesMap.set(ipId, ipNode);
 
                 ipData.domains.forEach(dName => {
-                    const srcId = dName === rootDomain ? 'root' : `sub_${dName}`;
+                    let srcId = dName === rootDomain ? 'root' : `sub_${dName}`;
+                    // If root domain has a load balancer, route traffic through LB: Root -> LB -> IP
+                    if (dName === rootDomain && nodesMap.has('lb_root')) {
+                        srcId = 'lb_root';
+                    }
                     if (nodesMap.has(srcId)) {
                         rawEdges.push({ source: srcId, target: ipId, type: 'ip' });
                     }
@@ -6342,7 +6656,8 @@
                         const asnKey = `asn_${cleanAsn}`;
                         if (!nodesMap.has(asnKey)) {
                             const orgStr = ipData.as_org ? ` - ${String(ipData.as_org).slice(0, 16)}` : '';
-                            const asnDist = dist + 95;
+                            const asnX = isSingleTargetView ? (ipX + 190) : (Math.cos(angle) * (dist + 95));
+                            const asnY = isSingleTargetView ? 0 : (Math.sin(angle) * (dist + 95));
                             const asnNode = {
                                 id: asnKey,
                                 label: `AS${cleanAsn}${orgStr}`,
@@ -6350,8 +6665,8 @@
                                 color: '#8b5cf6',
                                 strokeColor: '#c4b5fd',
                                 radius: 15,
-                                x: Math.cos(angle) * asnDist,
-                                y: Math.sin(angle) * asnDist,
+                                x: asnX,
+                                y: asnY,
                                 info: {
                                     asn: cleanAsn,
                                     org: ipData.as_org,
@@ -6364,6 +6679,39 @@
                     }
                 }
             });
+
+            // Co-hosted sister domains in the workspace
+            if (data.co_hosted_domains && Array.isArray(data.co_hosted_domains)) {
+                data.co_hosted_domains.slice(0, 6).forEach((cd, cIdx) => {
+                    if (!cd || !cd.domain || cd.domain === rootDomain) return;
+                    const coId = `co_${cd.domain}`;
+                    const targetIp = (cd.shared_ips && cd.shared_ips[0]) || cd.ip || uniqueTargetIps[0];
+                    const targetIpNode = targetIp ? nodesMap.get(`ip_${targetIp}`) : null;
+                    const coX = targetIpNode ? (targetIpNode.x + (cIdx % 2 === 0 ? -40 : 40)) : 100;
+                    const coY = targetIpNode ? (targetIpNode.y + (cIdx % 2 === 0 ? 90 : -90)) : (cIdx * 60);
+
+                    const coNode = {
+                        id: coId,
+                        label: `🌐 ${cd.domain}`,
+                        type: 'subdomain',
+                        color: '#0d9488',
+                        strokeColor: '#5eead4',
+                        radius: 13,
+                        x: coX,
+                        y: coY,
+                        info: {
+                            name: cd.domain,
+                            domain: cd.domain,
+                            reason: 'Co-hosted in workspace (shares IP / CDN)',
+                            shared_ips: cd.shared_ips || [cd.ip]
+                        }
+                    };
+                    nodesMap.set(coId, coNode);
+                    if (targetIpNode) {
+                        rawEdges.push({ source: coId, target: targetIpNode.id, type: 'ip' });
+                    }
+                });
+            }
 
             // Cloud Buckets
             const maxBuckets = Math.min(validBuckets.length, 30);
@@ -6507,9 +6855,10 @@
             if (focused && focused !== rootDomain) {
                 badgeText.textContent = `${focused} (${topoState.nodes.length} Nodes • ${topoState.edges.length} Connections${extraTags})`;
             } else if (topoState.nodes.length === 1) {
-                badgeText.textContent = `1 Root Node (Standalone Target • No Linked Assets)`;
+                badgeText.textContent = `1 Target Node (Standalone Target • No Linked Assets)`;
             } else {
-                badgeText.textContent = `${topoState.nodes.length} Nodes • ${topoState.edges.length} Connections (${nSubs} Subs, ${nIps} IPs${extraTags})`;
+                const subStr = nSubs > 0 ? `${nSubs} Subs, ` : 'Single Target, ';
+                badgeText.textContent = `${topoState.nodes.length} Nodes • ${topoState.edges.length} Connections (${subStr}${nIps} IPs${extraTags})`;
             }
         }
 

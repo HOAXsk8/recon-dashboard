@@ -426,56 +426,6 @@ class CloudStorageAuditorAgent(BaseAgent):
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         )
-        self.common_suffixes = [
-            "assets", "static", "media", "public", "data", "backup",
-            "backups", "files", "uploads", "cdn", "logs", "archive",
-            "dev", "prod", "stage", "staging", "test", "internal",
-            "bucket", "app", "storage", "images", "content"
-        ]
-
-    def extract_brand_keywords(self, domain: str) -> List[str]:
-        """Extract brand/company name variants from domain."""
-        domain_clean = domain.lower().strip().split(":")[0]
-        parts = domain_clean.split(".")
-        if len(parts) >= 2:
-            if parts[-2] in ["co", "com", "org", "gov", "ac", "net"] and len(parts) >= 3:
-                brand = parts[-3]
-            else:
-                brand = parts[-2]
-        else:
-            brand = parts[0]
-
-        keywords = [brand]
-        if "-" in brand:
-            keywords.append(brand.replace("-", ""))
-            keywords.extend([p for p in brand.split("-") if len(p) > 2])
-
-        clean_full = domain_clean.replace(".", "-")
-        if clean_full != brand:
-            keywords.append(clean_full)
-
-        return list(dict.fromkeys(k for k in keywords if len(k) >= 2))
-
-    def generate_candidate_names(self, keywords: List[str]) -> List[str]:
-        """Generate targeted candidate bucket names from keywords."""
-        candidates = set()
-        for kw in keywords:
-            candidates.add(kw)
-            for suffix in self.common_suffixes:
-                candidates.add(f"{kw}-{suffix}")
-                candidates.add(f"{kw}{suffix}")
-                candidates.add(f"{suffix}-{kw}")
-                if suffix in ["assets", "static", "data", "media", "backup"]:
-                    candidates.add(f"{kw}-dev-{suffix}")
-                    candidates.add(f"{kw}-prod-{suffix}")
-
-        valid_candidates = []
-        for c in candidates:
-            c_clean = re.sub(r'[^a-z0-9\-]', '', c.lower()).strip("-")
-            if 3 <= len(c_clean) <= 63 and not c_clean.startswith("xn--"):
-                valid_candidates.append(c_clean)
-
-        return sorted(list(set(valid_candidates)))
 
     async def probe_bucket(self, client: httpx.AsyncClient, name: str, provider: str, base_url: str) -> Optional[dict]:
         """
@@ -637,24 +587,50 @@ class CloudStorageAuditorAgent(BaseAgent):
             logger.debug(f"Probe error for {probe_url}: {e}")
             return None
 
-    async def audit_existing_assets(self, root_domain: str, client: httpx.AsyncClient) -> List[dict]:
-        """Audit existing cloud storage assets registered under this domain in MongoDB."""
-        doc = await self.domains_col.find_one({"domain": root_domain}, {"infrastructure.cloud_footprint": 1})
-        existing_cf = (doc or {}).get("infrastructure", {}).get("cloud_footprint") or {}
+    async def audit_existing_assets(self, root_domain: str, target: str, client: httpx.AsyncClient) -> List[dict]:
+        """Audit existing cloud storage assets referenced in code under this domain/target in MongoDB."""
+        docs_to_check = [root_domain]
+        if target and target.lower() != root_domain.lower():
+            docs_to_check.append(target)
 
         existing_items = []
-        for b in existing_cf.get("s3_buckets", []):
-            if isinstance(b, dict):
-                existing_items.append({"name": b.get("name") or b.get("raw"), "provider": b.get("provider", "AWS S3"), "url": b.get("url")})
-        for b in existing_cf.get("azure_blobs", []):
-            if isinstance(b, dict):
-                existing_items.append({"name": b.get("name") or b.get("raw"), "provider": b.get("provider", "Azure Blob"), "url": b.get("url")})
-        for b in existing_cf.get("gcp_buckets", []):
-            if isinstance(b, dict):
-                existing_items.append({"name": b.get("name") or b.get("raw"), "provider": b.get("provider", "Google Cloud Storage"), "url": b.get("url")})
-        for b in existing_cf.get("other_buckets", []):
-            if isinstance(b, dict):
-                existing_items.append({"name": b.get("name") or b.get("raw"), "provider": b.get("provider", "DigitalOcean Spaces"), "url": b.get("url")})
+        seen_keys = set()
+
+        for d_name in set(docs_to_check):
+            doc = await self.domains_col.find_one({"domain": d_name}, {"infrastructure.cloud_footprint": 1, "web_applications": 1})
+            if not doc:
+                continue
+
+            existing_cf = (doc.get("infrastructure") or {}).get("cloud_footprint") or {}
+            for prov_key, prov_name in [
+                ("s3_buckets", "AWS S3"),
+                ("azure_blobs", "Azure Blob"),
+                ("gcp_buckets", "Google Cloud Storage"),
+                ("other_buckets", "DigitalOcean Spaces")
+            ]:
+                for b in existing_cf.get(prov_key, []):
+                    if isinstance(b, dict):
+                        raw_u = b.get("url") or b.get("raw") or b.get("name")
+                        if raw_u and raw_u.lower() not in seen_keys:
+                            seen_keys.add(raw_u.lower())
+                            existing_items.append({
+                                "name": b.get("name") or raw_u,
+                                "provider": b.get("provider", prov_name),
+                                "url": b.get("url") or f"https://{raw_u}"
+                            })
+
+            # Check web_applications for code-referenced cloud assets from JS
+            for app in doc.get("web_applications", []):
+                for ca in app.get("cloud_assets", []):
+                    if isinstance(ca, dict):
+                        raw_u = ca.get("url") or ca.get("probe_url") or ca.get("raw") or ca.get("name")
+                        if raw_u and raw_u.lower() not in seen_keys:
+                            seen_keys.add(raw_u.lower())
+                            existing_items.append({
+                                "name": ca.get("name") or ca.get("bucket_name") or raw_u,
+                                "provider": ca.get("provider", "AWS S3"),
+                                "url": ca.get("url") or ca.get("probe_url") or f"https://{raw_u}"
+                            })
 
         audited = []
         for item in existing_items:
@@ -668,7 +644,7 @@ class CloudStorageAuditorAgent(BaseAgent):
         return audited
 
     async def process_tasks(self):
-        """Process queued cloud_storage_audit tasks."""
+        """Process queued cloud_storage_audit tasks by auditing code-referenced storage assets."""
         task = await self.get_next_task("cloud_storage_audit")
         if not task:
             return
@@ -678,40 +654,20 @@ class CloudStorageAuditorAgent(BaseAgent):
         logger.info(f"[{self.agent_name}] Starting Cloud Storage Audit for target: {target} (Root: {root_domain})")
 
         try:
-            keywords = self.extract_brand_keywords(target)
-            if root_domain not in keywords:
-                keywords.extend(self.extract_brand_keywords(root_domain))
-            keywords = list(dict.fromkeys(keywords))
-            candidate_names = self.generate_candidate_names(keywords)
-
-            logger.info(f"[{self.agent_name}] Generated {len(candidate_names)} candidate bucket names for keywords {keywords}")
-
             all_audited: List[dict] = []
 
             async with httpx.AsyncClient(verify=False, timeout=8.0, headers={"User-Agent": self.user_agent}) as client:
-                # 1. Audit existing discovered buckets
-                existing_results = await self.audit_existing_assets(root_domain, client)
+                # Strictly audit existing code-referenced assets from JavaScript / inventory (NO BLIND GUESSING)
+                existing_results = await self.audit_existing_assets(root_domain, target, client)
                 all_audited.extend(existing_results)
 
-                # 2. Probe candidate bucket permutations across providers
-                semaphore = asyncio.Semaphore(20)
-
-                async def sem_probe(name: str, prov: str, url_tmpl: str):
-                    async with semaphore:
-                        return await self.probe_bucket(client, name, prov, url_tmpl)
-
-                probe_tasks = []
-                for name in candidate_names[:60]:  # Top 60 targeted variations
-                    probe_tasks.append(sem_probe(name, "AWS S3", "https://{name}.s3.amazonaws.com"))
-                    probe_tasks.append(sem_probe(name, "Google Cloud Storage", "https://storage.googleapis.com/{name}"))
-                    probe_tasks.append(sem_probe(name, "Azure Blob", "https://{name}.blob.core.windows.net/"))
-                    probe_tasks.append(sem_probe(name, "DigitalOcean Spaces", "https://{name}.nyc3.digitaloceanspaces.com"))
-                    probe_tasks.append(sem_probe(name, "Cloudflare R2", "https://{name}.r2.cloudflarestorage.com"))
-
-                results = await asyncio.gather(*probe_tasks, return_exceptions=True)
-                for r in results:
-                    if isinstance(r, dict):
-                        all_audited.append(r)
+            if not all_audited:
+                logger.info(f"[{self.agent_name}] No code-referenced cloud assets found for {target} (Root: {root_domain}). Permutation guessing is disabled.")
+                await self.tasks_col.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "completed", "completed_at": datetime.datetime.utcnow().isoformat()}}
+                )
+                return
 
             # Deduplicate by URL
             unique_assets: Dict[str, dict] = {}

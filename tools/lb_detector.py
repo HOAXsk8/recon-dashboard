@@ -937,9 +937,12 @@ class LbDetectorAgent(BaseAgent):
             lb_result = await self.detect_load_balancer(target)
 
             if target.strip().lower() == root_domain.strip().lower():
+                mongo_op = {"$set": {"infrastructure.load_balancer": lb_result}}
+                if lb_result.get("ips"):
+                    mongo_op["$addToSet"] = {"target_ips": {"$each": lb_result["ips"]}}
                 await self.domains_col.update_one(
                     {"domain": root_domain},
-                    {"$set": {"infrastructure.load_balancer": lb_result}}
+                    mongo_op
                 )
             else:
                 await self.domains_col.update_one(

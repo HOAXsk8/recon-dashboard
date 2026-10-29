@@ -609,75 +609,14 @@ class OsintAgent(BaseAgent):
         }
 
     # ---------------------------------------------------------
-    # 3. Cloud Storage Assets (AWS S3 & GCP)
+    # 3. Cloud Storage Assets (Delegated to JS Collector)
     # ---------------------------------------------------------
     async def check_cloud_assets(self, domain):
-        logger.info(f"[{domain}] Enumerating cloud storage assets...")
-        clean_name = domain.split(".")[0].lower()
-        if len(clean_name) < 3:
-            return []
-
-        candidates = [
-            clean_name,
-            f"{clean_name}-assets",
-            f"{clean_name}-backup",
-            f"{clean_name}-public",
-            f"{clean_name}-data",
-            f"{clean_name}-dev",
-            f"{clean_name}-media",
-            domain.replace(".", "-")
-        ]
-
-        found_assets = []
-
-        async def probe(client, provider, name, url):
-            try:
-                r = await client.head(url, timeout=2.5)
-                if r.status_code == 200:
-                    return {
-                        "provider": provider,
-                        "name": name,
-                        "url": url,
-                        "status": "Public Read (OPEN)",
-                        "risk": "Critical"
-                    }
-                elif r.status_code == 403:
-                    return {
-                        "provider": provider,
-                        "name": name,
-                        "url": url,
-                        "status": "Access Denied (Protected)",
-                        "risk": "Low"
-                    }
-            except Exception:
-                pass
-            return None
-
-        async with httpx.AsyncClient(timeout=2.5, follow_redirects=True, headers=self.headers) as client:
-            tasks = []
-            for name in candidates:
-                tasks.append(probe(client, "AWS S3", name, f"https://{name}.s3.amazonaws.com"))
-                tasks.append(probe(client, "Google Cloud Storage", name, f"https://storage.googleapis.com/{name}"))
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for res in results:
-                if isinstance(res, dict) and res:
-                    found_assets.append(res)
-                    if res["risk"] == "Critical":
-                        await self.create_alert(
-                            title=f"Exposed Public {res['provider']} Bucket: {res['name']}",
-                            description=f"A cloud storage bucket associated with {domain} is publicly accessible without authentication.",
-                            target=domain,
-                            risk_level="critical",
-                            details={"bucket_url": res["url"], "status_code": 200},
-                            exploitation_suggestions=[
-                                f"Inspect bucket contents using CLI tool: aws s3 ls s3://{res['name']} --no-sign-request",
-                                "Restrict bucket ACL and enable Block Public Access immediately."
-                            ],
-                            alert_type="osint_public_buckets"
-                        )
-
-        return found_assets
+        """
+        Cloud storage asset discovery is strictly handled by dynamic_js_collector
+        from verified first-party code references. Blind guessing is disabled.
+        """
+        return []
 
     # ---------------------------------------------------------
     # 4. Domain Processing Execution
@@ -692,28 +631,9 @@ class OsintAgent(BaseAgent):
         # 2. Corporate Identity, Social Links & Emails
         corp_id = await self.extract_corporate_identity(domain, domain_doc)
 
-        # 3. Cloud Storage Asset Enumeration
-        cloud_assets = await self.check_cloud_assets(domain)
-        for asset in (cloud_assets or []):
-            if isinstance(asset, dict):
-                is_crit = asset.get("risk") == "Critical" or "open" in asset.get("status", "").lower()
-                status = "open" if is_crit else "secured"
-                http_status = 200 if status == "open" else 403
-                await self.sync_bucket_to_footprint(
-                    target=domain,
-                    bucket_data={
-                        "name": asset.get("name") or asset.get("url"),
-                        "raw": asset.get("name") or asset.get("url"),
-                        "url": asset.get("url"),
-                        "provider": asset.get("provider") or "AWS S3",
-                        "status": status,
-                        "http_status": http_status,
-                        "details": asset.get("details") or (f"{asset.get('provider')} bucket allows public read/listing (HTTP 200)" if status == "open" else f"{asset.get('provider')} bucket is protected (HTTP 403)"),
-                        "source_app": domain,
-                        "discovered_by": self.agent_name,
-                        "discovered_at": datetime.datetime.utcnow().isoformat()
-                    }
-                )
+        # 3. Cloud Storage Asset Enumeration (Delegated strictly to JS collector from code references)
+        # Blind guessing and S3/GCS dictionary probing disabled per system policy.
+        cloud_assets = []
 
         # 4. Advanced DNS Record Analytics (TXT, MX, SRV, CAA, SOA, NS)
         logger.info(f"[{domain}] Harvesting deep DNS records and service configurations...")

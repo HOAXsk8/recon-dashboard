@@ -216,7 +216,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "directory-hunter-1",
         "baseline_is_numbered": True,
         "min_workers": 2,
-        "max_workers": 12,
+        "max_workers": 16,
         "mem_limit": 1258291200,   # 1200MB
         "nano_cpus": 1000000000,   # 1.0 core
         "priority": 10,
@@ -228,7 +228,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "dynamic-js-collector",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 4,
+        "max_workers": 8,
         "mem_limit": 2147483648,   # 2048MB
         "nano_cpus": 1500000000,   # 1.5 cores
         "priority": 9,
@@ -240,7 +240,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "alive-check",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 6,
+        "max_workers": 12,
         "mem_limit": 536870912,    # 512MB
         "nano_cpus": 800000000,    # 0.8 core
         "priority": 9,
@@ -252,7 +252,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "port-scanner",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 6,
+        "max_workers": 16,
         "mem_limit": 536870912,    # 512MB
         "nano_cpus": 800000000,    # 0.8 core
         "priority": 8,
@@ -264,7 +264,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "tech-fingerprinter",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 6,
+        "max_workers": 12,
         "mem_limit": 805306368,    # 768MB
         "nano_cpus": 800000000,    # 0.8 core
         "priority": 8,
@@ -276,7 +276,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "archive-hunter",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 4,
+        "max_workers": 12,
         "mem_limit": 536870912,    # 512MB
         "nano_cpus": 600000000,    # 0.6 core
         "priority": 7,
@@ -288,7 +288,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "subdomain-discovery",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 3,
+        "max_workers": 6,
         "mem_limit": 805306368,    # 768MB
         "nano_cpus": 1000000000,   # 1.0 core
         "priority": 7,
@@ -300,7 +300,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "bypass-403",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 4,
+        "max_workers": 8,
         "mem_limit": 536870912,    # 512MB
         "nano_cpus": 600000000,    # 0.6 core
         "priority": 6,
@@ -312,7 +312,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "screenshot-agent",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 3,
+        "max_workers": 6,
         "mem_limit": 1610612736,   # 1536MB
         "nano_cpus": 1000000000,   # 1.0 core
         "priority": 5,
@@ -324,7 +324,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "waf-detector",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 3,
+        "max_workers": 10,
         "mem_limit": 402653184,    # 384MB
         "nano_cpus": 500000000,    # 0.5 core
         "priority": 5,
@@ -336,7 +336,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "cloud-storage-auditor",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 3,
+        "max_workers": 10,
         "mem_limit": 402653184,    # 384MB
         "nano_cpus": 500000000,    # 0.5 core
         "priority": 5,
@@ -348,7 +348,7 @@ TOOL_SCALING_PROFILES: Dict[str, Dict[str, Any]] = {
         "template_container": "lb-detector",
         "baseline_is_numbered": False,
         "min_workers": 1,
-        "max_workers": 3,
+        "max_workers": 10,
         "mem_limit": 402653184,    # 384MB
         "nano_cpus": 500000000,    # 0.5 core
         "priority": 5,
@@ -374,12 +374,25 @@ class ReconAutoscaler:
         self.monitor = SystemResourceMonitor()
 
         # Hard constraints
-        self.target_ceiling = 80.0       # Hard ceiling: strictly below 80%
-        self.scale_up_threshold = 75.0   # Scale up threshold: only add workers when headroom is safely < 75%
-        self.emergency_scale_down = 80.0 # Scale down immediately if >= 80%
-        self.loop_interval = 6           # Seconds between autoscaling checks
+        self.target_ceiling = 80.0       # Dynamic ceiling controlled by slider
+        self.scale_up_threshold = 75.0   # Scale up threshold: only add workers when headroom is safely < threshold
+        self.emergency_scale_down = 80.0 # Scale down immediately if >= target_ceiling
+        self.loop_interval = 4           # Seconds between autoscaling checks (responsive)
         self.last_scale_action = 0.0
-        self.cooldown_sec = 6.0          # Settling time after starting or stopping a worker
+        self.cooldown_sec = 4.0          # Settling time after starting or stopping a worker
+
+    def get_dynamic_max_workers(self, profile: Dict[str, Any]) -> int:
+        """
+        Dynamically scale worker concurrency limit based on configured slider target ceiling (10% to 90%).
+        At 10% (Min): strictly min_workers.
+        At 90% (Max): full max_workers.
+        Scales smoothly with the user's slider setting so adjusting the slider directly adjusts capacity.
+        """
+        min_w = profile["min_workers"]
+        max_w = profile["max_workers"]
+        ratio = max(0.0, min(1.0, (self.target_ceiling - 10.0) / 80.0))
+        dynamic_cap = int(round(min_w + ratio * (max_w - min_w)))
+        return max(min_w, dynamic_cap)
 
     def parse_tool_containers(self, all_containers: List[Dict[str, Any]]) -> Dict[str, Dict[int, Dict[str, Any]]]:
         """
@@ -468,6 +481,22 @@ class ReconAutoscaler:
         ram_pct = vitals["ram_percent"]
         peak_pct = vitals["peak_percent"]
 
+        # 0. Read dynamic user resource limit from MongoDB
+        try:
+            limit_doc = await self.settings_col.find_one({"key": "resource_limit"})
+            if limit_doc and "target_percent" in limit_doc:
+                user_limit = float(limit_doc["target_percent"])
+                self.target_ceiling = max(10.0, min(90.0, user_limit))
+            else:
+                self.target_ceiling = 80.0
+        except Exception as e:
+            logger.debug(f"[Autoscaler] Error reading resource_limit: {e}")
+            self.target_ceiling = 80.0
+
+        # Dynamic thresholds based on configured target ceiling
+        self.emergency_scale_down = self.target_ceiling
+        self.scale_up_threshold = max(8.0, round(self.target_ceiling - 5.0, 1))
+
         # 1. Fetch task backlogs and container map
         all_containers = self.docker.list_all_containers()
         tool_instances = self.parse_tool_containers(all_containers)
@@ -498,6 +527,9 @@ class ReconAutoscaler:
         # Total workers running
         total_workers = sum(running_counts.values())
 
+        # Compute dynamic worker caps for each tool based on target ceiling slider
+        dynamic_caps = {k: self.get_dynamic_max_workers(p) for k, p in TOOL_SCALING_PROFILES.items()}
+
         # Save autoscaler telemetry to Mongo for dashboard
         telemetry = {
             "key": "autoscaler",
@@ -515,26 +547,26 @@ class ReconAutoscaler:
                 "name": profile["name"],
                 "running": running_counts.get(tool_key, 0),
                 "min": profile["min_workers"],
-                "max": profile["max_workers"],
+                "max": dynamic_caps[tool_key],
                 "pending": queue_depths[tool_key]["pending"],
                 "processing": queue_depths[tool_key]["processing"],
             }
         await self.settings_col.update_one({"key": "autoscaler"}, {"$set": telemetry}, upsert=True)
 
         logger.info(
-            f"[Autoscaler] Vitals: CPU={cpu_pct}%, RAM={ram_pct}% (Peak={peak_pct}%). "
+            f"[Autoscaler] Vitals: CPU={cpu_pct}%, RAM={ram_pct}% (Peak={peak_pct}% | Target={self.target_ceiling}%). "
             f"Total active workers: {total_workers}."
         )
 
         # -------------------------------------------------------------------
-        # 1. EMERGENCY RELIEF: Peak resource >= 80.0%
+        # 1. EMERGENCY RELIEF: Peak resource >= target_ceiling
         # -------------------------------------------------------------------
         if peak_pct >= self.emergency_scale_down:
             logger.warning(
-                f"[Autoscaler] System resource ceiling exceeded (CPU: {cpu_pct}%, RAM: {ram_pct}% >= {self.emergency_scale_down}%). "
+                f"[Autoscaler] System resource ceiling reached or exceeded (Peak: {peak_pct}% >= {self.emergency_scale_down}%). "
                 f"Halting spawn and relieving load."
             )
-            if (now - self.last_scale_action) >= self.cooldown_sec:
+            if (now - self.last_scale_action) >= 3.0:
                 # Find tool with excess workers to stop
                 tool_to_relieve = None
                 max_excess = 0
@@ -548,29 +580,57 @@ class ReconAutoscaler:
                     profile = TOOL_SCALING_PROFILES[tool_to_relieve]
                     slug = profile["container_slug"]
                     target_container = f"{slug}-{target_iid}"
-                    logger.warning(f"[Autoscaler] Emergency scale-down: stopping {target_container} to reduce usage below 80%.")
+                    logger.warning(f"[Autoscaler] Relieving load: stopping {target_container} to bring usage below {self.emergency_scale_down}%.")
                     stopped = self.docker.stop_container(target_container, timeout=5)
                     if stopped:
                         self.docker.remove_container(target_container, force=True)
                         await self.scanners_col.delete_one({"key": f"{tool_to_relieve}_{target_iid}"})
                         self.last_scale_action = now
-                        logger.info(f"[Autoscaler] Emergency stopped and removed {target_container}.")
+                        logger.info(f"[Autoscaler] Stopped and removed {target_container}.")
             return
 
         # -------------------------------------------------------------------
-        # 2. SCALE-UP: When headroom is safely available (< 75%)
+        # 1B. SLIDER DOWNWARD ADJUSTMENT: Stop workers exceeding dynamic cap
+        # -------------------------------------------------------------------
+        if (now - self.last_scale_action) >= 3.0:
+            for tool_key, profile in TOOL_SCALING_PROFILES.items():
+                running = running_counts.get(tool_key, 0)
+                dyn_max = dynamic_caps[tool_key]
+                if running > dyn_max:
+                    excess_above_cap = [iid for iid in tool_instances.get(tool_key, {}).keys() if iid > dyn_max]
+                    if excess_above_cap:
+                        target_iid = max(excess_above_cap)
+                        slug = profile["container_slug"]
+                        target_container = f"{slug}-{target_iid}"
+                        logger.info(
+                            f"[Autoscaler] Slider adjustment scale-down: stopping {target_container} "
+                            f"(running {running} > dynamic slider limit {dyn_max})."
+                        )
+                        stopped = self.docker.stop_container(target_container, timeout=5)
+                        if stopped:
+                            self.docker.remove_container(target_container, force=True)
+                            await self.scanners_col.delete_one({"key": f"{tool_key}_{target_iid}"})
+                            self.last_scale_action = now
+                            logger.info(f"[Autoscaler] Downscaled {target_container}.")
+                            return
+
+        # -------------------------------------------------------------------
+        # 2. SCALE-UP: When headroom is safely available (< scale_up_threshold)
         # -------------------------------------------------------------------
         if peak_pct < self.scale_up_threshold:
-            if (now - self.last_scale_action) >= self.cooldown_sec:
+            headroom = self.scale_up_threshold - peak_pct
+            effective_cooldown = 3.0 if headroom >= 15.0 else self.cooldown_sec
+
+            if (now - self.last_scale_action) >= effective_cooldown:
                 # Identify candidates needing more workers
                 candidates = []
                 for tool_key, profile in TOOL_SCALING_PROFILES.items():
                     pending = queue_depths[tool_key]["pending"]
                     processing = queue_depths[tool_key]["processing"]
                     running = running_counts[tool_key]
-                    max_w = profile["max_workers"]
+                    dyn_max = dynamic_caps[tool_key]
 
-                    if pending > 0 and running < max_w:
+                    if pending > 0 and running < dyn_max:
                         total_work = pending + processing
                         if running < total_work:
                             candidates.append({
@@ -578,7 +638,7 @@ class ReconAutoscaler:
                                 "priority": profile["priority"],
                                 "pending": pending,
                                 "running": running,
-                                "max": max_w
+                                "max": dyn_max
                             })
 
                 if candidates:
@@ -615,7 +675,7 @@ class ReconAutoscaler:
                         target_name = f"{slug}-{next_iid}"
                         logger.info(
                             f"[Autoscaler] Headroom available ({peak_pct}% < {self.scale_up_threshold}%). "
-                            f"Spawning new {target_name} for {profile['name']} ({top_candidate['pending']} pending tasks)."
+                            f"Spawning new {target_name} for {profile['name']} ({top_candidate['pending']} pending tasks, cap={top_candidate['max']})."
                         )
                         created = self.docker.create_cloned_worker(
                             name=target_name,

@@ -927,26 +927,50 @@ class AliveCheckAgent(BaseAgent):
                         {"$set": sub_update_fields}
                     )
                 else:
+                    root_update = {
+                        "scanned": True,
+                        "last_scanned": now_iso
+                    }
+                    if target_ip:
+                        root_update["ip"] = target_ip
+                        root_update["system.ip"] = target_ip
+                        root_update["system.last_scanned"] = now_iso
+                    if target_ipv6:
+                        root_update["ipv6"] = target_ipv6
+                    if asn_info.get("asn"):
+                        root_update["asn"] = str(asn_info.get("asn"))
+                        root_update["as_org"] = asn_info.get("org")
+                        root_update["cidr"] = asn_info.get("cidr")
+                        root_update["infrastructure.asn_data.primary_asn"] = str(asn_info.get("asn"))
+                        root_update["infrastructure.asn_data.primary_org"] = asn_info.get("org")
+                        root_update["infrastructure.asn_data.cidr"] = asn_info.get("cidr")
+                    if asn_info.get("ptr"):
+                        root_update["ptr"] = asn_info.get("ptr")
+
                     if is_takeover_suppressed:
-                        await self.domains_col.update_one(
-                            {"domain": root_domain},
-                            {"$set": {
-                                "dangling_takeover": False,
-                                "takeover_provider": None,
-                                "takeover_risk": None,
-                                "takeover_false_positive": True
-                            }}
-                        )
+                        root_update["dangling_takeover"] = False
+                        root_update["takeover_provider"] = None
+                        root_update["takeover_risk"] = None
+                        root_update["takeover_false_positive"] = True
                     elif takeover_res:
-                        await self.domains_col.update_one(
-                            {"domain": root_domain},
-                            {"$set": {
-                                "dangling_takeover": True,
-                                "cname": takeover_res.get("cname"),
-                                "takeover_provider": takeover_res.get("provider"),
-                                "takeover_risk": takeover_res.get("risk")
-                            }}
-                        )
+                        root_update["dangling_takeover"] = True
+                        root_update["cname"] = takeover_res.get("cname")
+                        root_update["takeover_provider"] = takeover_res.get("provider")
+                        root_update["takeover_risk"] = takeover_res.get("risk")
+
+                    mongo_ops = {"$set": root_update}
+                    ips_to_add = []
+                    if target_ip:
+                        ips_to_add.append(target_ip)
+                    if target_ipv6:
+                        ips_to_add.append(target_ipv6)
+                    if ips_to_add:
+                        mongo_ops["$addToSet"] = {"target_ips": {"$each": ips_to_add}}
+
+                    await self.domains_col.update_one(
+                        {"domain": root_domain},
+                        mongo_ops
+                    )
 
                 logger.info(f"Target {target} processed (alive={alive}, ipv6={target_ipv6}, valid_asset=True, takeover={bool(takeover_res)}, asn={asn_info.get('asn')}).")
             else:

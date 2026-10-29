@@ -11,12 +11,7 @@
         <div>
             <div class="flex items-center space-x-3">
                 <h1 class="text-3xl font-black tracking-tight text-white">SYSTEM <span class="text-tech-accent">RESOURCES</span></h1>
-                <span id="circuit-breaker-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    CIRCUIT BREAKER: ARMED (92%)
-                </span>
             </div>
-            <p class="text-slate-400 mt-1 font-medium text-sm">Real-time system vitals, fair-share workspace pipeline capacity, and automated circuit-breaker protection.</p>
         </div>
         
         <div class="flex flex-wrap items-center gap-3">
@@ -29,6 +24,129 @@
                 <svg id="refresh-spinner" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span>Refresh Now</span>
             </button>
+        </div>
+    </div>
+
+    <!-- Dynamic Resource Scaling & Capacity Allocation Slider -->
+    <div class="bg-gradient-to-r from-slate-900/95 via-slate-900/90 to-slate-950/95 rounded-3xl border border-slate-800 p-6 shadow-2xl relative overflow-hidden backdrop-blur-md">
+        <!-- Ambient Glow -->
+        <div class="absolute -top-24 -right-24 w-72 h-72 bg-tech-accent/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+            <div class="flex items-center space-x-3.5">
+                <div class="p-3 rounded-2xl bg-tech-accent/10 text-tech-accent border border-tech-accent/25 shadow-inner">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="text-lg font-black tracking-wide text-white uppercase">Dynamic Resource Allocation Cap</h2>
+                </div>
+            </div>
+
+            <!-- Readout Badges & Save State -->
+            <div class="flex items-center space-x-4">
+                <div id="slider-save-indicator" class="hidden items-center space-x-1.5 text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 transition-all">
+                    <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    <span>Limit Saved</span>
+                </div>
+
+                <!-- Target Ceiling Readout -->
+                <div class="flex items-baseline space-x-2 bg-slate-950/80 border border-slate-800 px-4 py-2 rounded-2xl shadow-inner">
+                    <span class="text-xs font-mono text-slate-400 uppercase font-bold">Target Ceiling:</span>
+                    <span id="resource-limit-display" class="text-3xl font-black font-mono text-tech-accent tracking-tight">80%</span>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Slider Range Input & Scale Markers -->
+        <div class="pt-4 space-y-2">
+            <!-- Relative container for slider, live utilization bar, and needle -->
+            <div class="relative w-full py-4">
+                <!-- Live Utilization Underlay Track (Shows live peak resource usage directly on the 10%-90% slider track) -->
+                <div class="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-3.5 bg-slate-950/90 rounded-lg border border-slate-800/90 overflow-hidden pointer-events-none">
+                    <div id="slider-live-fill" class="h-full bg-gradient-to-r from-sky-500/40 via-emerald-500/40 to-tech-accent/50 transition-all duration-500" style="width: 0%;"></div>
+                </div>
+
+                <!-- Input Range Slider -->
+                <input 
+                    type="range" 
+                    id="resource-limit-slider" 
+                    min="10" 
+                    max="90" 
+                    step="1" 
+                    value="80" 
+                    class="relative z-10 w-full h-3.5 bg-transparent appearance-none cursor-pointer accent-tech-accent hover:accent-emerald-400 transition-all focus:outline-none"
+                    oninput="onResourceSliderInput(this.value)"
+                    onchange="onResourceSliderCommit(this.value)"
+                >
+
+                <!-- Live Usage Marker Needle (Whichever resource hits cap first) -->
+                <div id="slider-live-pointer" class="absolute top-0 -translate-x-1/2 pointer-events-none transition-all duration-500 z-20 flex flex-col items-center" style="left: 0%; display: none;">
+                    <div id="slider-live-pointer-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-900/95 border border-slate-700 text-slate-300 shadow-lg whitespace-nowrap mb-0.5">
+                        <span id="slider-live-pointer-text">Live: --%</span>
+                    </div>
+                    <div class="w-1.5 h-1.5 bg-tech-accent rotate-45 border-r border-b border-slate-700 -mt-1"></div>
+                </div>
+            </div>
+
+            <!-- Mathematical Scale Ticks and Labels: Exactly aligned with min=10, max=90 -->
+            <div class="relative w-full h-11 select-none text-[11px] font-mono font-bold">
+                <!-- 10% (0% pos) -->
+                <div class="absolute left-0 flex flex-col items-start" style="left: 0%;">
+                    <div class="w-0.5 h-2 bg-slate-700 mb-1"></div>
+                    <button type="button" onclick="setSliderPreset(10)" class="hover:text-tech-accent transition-colors flex flex-col items-start cursor-pointer text-slate-500">
+                        <span class="text-slate-400">10%</span>
+                        <span class="text-[9px] text-slate-600 uppercase font-semibold">Min</span>
+                    </button>
+                </div>
+
+                <!-- 25% ((25-10)/80 = 18.75% pos) -->
+                <div class="absolute flex flex-col items-center" style="left: 18.75%; transform: translateX(-50%);">
+                    <div class="w-0.5 h-2 bg-slate-700 mb-1"></div>
+                    <button type="button" onclick="setSliderPreset(25)" class="hover:text-tech-accent transition-colors flex flex-col items-center cursor-pointer text-slate-500">
+                        <span>25%</span>
+                        <span class="text-[9px] text-slate-600 uppercase font-semibold">Low</span>
+                    </button>
+                </div>
+
+                <!-- 50% ((50-10)/80 = 50.0% pos) -->
+                <div class="absolute flex flex-col items-center" style="left: 50%; transform: translateX(-50%);">
+                    <div class="w-0.5 h-2 bg-slate-700 mb-1"></div>
+                    <button type="button" onclick="setSliderPreset(50)" class="hover:text-tech-accent transition-colors flex flex-col items-center cursor-pointer text-slate-500">
+                        <span>50%</span>
+                        <span class="text-[9px] text-slate-600 uppercase font-semibold">50%</span>
+                    </button>
+                </div>
+
+                <!-- 75% ((75-10)/80 = 81.25% pos) -->
+                <div class="absolute flex flex-col items-center" style="left: 81.25%; transform: translateX(-50%);">
+                    <div class="w-0.5 h-2 bg-slate-700 mb-1"></div>
+                    <button type="button" onclick="setSliderPreset(75)" class="hover:text-tech-accent transition-colors flex flex-col items-center cursor-pointer text-slate-500">
+                        <span>75%</span>
+                        <span class="text-[9px] text-slate-600 uppercase font-semibold">75%</span>
+                    </button>
+                </div>
+
+                <!-- 80% ((80-10)/80 = 87.5% pos) -->
+                <div class="absolute flex flex-col items-center" style="left: 87.5%; transform: translateX(-50%);">
+                    <div class="w-0.5 h-2 bg-tech-accent/80 mb-1"></div>
+                    <button type="button" onclick="setSliderPreset(80)" class="hover:text-tech-accent transition-colors flex flex-col items-center cursor-pointer font-extrabold text-tech-accent">
+                        <span class="text-tech-accent">80%</span>
+                        <span class="text-[9px] text-tech-accent/80 uppercase font-bold">Default</span>
+                    </button>
+                </div>
+
+                <!-- 90% ((90-10)/80 = 100.0% pos) -->
+                <div class="absolute flex flex-col items-end" style="left: 100%; transform: translateX(-100%);">
+                    <div class="w-0.5 h-2 bg-rose-500/80 mb-1 self-end"></div>
+                    <button type="button" onclick="setSliderPreset(90)" class="hover:text-tech-accent transition-colors flex flex-col items-end cursor-pointer text-slate-500">
+                        <span class="text-rose-400">90%</span>
+                        <span class="text-[9px] text-rose-500/80 uppercase font-semibold">Max</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -225,6 +343,100 @@
 <script>
 let refreshCountdown = 3;
 let autoRefreshTimer = null;
+let isUserDraggingSlider = false;
+let currentResourceLimit = 80;
+let currentPeakUsage = 0;
+let currentGoverningResource = 'RAM';
+let currentCpuPercent = 0;
+let currentRamPercent = 0;
+let saveIndicatorTimeout = null;
+
+function updateResourceAlignmentUI(limitVal, peakPct, governing, cpuPct, ramPct) {
+    const isCapped = peakPct >= limitVal;
+
+    // 4. Live Utilization Underlay Fill & Pointer Position on Slider Track (min=10, max=90)
+    // Mathematical Scale: pos% = ((peakPct - 10) / 80) * 100%
+    const liveTrackPct = Math.min(100, Math.max(0, ((peakPct - 10) / 80) * 100));
+    const liveFill = document.getElementById('slider-live-fill');
+    const livePointer = document.getElementById('slider-live-pointer');
+    const livePointerBadge = document.getElementById('slider-live-pointer-badge');
+    const livePointerText = document.getElementById('slider-live-pointer-text');
+
+    if (liveFill) {
+        liveFill.style.width = liveTrackPct + '%';
+        if (isCapped) {
+            liveFill.className = 'h-full bg-gradient-to-r from-amber-500/40 via-rose-500/60 to-rose-600/70 transition-all duration-500';
+        } else {
+            liveFill.className = 'h-full bg-gradient-to-r from-sky-500/30 via-emerald-500/40 to-tech-accent/50 transition-all duration-500';
+        }
+    }
+
+    if (livePointer) {
+        livePointer.style.display = 'flex';
+        livePointer.style.left = liveTrackPct + '%';
+        if (livePointerText) {
+            livePointerText.textContent = `${peakPct}% (${governing} hits cap first)`;
+        }
+        if (livePointerBadge) {
+            if (isCapped) {
+                livePointerBadge.className = 'px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950/90 border border-rose-500 text-rose-300 shadow-lg whitespace-nowrap mb-0.5';
+            } else {
+                livePointerBadge.className = 'px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-900/95 border border-slate-700 text-slate-300 shadow-lg whitespace-nowrap mb-0.5';
+            }
+        }
+    }
+}
+
+function onResourceSliderInput(val) {
+    isUserDraggingSlider = true;
+    const numVal = Math.min(90, Math.max(10, parseInt(val) || 80));
+    currentResourceLimit = numVal;
+    const disp = document.getElementById('resource-limit-display');
+    if (disp) disp.textContent = numVal + '%';
+    updateResourceAlignmentUI(numVal, currentPeakUsage, currentGoverningResource, currentCpuPercent, currentRamPercent);
+}
+
+async function onResourceSliderCommit(val) {
+    isUserDraggingSlider = false;
+    const numVal = Math.min(90, Math.max(10, parseFloat(val) || 80));
+    currentResourceLimit = numVal;
+    const disp = document.getElementById('resource-limit-display');
+    if (disp) disp.textContent = Math.round(numVal) + '%';
+    updateResourceAlignmentUI(numVal, currentPeakUsage, currentGoverningResource, currentCpuPercent, currentRamPercent);
+
+    try {
+        const resp = await fetch('/api/system/resource-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limit_percent: numVal })
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+        const ind = document.getElementById('slider-save-indicator');
+        if (ind) {
+            ind.classList.remove('hidden');
+            ind.classList.add('flex');
+            if (saveIndicatorTimeout) clearTimeout(saveIndicatorTimeout);
+            saveIndicatorTimeout = setTimeout(() => {
+                ind.classList.remove('flex');
+                ind.classList.add('hidden');
+            }, 3000);
+        }
+        // Immediate sync of vitals and allocations
+        fetchResources();
+    } catch (e) {
+        console.error('Failed to commit resource limit:', e);
+    }
+}
+
+function setSliderPreset(val) {
+    const slider = document.getElementById('resource-limit-slider');
+    if (slider) {
+        slider.value = val;
+        onResourceSliderInput(val);
+        onResourceSliderCommit(val);
+    }
+}
 
 async function fetchResources(manual = false) {
     const spinner = document.getElementById('refresh-spinner');
@@ -250,6 +462,27 @@ function renderResources(data) {
     const disk = vitals.disk || {};
     const net = vitals.network || {};
 
+    // 0. Vitals and Governing Resource calculation (Whichever hits cap first)
+    currentCpuPercent = Math.round((cpu.percent || 0) * 10) / 10;
+    currentRamPercent = Math.round((mem.percent || 0) * 10) / 10;
+    currentPeakUsage = Math.round(Math.max(currentCpuPercent, currentRamPercent) * 10) / 10;
+    currentGoverningResource = currentCpuPercent >= currentRamPercent ? 'CPU' : 'RAM';
+
+    // Update Resource Limit Slider (if not being dragged by user)
+    if (!isUserDraggingSlider && data.resource_limit_percent !== undefined) {
+        const slider = document.getElementById('resource-limit-slider');
+        const limitVal = Math.round(data.resource_limit_percent);
+        if (slider && parseInt(slider.value) !== limitVal) {
+            slider.value = limitVal;
+        }
+        currentResourceLimit = limitVal;
+        const disp = document.getElementById('resource-limit-display');
+        if (disp) disp.textContent = limitVal + '%';
+    }
+
+    // Refresh UI alignment between slider and governing system resource usage
+    updateResourceAlignmentUI(currentResourceLimit, currentPeakUsage, currentGoverningResource, currentCpuPercent, currentRamPercent);
+
     // 1. Circuit Breaker Banner & Badge
     const cbBanner = document.getElementById('circuit-breaker-banner');
     const cbBadge = document.getElementById('circuit-breaker-badge');
@@ -258,12 +491,15 @@ function renderResources(data) {
     if (data.circuit_breaker_triggered) {
         cbBanner.classList.remove('hidden');
         cbMsg.textContent = data.circuit_breaker_reason || 'Resource limits exceeded safe thresholds. Scanning paused.';
-        cbBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center gap-1.5 animate-pulse';
-        cbBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> CIRCUIT BREAKER: TRIGGERED';
+        if (cbBadge) {
+            cbBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center gap-1.5 animate-pulse';
+            cbBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> CIRCUIT BREAKER: TRIGGERED';
+        }
     } else {
         cbBanner.classList.add('hidden');
-        cbBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5';
-        cbBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> CIRCUIT BREAKER: ARMED (92%)';
+        if (cbBadge) {
+            cbBadge.remove();
+        }
     }
 
     // 2. CPU Vitals

@@ -1846,7 +1846,7 @@
                 </button>
 
                 <!-- Workspace Switcher Dropdown Menu -->
-                <div id="workspace-dropdown" class="hidden absolute left-0 right-0 top-full mt-2 z-50 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md animate-fade-in min-w-[240px]">
+                <div id="workspace-dropdown" class="hidden absolute left-0 top-full mt-2 z-50 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md animate-fade-in w-72 sm:w-80">
                     <div class="p-2.5 border-b border-slate-800 flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-950/40">
                         <span>Workspaces</span>
                         <span class="text-xs text-tech-accent font-mono">({{ workspaces|length if workspaces else 1 }})</span>
@@ -3922,19 +3922,25 @@
 
                     return `
                         <tr class="hover:bg-slate-800/40 transition-colors">
-                            <td class="py-3 px-3">
-                                <div class="flex items-center">
-                                    <span class="font-bold text-slate-200">${ws.name}</span>
+                            <td class="py-3.5 px-4">
+                                <div class="flex items-center flex-wrap gap-1.5">
+                                    <span class="font-bold text-slate-200 text-sm">${ws.name}</span>
                                     ${activeBadge}
                                     ${defaultBadge}
                                 </div>
-                                ${ws.description ? `<p class="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">${ws.description}</p>` : ''}
+                                ${ws.description ? `<p class="text-[11px] text-slate-400 mt-1 line-clamp-2 max-w-lg leading-relaxed">${ws.description}</p>` : ''}
                             </td>
-                            <td class="py-3 px-3 font-mono text-slate-300">${dCount}</td>
-                            <td class="py-3 px-3 font-mono text-slate-300">${lCount}</td>
-                            <td class="py-3 px-3 font-mono text-xs text-tech-accent">${intervalVal}h <span class="text-slate-500">(${Math.round(intervalVal/24)}d)</span></td>
-                            <td class="py-3 px-3 text-right">
-                                <div class="flex items-center justify-end space-x-1.5">
+                            <td class="py-3.5 px-4 font-mono text-slate-300 whitespace-nowrap">
+                                <span class="px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 font-bold">${dCount}</span>
+                            </td>
+                            <td class="py-3.5 px-4 font-mono text-slate-300 whitespace-nowrap">
+                                <span class="px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700/60 font-bold">${lCount}</span>
+                            </td>
+                            <td class="py-3.5 px-4 font-mono text-xs text-tech-accent whitespace-nowrap">
+                                <span class="font-bold">${intervalVal}h</span> <span class="text-slate-500">(${Math.round(intervalVal/24)}d)</span>
+                            </td>
+                            <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                                <div class="flex items-center justify-end space-x-2">
                                     ${switchBtn}
                                     ${editBtn}
                                     ${deleteBtn}
@@ -4062,38 +4068,38 @@
     </div>
 
     <!-- Manage Workspaces Modal -->
-    <div id="manage-workspaces-modal" class="fixed inset-0 z-[210] hidden overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onclick="if(event.target === this) closeManageWorkspacesModal()">
-        <div class="relative w-full max-w-2xl bg-tech-panel rounded-2xl border border-slate-700 shadow-2xl overflow-hidden p-6 space-y-5" onclick="event.stopPropagation()">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div class="flex items-center space-x-2.5">
-                    <div class="w-8 h-8 rounded-lg bg-tech-accent/20 flex items-center justify-center text-tech-accent">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+    <div id="manage-workspaces-modal" class="fixed inset-0 z-[210] hidden overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 lg:p-8 animate-fade-in" onclick="if(event.target === this) closeManageWorkspacesModal()">
+        <div class="relative w-full max-w-5xl bg-tech-panel rounded-2xl border border-slate-700 shadow-2xl overflow-hidden p-6 sm:p-7 space-y-6" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-tech-accent/20 border border-tech-accent/30 flex items-center justify-center text-tech-accent shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                     </div>
                     <div>
-                        <h3 class="text-base font-black uppercase tracking-wide text-white">Workspaces</h3>
-                        <p class="text-xs text-slate-400">Manage, switch, edit, or delete workspaces</p>
+                        <h3 class="text-base font-black uppercase tracking-wide text-white">Workspaces Management</h3>
+                        <p class="text-xs text-slate-400">Manage, switch, configure scan intervals, or delete workspaces</p>
                     </div>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <button type="button" onclick="closeManageWorkspacesModal(); openCreateWorkspaceModal();" class="px-3 py-1.5 rounded-xl bg-tech-accent/15 border border-tech-accent/40 text-tech-accent hover:bg-tech-accent hover:text-slate-950 text-xs font-bold transition-all flex items-center space-x-1">
+                <div class="flex items-center space-x-2.5">
+                    <button type="button" onclick="closeManageWorkspacesModal(); openCreateWorkspaceModal();" class="px-3.5 py-2 rounded-xl bg-tech-accent/15 border border-tech-accent/40 text-tech-accent hover:bg-tech-accent hover:text-slate-950 text-xs font-bold transition-all flex items-center space-x-1.5 shadow-sm">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                        <span>New</span>
+                        <span>New Workspace</span>
                     </button>
-                    <button type="button" onclick="closeManageWorkspacesModal()" class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+                    <button type="button" onclick="closeManageWorkspacesModal()" class="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
             </div>
 
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/40">
                 <table class="w-full text-left text-xs">
                     <thead>
-                        <tr class="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-bold">
-                            <th class="py-2.5 px-3">Workspace</th>
-                            <th class="py-2.5 px-3">Domains</th>
-                            <th class="py-2.5 px-3">Leads/Alerts</th>
-                            <th class="py-2.5 px-3">Interval</th>
-                            <th class="py-2.5 px-3 text-right">Actions</th>
+                        <tr class="border-b border-slate-800/90 bg-slate-950/70 text-slate-400 uppercase tracking-wider font-bold">
+                            <th class="py-3 px-4 min-w-[280px]">Workspace</th>
+                            <th class="py-3 px-4 whitespace-nowrap w-28">Domains</th>
+                            <th class="py-3 px-4 whitespace-nowrap w-36">Leads & Alerts</th>
+                            <th class="py-3 px-4 whitespace-nowrap w-36">Default Interval</th>
+                            <th class="py-3 px-4 text-right whitespace-nowrap w-40">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="manage-workspaces-tbody" class="divide-y divide-slate-800/60">
