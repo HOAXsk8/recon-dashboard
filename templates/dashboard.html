@@ -191,12 +191,23 @@
                     </select>
                 </div>
 
-                <!-- Row 3: Directory & File Discovery -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-8 gap-2.5">
+                <!-- Row 3: Directory Discovery & Threat Hunting Coverage -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                     <select id="filter-dir-files" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">Dirs / Files (All)</option>
                         <option value="true">📁 Has Dirs / Files Found</option>
                         <option value="false">No Dirs / Files Found</option>
+                    </select>
+                    <select id="filter-coverage" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">🎯 Coverage (All)</option>
+                        <option value="tested">✅ Tested / Covered</option>
+                        <option value="untested">⚪ Untested / Unassessed</option>
+                        <option value="in_progress">🟡 In Progress / Active</option>
+                        <option value="surface_changed">🔴 Surface Changed (Retest)</option>
+                    </select>
+                    <select id="filter-assigned-user" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
+                        <option value="">👤 Assignee (All)</option>
+                        <option value="unassigned">⚪ Unassigned Only</option>
                     </select>
                 </div>
 
@@ -260,6 +271,7 @@
                             Subdomains <span id="sort-icon-subdomains"></span>
                         </th>
                         <th class="px-6 py-4">Technologies</th>
+                        <th class="px-6 py-4">Assigned To</th>
                         <th class="px-8 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -540,10 +552,12 @@
         const apiSpec = document.getElementById('filter-api-spec') ? document.getElementById('filter-api-spec').value : '';
         const drift = document.getElementById('filter-drift') ? document.getElementById('filter-drift').value : '';
         const dirFiles = document.getElementById('filter-dir-files') ? document.getElementById('filter-dir-files').value : '';
+        const coverage = document.getElementById('filter-coverage') ? document.getElementById('filter-coverage').value : '';
+        const assignedUser = document.getElementById('filter-assigned-user') ? document.getElementById('filter-assigned-user').value : '';
         const limit = document.getElementById('limit-select').value;
         const tbody = document.getElementById('inventory-table-body');
 
-        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, dirFiles, currentPortFilter].filter(Boolean).length;
+        const activeCount = [statusVal, hasSubdomains, ip, tech, waf, lb, aliveApps, apiRoutes, cloudAssets, secrets, jwt, base64, historical, takeover, hideParked, apiSpec, drift, dirFiles, coverage, assignedUser, currentPortFilter].filter(Boolean).length;
         const pill = document.getElementById('active-filters-pill');
         if (pill) {
             if (activeCount > 0) {
@@ -583,6 +597,8 @@
             if (apiSpec) params.append('api_spec', apiSpec);
             if (drift) params.append('drift', drift);
             if (dirFiles) params.append('dir_files', dirFiles);
+            if (coverage) params.append('threat_status', coverage);
+            if (assignedUser) params.append('assigned_to', assignedUser);
             
             const resp = await fetch(`/api/subdomains?${params.toString()}`);
             const data = await resp.json();
@@ -592,7 +608,7 @@
             updateSortIcons();
             
             if (data.subdomains.length === 0 && !append) {
-                tbody.innerHTML = `<tr><td colspan="6" class="py-20 text-center text-slate-500 italic">No assets found matching your criteria.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="py-20 text-center text-slate-500 italic">No assets found matching your criteria.</td></tr>`;
                 hasMore = false;
             } else {
                 data.subdomains.forEach(item => {
@@ -647,6 +663,31 @@
                         }
                     }
 
+                    if (!window._inventoryItemsMap) window._inventoryItemsMap = {};
+                    window._inventoryItemsMap[item.domain] = item;
+
+                    const hunt = item.threat_hunt || { status: 'unassessed' };
+                    let huntStatusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-700/50 text-slate-400 border border-slate-600/40">Unassessed</span>';
+                    if (hunt.status === 'covered') {
+                        huntStatusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">✓ Covered</span>';
+                    } else if (hunt.status === 'in_progress') {
+                        huntStatusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse">● Active</span>';
+                    } else if (hunt.status === 'surface_changed') {
+                        huntStatusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse">! Retest</span>';
+                    }
+
+                    const assigneeName = hunt.claimed_by || hunt.covered_by;
+                    const assigneeDisplay = assigneeName ? `
+                        <div class="flex items-center space-x-1.5 font-mono text-xs">
+                            <span class="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] font-bold text-tech-accent uppercase">
+                                ${assigneeName.slice(0, 2)}
+                            </span>
+                            <span class="font-bold text-slate-200">@${assigneeName}</span>
+                        </div>
+                    ` : `
+                        <span class="text-xs text-slate-500 font-mono italic">Unassigned</span>
+                    `;
+
                     row.innerHTML = `
                         <td class="px-8 py-5">
                             <div class="flex items-center space-x-3">
@@ -688,6 +729,18 @@
                                 <div class="flex flex-wrap gap-1">
                                     ${techBadges || (!infraBadges && !findingBadges ? '<span class="text-xs text-slate-600 italic">None</span>' : '')}
                                 </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-5" onclick="event.stopPropagation()">
+                            <div class="flex flex-col gap-1.5">
+                                <div class="flex items-center gap-2">
+                                    ${assigneeDisplay}
+                                    ${huntStatusBadge}
+                                </div>
+                                <button onclick="window.quickOpenHuntModal('${item.id || ''}', '${item.domain}', event)" class="inline-flex items-center gap-1 text-[11px] font-mono text-tech-cyan hover:underline transition-colors w-fit">
+                                    <span>🎯</span>
+                                    <span>${assigneeName ? 'Manage Coverage' : 'Assign to...'}</span>
+                                </button>
                             </div>
                         </td>
                         <td class="px-8 py-5 text-right">
@@ -851,6 +904,10 @@
         if (driftSelect) driftSelect.value = '';
         const dirFilesSelect = document.getElementById('filter-dir-files');
         if (dirFilesSelect) dirFilesSelect.value = '';
+        const coverageSelect = document.getElementById('filter-coverage');
+        if (coverageSelect) coverageSelect.value = '';
+        const userSelect = document.getElementById('filter-assigned-user');
+        if (userSelect) userSelect.value = '';
         currentPortFilter = null;
         resetAndFetch();
     }
@@ -898,7 +955,7 @@
                 if (currentVal) wafSelect.value = currentVal;
             }
 
-            // 3. Populate Load Balancer Dropdown
+            // 3. Populate Load Balancers Dropdown
             const lbSelect = document.getElementById('filter-lb');
             if (lbSelect && data.load_balancers) {
                 const currentVal = lbSelect.value;
@@ -933,6 +990,33 @@
                     ipSelect.appendChild(opt);
                 });
                 if (currentVal) ipSelect.value = currentVal;
+            }
+
+            // 5. Populate Assigned Users Dropdown
+            const assignedSelect = document.getElementById('filter-assigned-user');
+            if (assignedSelect) {
+                try {
+                    const uRes = await fetch('/api/threat-hunting/users');
+                    if (uRes.ok) {
+                        const uData = await uRes.json();
+                        const curVal = assignedSelect.value;
+                        assignedSelect.innerHTML = '<option value="">👤 Assignee (All)</option><option value="unassigned">⚪ Unassigned Only</option>';
+                        if (uData.users && uData.users.length > 0) {
+                            const group = document.createElement('optgroup');
+                            group.label = 'Team Members';
+                            uData.users.forEach(u => {
+                                const opt = document.createElement('option');
+                                opt.value = u.username;
+                                opt.textContent = `@${u.username} (${u.role || 'tester'})`;
+                                group.appendChild(opt);
+                            });
+                            assignedSelect.appendChild(group);
+                        }
+                        if (curVal) assignedSelect.value = curVal;
+                    }
+                } catch (ue) {
+                    console.warn('Could not populate user assignees:', ue);
+                }
             }
         } catch (e) {
             console.error('Error loading filter options:', e);
@@ -5810,7 +5894,21 @@
             }
         }
 
-        let html = '';
+        let html = `
+        <div class="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-2 mb-3">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Team Assignment</span>
+                <span class="text-[11px] text-slate-400">Current: <span class="font-bold text-slate-200">@${hunt.claimed_by || hunt.covered_by || 'Unassigned'}</span></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <select id="th-modal-assignee-select" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-mono text-slate-200 outline-none focus:border-tech-accent">
+                    <option value="">Select team member...</option>
+                </select>
+                <button onclick="window.submitHuntAssign(document.getElementById('th-modal-assignee-select').value)" class="px-3 py-1.5 bg-tech-accent hover:bg-sky-400 text-tech-bg font-bold rounded-xl text-xs font-mono transition-all">
+                    Assign
+                </button>
+            </div>
+        </div>`;
         const isClaimedByMe = (hunt.claimed_by === curUser);
         const isClaimedByOther = (hunt.status === 'in_progress' && hunt.claimed_by && hunt.claimed_by !== curUser);
 
@@ -5898,6 +5996,22 @@
         }
 
         if (actionsContainer) actionsContainer.innerHTML = html;
+
+        const assigneeSelect = document.getElementById('th-modal-assignee-select');
+        if (assigneeSelect) {
+            fetch('/api/threat-hunting/users').then(r => r.json()).then(uData => {
+                if (uData.users && uData.users.length > 0) {
+                    assigneeSelect.innerHTML = '<option value="">Select team member...</option>';
+                    uData.users.forEach(u => {
+                        const opt = document.createElement('option');
+                        opt.value = u.username;
+                        opt.textContent = `@${u.username} (${u.role || 'tester'})`;
+                        if (u.username === (hunt.claimed_by || hunt.covered_by)) opt.selected = true;
+                        assigneeSelect.appendChild(opt);
+                    });
+                }
+            }).catch(e => console.warn(e));
+        }
 
         if (historyList) {
             const history = hunt.history || [];
@@ -6060,6 +6174,59 @@
             console.error(e);
             alert('Network error marking coverage.');
         }
+    };
+
+    window.submitHuntAssign = async function(targetUser) {
+        const info = window.activeHuntNodeInfo;
+        if (!info) return;
+        const domainId = info.id || info._id;
+        if (!domainId) {
+            alert('Domain ID is missing for this target.');
+            return;
+        }
+        if (!targetUser) {
+            alert('Please select a team member to assign.');
+            return;
+        }
+        try {
+            const resp = await fetch(`/api/domains/${domainId}/hunt/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assigned_to: targetUser })
+            });
+            const res = await resp.json();
+            if (resp.ok) {
+                info.threat_hunt = res.threat_hunt;
+                if (window._inventoryItemsMap && window._inventoryItemsMap[info.domain]) {
+                    window._inventoryItemsMap[info.domain].threat_hunt = res.threat_hunt;
+                }
+                if (window.currentDetailData && (window.currentDetailData._id === domainId || window.currentDetailData.domain === info.domain)) {
+                    window.currentDetailData.threat_hunt = res.threat_hunt;
+                }
+                if (window.fetchInventory) fetchInventory(false);
+                window.openThreatHuntModal(info);
+                window.refreshThreatHuntingStats();
+                showHuntToast(`Assigned ${info.domain || info.label} to @${targetUser}!`, 'success');
+            } else {
+                alert('Assignment failed: ' + (res.detail || 'Server error'));
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Network error assigning domain.');
+        }
+    };
+
+    window.quickOpenHuntModal = function(id, domain, evt) {
+        if (evt) { evt.preventDefault(); evt.stopPropagation(); }
+        const item = (window._inventoryItemsMap && window._inventoryItemsMap[domain]) || {};
+        const nodeInfo = {
+            id: id || item.id || '',
+            _id: id || item.id || '',
+            domain: domain,
+            label: domain,
+            threat_hunt: item.threat_hunt || { status: 'unassessed' }
+        };
+        window.openThreatHuntModal(nodeInfo);
     };
 
     window.promptAddNote = async function() {

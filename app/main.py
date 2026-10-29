@@ -147,7 +147,9 @@ def get_flattened_pipeline(
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
     drift: Optional[str] = None,
-    dir_files: Optional[str] = None
+    dir_files: Optional[str] = None,
+    threat_status: Optional[str] = None,
+    assigned_to: Optional[str] = None
 ):
     pipeline = [
         {"$match": root_query},
@@ -642,7 +644,8 @@ def get_flattened_pipeline(
                 "has_graphql": {"$max": "$has_graphql"},
                 "has_dir_files": {"$max": "$has_dir_files"},
                 "subdomain_drift_count": {"$max": "$subdomain_drift_count"},
-                "latest_subdomain_drift_time": {"$max": "$latest_subdomain_drift_time"}
+                "latest_subdomain_drift_time": {"$max": "$latest_subdomain_drift_time"},
+                "threat_hunt": {"$first": "$threat_hunt"}
             }
         },
         {
@@ -765,7 +768,8 @@ def get_flattened_pipeline(
                 "has_graphql": 1,
                 "has_dir_files": 1,
                 "subdomain_drift_count": {"$ifNull": ["$subdomain_drift_count", 0]},
-                "latest_subdomain_drift_time": 1
+                "latest_subdomain_drift_time": 1,
+                "threat_hunt": 1
             }
         }
     ]
@@ -914,6 +918,46 @@ def get_flattened_pipeline(
             match_stage["has_dir_files"] = True
         elif df_clean in ["false", "0", "no"]:
             match_stage["has_dir_files"] = {"$ne": True}
+
+    if threat_status:
+        ts_clean = str(threat_status).strip().lower()
+        if ts_clean in ["tested", "covered"]:
+            match_stage["threat_hunt.status"] = "covered"
+        elif ts_clean in ["untested", "unassessed"]:
+            if "$and" not in match_stage: match_stage["$and"] = []
+            match_stage["$and"].append({
+                "$or": [
+                    {"threat_hunt.status": "unassessed"},
+                    {"threat_hunt": None},
+                    {"threat_hunt.status": {"$exists": False}}
+                ]
+            })
+        elif ts_clean in ["in_progress", "claimed", "active"]:
+            match_stage["threat_hunt.status"] = "in_progress"
+        elif ts_clean in ["surface_changed", "delta"]:
+            match_stage["threat_hunt.status"] = "surface_changed"
+        elif ts_clean:
+            match_stage["threat_hunt.status"] = ts_clean
+
+    if assigned_to:
+        as_clean = str(assigned_to).strip()
+        if as_clean.lower() in ["unassigned", "none"]:
+            if "$and" not in match_stage: match_stage["$and"] = []
+            match_stage["$and"].append({
+                "$or": [
+                    {"threat_hunt.claimed_by": None},
+                    {"threat_hunt.claimed_by": ""},
+                    {"threat_hunt.claimed_by": {"$exists": False}}
+                ]
+            })
+        elif as_clean:
+            if "$and" not in match_stage: match_stage["$and"] = []
+            match_stage["$and"].append({
+                "$or": [
+                    {"threat_hunt.claimed_by": as_clean},
+                    {"threat_hunt.covered_by": as_clean}
+                ]
+            })
 
     if status_val:
         if status_val == "scanned":
@@ -2054,6 +2098,8 @@ async def get_subdomains(
     api_spec: Optional[str] = None,
     drift: Optional[str] = None,
     dir_files: Optional[str] = None,
+    threat_status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
     sort_by: str = "domain",
     sort_dir: str = "asc",
     user: dict = Depends(get_current_user)
@@ -2086,7 +2132,9 @@ async def get_subdomains(
         hide_parked=hide_parked,
         api_spec=api_spec,
         drift=drift,
-        dir_files=dir_files
+        dir_files=dir_files,
+        threat_status=threat_status,
+        assigned_to=assigned_to
     )
     
     # Total count (Aggregation)
@@ -2183,7 +2231,8 @@ async def get_subdomains(
             "has_dir_files": bool(d.get("has_dir_files", False)),
             "subdomain_drift_count": sub_drift_count,
             "latest_subdomain_drift_time": latest_drift_time,
-            "has_subdomain_drift": sub_drift_count > 0
+            "has_subdomain_drift": sub_drift_count > 0,
+            "threat_hunt": d.get("threat_hunt") or {"status": "unassessed"}
         })
 
     # Calculate total scanned assets for this workspace (root + subdomains)
@@ -4155,6 +4204,8 @@ async def get_domains(
     hide_parked: Optional[str] = None,
     api_spec: Optional[str] = None,
     drift: Optional[str] = None,
+    threat_status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
     if not user:
@@ -4181,7 +4232,9 @@ async def get_domains(
         takeover=takeover,
         hide_parked=hide_parked,
         api_spec=api_spec,
-        drift=drift
+        drift=drift,
+        threat_status=threat_status,
+        assigned_to=assigned_to
     )
     
     # Total count
@@ -5173,6 +5226,207 @@ async def get_my_threat_hunting_targets(request: Request, user: dict = Depends(g
         "targets": results,
         "count": len(results)
     }
+
+@app.get("/api/threat-hunting/users")
+async def get_threat_hunting_users(user: dict = Depends(get_current_user)):
+    """Return active usernames for threat hunting assignment dropdowns."""
+    if not user:
+        raise HTTPException(status_code=401)
+    cursor = users_col.find({}, {"username": 1, "role": 1})
+    docs = await cursor.to_list(length=100)
+    return {"users": [{"username": d["username"], "role": d.get("role", "analyst")} for d in docs]}
+
+@app.post("/api/domains/{domain_id}/hunt/assign")
+async def assign_domain_hunt(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Assign or reassign a target to a specific tester for threat hunting."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        try:
+            form = await request.form()
+            payload = dict(form)
+        except Exception:
+            pass
+
+    target_user = str(payload.get("assigned_to") or payload.get("username") or "").strip()
+    if not target_user:
+        raise HTTPException(status_code=400, detail="Target username is required")
+
+    target_user_doc = await users_col.find_one({"username": target_user})
+    if not target_user_doc:
+        raise HTTPException(status_code=404, detail=f"User '{target_user}' does not exist")
+
+    notes = str(payload.get("notes") or "").strip()
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    current_operator = user["username"]
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    prev_claimed = hunt.get("claimed_by")
+
+    hunt["claimed_by"] = target_user
+    hunt["claimed_at"] = now_iso
+    if hunt.get("status") in ["unassessed", None]:
+        hunt["status"] = "in_progress"
+
+    if notes:
+        existing_notes = hunt.get("notes", "").strip()
+        hunt["notes"] = f"{existing_notes}\n[{now_iso}] Assignment Note (@{current_operator}): {notes}" if existing_notes else f"[{now_iso}] Assignment Note (@{current_operator}): {notes}"
+
+    history_entry = {
+        "action": "assigned",
+        "assigned_to": target_user,
+        "assigned_by": current_operator,
+        "previous_assignee": prev_claimed,
+        "timestamp": now_iso,
+        "notes": notes
+    }
+    history = hunt.get("history") or []
+    history.append(history_entry)
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": current_operator,
+        "action": "assign_target",
+        "assigned_to": target_user,
+        "details": f"Assigned {domain_doc['domain']} to @{target_user} by @{current_operator}"
+    })
+    await log_audit(current_operator, "HUNT_ASSIGN", f"Assigned {domain_doc['domain']} to {target_user}", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
+@app.get("/api/threat-hunting/assignments")
+async def get_threat_hunting_assignments(
+    request: Request,
+    assigned_to: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get all threat hunting assignments across active workspace, filterable by user and status."""
+    if not user:
+        raise HTTPException(status_code=401)
+
+    active_ws = await get_active_workspace(user, request)
+    ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
+
+    criteria = []
+    if ws_clause:
+        criteria.append(ws_clause)
+
+    if assigned_to and assigned_to.strip():
+        at_clean = assigned_to.strip()
+        if at_clean.lower() == "unassigned":
+            criteria.append({
+                "$or": [
+                    {"threat_hunt.claimed_by": None},
+                    {"threat_hunt.claimed_by": ""},
+                    {"threat_hunt.claimed_by": {"$exists": False}}
+                ]
+            })
+        else:
+            criteria.append({
+                "$or": [
+                    {"threat_hunt.claimed_by": at_clean},
+                    {"threat_hunt.covered_by": at_clean}
+                ]
+            })
+
+    if status_filter and status_filter.strip():
+        sf_clean = status_filter.strip().lower()
+        if sf_clean in ["covered", "tested"]:
+            criteria.append({"threat_hunt.status": "covered"})
+        elif sf_clean in ["in_progress", "claimed", "active"]:
+            criteria.append({"threat_hunt.status": "in_progress"})
+        elif sf_clean in ["surface_changed", "delta"]:
+            criteria.append({"threat_hunt.status": "surface_changed"})
+        elif sf_clean in ["unassessed", "untested"]:
+            criteria.append({
+                "$or": [
+                    {"threat_hunt.status": "unassessed"},
+                    {"threat_hunt": None},
+                    {"threat_hunt.status": {"$exists": False}}
+                ]
+            })
+
+    query = {"$and": criteria} if criteria else {}
+
+    cursor = domains_col.find(query, {
+        "domain": 1,
+        "single_domain_only": 1,
+        "ip": 1,
+        "target_ips": 1,
+        "scanned": 1,
+        "threat_hunt": 1,
+        "infrastructure.subdomains": 1,
+        "systems": 1,
+        "last_scanned": 1
+    }).sort("domain", 1).limit(500)
+
+    docs = await cursor.to_list(length=500)
+    assignments = []
+    for d in docs:
+        hunt = d.get("threat_hunt") or get_default_threat_hunt()
+        subs = d.get("infrastructure", {}).get("subdomains") or []
+        ports = sum(len(s.get("ports", [])) for s in (d.get("systems") or []))
+        assignments.append({
+            "id": str(d["_id"]),
+            "domain": d["domain"],
+            "ip": d.get("ip") or (d.get("target_ips") or ["N/A"])[0],
+            "subdomains_count": len(subs),
+            "ports_count": ports,
+            "scanned": bool(d.get("scanned")),
+            "last_scanned": d.get("last_scanned") or "Never",
+            "threat_hunt": hunt
+        })
+
+    user_cursor = users_col.find({}, {"username": 1})
+    all_users = [u["username"] for u in await user_cursor.to_list(length=100)]
+    user_summaries = {}
+    for u in all_users:
+        user_summaries[u] = {"total_assigned": 0, "in_progress": 0, "covered": 0, "surface_changed": 0}
+
+    for a in assignments:
+        h = a["threat_hunt"]
+        assignee = h.get("claimed_by") or h.get("covered_by")
+        if assignee:
+            if assignee not in user_summaries:
+                user_summaries[assignee] = {"total_assigned": 0, "in_progress": 0, "covered": 0, "surface_changed": 0}
+            user_summaries[assignee]["total_assigned"] += 1
+            st = h.get("status", "unassessed")
+            if st == "in_progress": user_summaries[assignee]["in_progress"] += 1
+            elif st == "covered": user_summaries[assignee]["covered"] += 1
+            elif st == "surface_changed": user_summaries[assignee]["surface_changed"] += 1
+
+    return {
+        "assignments": assignments,
+        "total": len(assignments),
+        "user_summaries": user_summaries,
+        "users": all_users
+    }
+
+@app.get("/assignments")
+async def assignments_page(request: Request, user: dict = Depends(get_current_user)):
+    """Render threat hunting assignments dashboard."""
+    if not user:
+        return RedirectResponse(url="/")
+    return await render_page(request, "assignments.html", {}, user)
+
 
 
 @app.post("/api/domains/{domain_id}/scan-now")
