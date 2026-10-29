@@ -132,19 +132,20 @@ class PortScannerAgent(BaseAgent):
         return False
 
     async def run_nmap(self, target: str):
-        """Run standard optimized Nmap scan across top 1000 TCP ports with service versioning."""
-        logger.info(f"Running optimized Nmap on {target}")
+        """Run standard optimized Nmap scan across top 1000 TCP ports with resilient WAN parameters."""
+        logger.info(f"Running resilient Nmap scan on {target}")
         cmd = [
             "nmap", "-sT", "-Pn", "--top-ports", "1000", "-sV",
-            "--max-retries", "1",
-            "--max-rtt-timeout", "500ms",
-            "--max-rate", "300",
-            "--host-timeout", "4m",
-            "-T4", target, "-oX", "-"
+            "--max-retries", "3",
+            "--min-rtt-timeout", "100ms",
+            "--max-rtt-timeout", "1500ms",
+            "--max-rate", "120",
+            "--host-timeout", "5m",
+            "-T3", target, "-oX", "-"
         ]
 
         try:
-            stdout, stderr = await self.run_command(cmd, timeout=300)
+            stdout, stderr = await self.run_command(cmd, timeout=360)
             if stderr:
                 logger.warning(f"Nmap stderr: {stderr}")
             return stdout
@@ -152,40 +153,54 @@ class PortScannerAgent(BaseAgent):
             logger.warning(f"Nmap scan for {target} timed out or failed ({e}); returning empty XML")
             return "<nmaprun></nmaprun>"
 
-    async def check_web_ports(self, host: str) -> List[Dict[str, Any]]:
+    async def verify_single_port(self, host: str, port: int, is_tls: bool = False, retries: int = 3, timeout: float = 5.0) -> bool:
         """
-        Directly verify standard web ports (80, 443, 8080, 8443) using lightweight TCP/HTTP probes.
-        Prevents WAF/CDN rate-limiting and false 'filtered' Nmap results from dropping active web services.
+        Actively verify if a specific port is genuinely open using multi-attempt TCP & HTTP probes.
+        Prevents transient packet drops, CDN jitter, and firewall rate-limits from triggering false alerts.
         """
-        web_services = []
-        for port, proto_name, is_tls in [(443, "https", True), (80, "http", False), (8443, "https", True), (8080, "http", False)]:
-            opened = False
-            # 1. Quick TCP connect
+        for attempt in range(retries):
+            # 1. Direct TCP handshake with generous timeout
             try:
                 conn = asyncio.open_connection(host, port)
-                _, writer = await asyncio.wait_for(conn, timeout=2.0)
+                _, writer = await asyncio.wait_for(conn, timeout=timeout)
                 writer.close()
                 try:
                     await writer.wait_closed()
                 except Exception:
                     pass
-                opened = True
+                return True
             except Exception:
                 pass
 
-            # 2. HTTP/HTTPS probe fallback for SNI-dependent CDNs/WAFs
-            if not opened and port in (80, 443):
+            # 2. Application-layer fallback for web/API ports (HTTP / HTTPS)
+            if port in (80, 443, 8080, 8443, 8000, 8888, 9000, 9443, 10443):
                 try:
                     import httpx
-                    scheme = "https" if port == 443 else "http"
+                    scheme = "https" if (is_tls or port in (443, 8443, 9443, 10443)) else "http"
                     transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", verify=False)
-                    async with httpx.AsyncClient(transport=transport, timeout=2.5, follow_redirects=False) as client:
-                        r = await client.head(f"{scheme}://{host}", headers={"Host": host, "User-Agent": self.user_agent})
+                    async with httpx.AsyncClient(transport=transport, timeout=timeout, follow_redirects=False) as client:
+                        r = await client.head(
+                            f"{scheme}://{host}:{port}",
+                            headers={"Host": host, "User-Agent": self.user_agent}
+                        )
                         if r.status_code is not None and r.status_code > 0:
-                            opened = True
+                            return True
                 except Exception:
                     pass
 
+            if attempt < retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
+
+        return False
+
+    async def check_web_ports(self, host: str) -> List[Dict[str, Any]]:
+        """
+        Directly verify standard web ports (80, 443, 8080, 8443) using resilient TCP & HTTP probes.
+        Prevents WAF/CDN rate-limiting and false 'filtered' Nmap results from dropping active web services.
+        """
+        web_services = []
+        for port, proto_name, is_tls in [(443, "https", True), (80, "http", False), (8443, "https", True), (8080, "http", False)]:
+            opened = await self.verify_single_port(host, port, is_tls=is_tls, retries=2, timeout=5.0)
             if opened:
                 web_services.append({
                     "port": port,
@@ -199,13 +214,13 @@ class PortScannerAgent(BaseAgent):
 
     async def scan_cloud_ports(self, host: str, extra_ports: List[int]) -> List[Dict[str, Any]]:
         """
-        Quickly test extra cloud/DevOps ports using lightweight parallel async TCP handshakes.
+        Quickly test extra cloud/DevOps ports using parallel async TCP handshakes with 4.0s timeout.
         For any responsive ports, return service metadata so they can be merged with Nmap.
         """
         async def check_port(port: int):
             try:
                 conn = asyncio.open_connection(host, port)
-                _, writer = await asyncio.wait_for(conn, timeout=2.0)
+                _, writer = await asyncio.wait_for(conn, timeout=4.0)
                 writer.close()
                 try:
                     await writer.wait_closed()
@@ -535,6 +550,13 @@ class PortScannerAgent(BaseAgent):
         old_set = {f"{p['port']}/{p['protocol']}" for p in old_ports}
         new_set = {f"{p['port']}/{p['protocol']}" for p in new_ports}
 
+        # Total outage / scanner blocking guard:
+        # If all existing ports (>= 2) supposedly vanished simultaneously to 0 ports,
+        # this is almost always host downtime, DNS resolution drop, or scanner rate-limiting.
+        if not new_ports and len(old_ports) >= 2:
+            logger.warning(f"[Anti-Flap] All {len(old_ports)} ports disappeared simultaneously for {target}. Suppressing false full-closure alert.")
+            return False
+
         added = new_set - old_set
         removed = old_set - new_set
 
@@ -598,30 +620,85 @@ class PortScannerAgent(BaseAgent):
                 latest_prev_scan = s_entry
                 break
 
-        changed_ports = set()
+        verified_services = list(services or [])
+
+        # If previous scan exists, perform anti-flap verification before altering DB or alerting
         if latest_prev_scan:
             old_services = latest_prev_scan.get("services", [])
-            if services or old_services:
-                await self.create_port_alert(root_domain, target, old_services, services)
-
             old_map = {p['port']: p for p in old_services}
-            for s in services:
+            new_map = {p['port']: p for p in verified_services}
+
+            supposedly_added = set(new_map.keys()) - set(old_map.keys())
+            supposedly_removed = set(old_map.keys()) - set(new_map.keys())
+
+            # 1. Firewall Tar-Pit / RST Ghost Port Filter:
+            # If > 25 new ports suddenly appear on a single scan with mostly unknown banners,
+            # this is almost always a firewall tarpit, rate-limit spoof, or NAT reflection artifact.
+            if len(supposedly_added) > 25:
+                named_count = sum(1 for p in supposedly_added if new_map[p].get('software') or new_map[p].get('service') not in ('unknown', ''))
+                if named_count < len(supposedly_added) * 0.3:
+                    logger.warning(
+                        f"[Anti-Flap] Target {target} reported {len(supposedly_added)} new ports without service banners. "
+                        f"Detected firewall tarpit / RST spoofing. Filtering phantom ports."
+                    )
+                    verified_services = [s for s in verified_services if s['port'] in old_map or (s.get('software') and s.get('service') not in ('unknown', ''))]
+                    new_map = {p['port']: p for p in verified_services}
+                    supposedly_added = set(new_map.keys()) - set(old_map.keys())
+
+            # 2. Targeted Verification for supposedly "Removed" (closed) ports:
+            # DO NOT alert that a port closed based on a single batch scan!
+            # Actively re-probe each supposedly closed port with retries and generous timeout.
+            if supposedly_removed:
+                logger.info(f"[Anti-Flap] Verifying {len(supposedly_removed)} suspected closed ports on {target}: {supposedly_removed}")
+                for p_num in list(supposedly_removed):
+                    old_p_info = old_map[p_num]
+                    is_tls = old_p_info.get('is_tls', False)
+                    is_still_open = await self.verify_single_port(target, p_num, is_tls=is_tls, retries=3, timeout=5.0)
+                    if is_still_open:
+                        logger.info(f"[Anti-Flap] Retained {target}:{p_num} - confirmed STILL OPEN on targeted verification.")
+                        verified_services.append(old_p_info)
+                        supposedly_removed.remove(p_num)
+
+            # 3. Targeted Verification for supposedly "Added" (newly opened) ports:
+            # Confirm that the port completes a genuine handshake rather than a firewall SYN-cookie artifact.
+            if supposedly_added:
+                logger.info(f"[Anti-Flap] Verifying {len(supposedly_added)} suspected open ports on {target}: {supposedly_added}")
+                for p_num in list(supposedly_added):
+                    new_p_info = new_map[p_num]
+                    is_tls = new_p_info.get('is_tls', False)
+                    is_confirmed_open = await self.verify_single_port(target, p_num, is_tls=is_tls, retries=2, timeout=4.0)
+                    if not is_confirmed_open:
+                        logger.warning(f"[Anti-Flap] Discarded phantom port {target}:{p_num} - failed targeted verification handshake.")
+                        verified_services = [s for s in verified_services if s['port'] != p_num]
+                        supposedly_added.remove(p_num)
+
+            # Re-sort verified services by port number
+            verified_services.sort(key=lambda x: x['port'])
+
+            # Now create alert with strictly verified ports
+            if verified_services or old_services:
+                await self.create_port_alert(root_domain, target, old_services, verified_services)
+
+            changed_ports = set()
+            old_map = {p['port']: p for p in old_services}
+            for s in verified_services:
                 if s['port'] not in old_map or old_map[s['port']] != s:
                     changed_ports.add(s['port'])
         else:
-            changed_ports = {s['port'] for s in services}
+            verified_services.sort(key=lambda x: x['port'])
+            changed_ports = {s['port'] for s in verified_services}
 
         system_entry = {
             "ip": ip,
             "target": target,
-            "services": services,
+            "services": verified_services,
             "last_scanned": datetime.datetime.utcnow().isoformat()
         }
         await self.domains_col.update_one(
             {"domain": root_domain},
             {"$push": {"systems": system_entry}}
         )
-        return changed_ports
+        return changed_ports, verified_services
 
     async def process_tasks(self):
         task = await self.get_next_task("scan")
@@ -704,8 +781,9 @@ class PortScannerAgent(BaseAgent):
                             alert_type="cloud_devops_port_exposed"
                         )
 
-            # 4. Save scan in systems collection
-            changed_ports = await self.update_scan_results_in_db(root_domain, target, ip, services or [])
+            # 4. Save scan in systems collection with anti-flap verification
+            changed_ports, verified_services = await self.update_scan_results_in_db(root_domain, target, ip, services or [])
+            services = verified_services
 
             # 5. Update infrastructure.subdomains
             open_port_numbers = [s['port'] for s in services]
