@@ -947,14 +947,17 @@ def get_flattened_pipeline(
                 "$or": [
                     {"threat_hunt.claimed_by": None},
                     {"threat_hunt.claimed_by": ""},
-                    {"threat_hunt.claimed_by": {"$exists": False}}
+                    {"threat_hunt.claimed_by": {"$exists": False}},
+                    {"threat_hunt.assigned_users": {"$size": 0}}
                 ]
             })
         elif as_clean:
             if "$and" not in match_stage: match_stage["$and"] = []
             match_stage["$and"].append({
                 "$or": [
+                    {"threat_hunt.assigned_users": as_clean},
                     {"threat_hunt.claimed_by": as_clean},
+                    {"threat_hunt.claimed_by": {"$regex": rf"(^|,\s*){re.escape(as_clean)}(\s*,|$)"}},
                     {"threat_hunt.covered_by": as_clean}
                 ]
             })
@@ -4923,6 +4926,7 @@ async def release_domain_hunt(domain_id: str, request: Request, user: dict = Dep
     prev_claimer = hunt.get("claimed_by")
     hunt["status"] = new_status
     hunt["claimed_by"] = None
+    hunt["assigned_users"] = []
     hunt["claimed_at"] = None
 
     history_entry = {
@@ -5124,14 +5128,15 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
         total += c
         status_counts[st] = status_counts.get(st, 0) + c
 
-    # By tester aggregation
+    # By tester aggregation (handling assigned_users array, claimed_by string, covered_by)
     tester_pipeline = [
         {
             "$match": {
                 **query,
                 "$or": [
                     {"threat_hunt.covered_by": {"$exists": True, "$ne": None}},
-                    {"threat_hunt.claimed_by": {"$exists": True, "$ne": None}}
+                    {"threat_hunt.claimed_by": {"$exists": True, "$ne": None}},
+                    {"threat_hunt.assigned_users": {"$exists": True, "$ne": []}}
                 ]
             }
         },
@@ -5139,27 +5144,114 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
             "$project": {
                 "covered_by": "$threat_hunt.covered_by",
                 "claimed_by": "$threat_hunt.claimed_by",
+                "assigned_users": "$threat_hunt.assigned_users",
                 "status": "$threat_hunt.status"
             }
         }
     ]
 
     testers_map = {}
+    assigned_domains_count = 0
+
     async for d in domains_col.aggregate(tester_pipeline):
         cov = d.get("covered_by")
         clm = d.get("claimed_by")
+        users_list = d.get("assigned_users") or []
+        if not users_list and clm:
+            users_list = [x.strip() for x in clm.split(",") if x.strip()]
+        
+        status = d.get("status") or "unassessed"
+        if cov or users_list:
+            assigned_domains_count += 1
+
         if cov:
-            testers_map.setdefault(cov, {"username": cov, "covered": 0, "claimed": 0})
+            testers_map.setdefault(cov, {"username": cov, "covered": 0, "claimed": 0, "total_assigned": 0})
             testers_map[cov]["covered"] += 1
-        if clm and d.get("status") == "in_progress":
-            testers_map.setdefault(clm, {"username": clm, "covered": 0, "claimed": 0})
-            testers_map[clm]["claimed"] += 1
+            testers_map[cov]["total_assigned"] += 1
 
-    testers_list = sorted(list(testers_map.values()), key=lambda x: (x["covered"], x["claimed"]), reverse=True)
+        for u in users_list:
+            testers_map.setdefault(u, {"username": u, "covered": 0, "claimed": 0, "total_assigned": 0})
+            if status == "in_progress":
+                testers_map[u]["claimed"] += 1
+            if u != cov:
+                testers_map[u]["total_assigned"] += 1
 
-    # Recent activities (last 15)
+    for t in testers_map.values():
+        tot = t["total_assigned"]
+        t["completion_pct"] = round((t["covered"] / tot * 100), 1) if tot > 0 else 0.0
+
+    testers_list = sorted(list(testers_map.values()), key=lambda x: (x["covered"], x["claimed"], x["total_assigned"]), reverse=True)
+    unassigned_count = max(0, total - assigned_domains_count)
+
+    # Campaign URLs (Project Violet) count & recent campaigns
+    campaign_filter = {
+        **query,
+        "threat_hunt.notes": {"$exists": True, "$nin": ["", None], "$regex": r"\S+"}
+    }
+    campaign_pipeline = [
+        {"$match": campaign_filter},
+        {
+            "$project": {
+                "domain": 1,
+                "notes": "$threat_hunt.notes",
+                "covered_by": "$threat_hunt.covered_by",
+                "covered_at": "$threat_hunt.covered_at",
+                "status": "$threat_hunt.status"
+            }
+        },
+        {"$sort": {"threat_hunt.covered_at": -1}},
+        {"$limit": 10}
+    ]
+    recent_campaigns = []
+    async for cdoc in domains_col.aggregate(campaign_pipeline):
+        url_val = (cdoc.get("notes") or "").strip()
+        if url_val:
+            recent_campaigns.append({
+                "domain": cdoc.get("domain"),
+                "url": url_val,
+                "covered_by": cdoc.get("covered_by") or "tester",
+                "covered_at": cdoc.get("covered_at") or "",
+                "status": cdoc.get("status") or "covered"
+            })
+    campaigns_count = await domains_col.count_documents(campaign_filter)
+
+    # Daily sign-off velocity (last 14 days)
     ws_str = str(active_ws["_id"])
     act_query = {"workspace_id": ws_str} if not active_ws.get("is_default") else {}
+    
+    trend_map = {}
+    now_dt = datetime.utcnow()
+    for i in range(13, -1, -1):
+        d_str = (now_dt - timedelta(days=i)).strftime("%Y-%m-%d")
+        trend_map[d_str] = 0
+
+    daily_pipeline = [
+        {
+            "$match": {
+                **act_query,
+                "action": {"$in": ["mark_covered", "coverage", "covered"]}
+            }
+        },
+        {
+            "$project": {
+                "day": {"$substr": ["$timestamp", 0, 10]}
+            }
+        },
+        {
+            "$group": {
+                "_id": "$day",
+                "count": {"$sum": 1}
+            }
+        }
+    ]
+    async for d_act in hunt_activities_col.aggregate(daily_pipeline):
+        day = d_act["_id"]
+        if day in trend_map:
+            trend_map[day] = d_act["count"]
+
+    daily_trend = [{"date": k, "count": v} for k, v in trend_map.items()]
+
+    # Recent activities (last 15)
     recent_cursor = hunt_activities_col.find(act_query).sort("timestamp", -1).limit(15)
     recent_acts = await recent_cursor.to_list(length=15)
     for act in recent_acts:
@@ -5173,6 +5265,11 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
         "total_domains": total,
         "status_counts": status_counts,
         "coverage_percentage": coverage_pct,
+        "assigned_count": assigned_domains_count,
+        "unassigned_count": unassigned_count,
+        "campaigns_count": campaigns_count,
+        "recent_campaigns": recent_campaigns,
+        "daily_trend": daily_trend,
         "testers": testers_list,
         "recent_activities": recent_acts
     }
@@ -5259,13 +5356,24 @@ async def assign_domain_hunt(domain_id: str, request: Request, user: dict = Depe
         except Exception:
             pass
 
-    target_user = str(payload.get("assigned_to") or payload.get("username") or "").strip()
-    if not target_user:
-        raise HTTPException(status_code=400, detail="Target username is required")
+    raw_users = payload.get("assigned_users") or payload.get("assigned_to") or payload.get("username") or payload.get("usernames") or ""
+    target_users = []
+    if isinstance(raw_users, list):
+        target_users = [str(u).strip() for u in raw_users if str(u).strip()]
+    elif isinstance(raw_users, str):
+        target_users = [u.strip() for u in raw_users.split(",") if u.strip()]
 
-    target_user_doc = await users_col.find_one({"username": target_user})
-    if not target_user_doc:
-        raise HTTPException(status_code=404, detail=f"User '{target_user}' does not exist")
+    if not target_users:
+        raise HTTPException(status_code=400, detail="At least one target user is required")
+
+    valid_users = []
+    for tu in target_users:
+        u_doc = await users_col.find_one({"username": tu})
+        if u_doc and tu not in valid_users:
+            valid_users.append(tu)
+
+    if not valid_users:
+        raise HTTPException(status_code=404, detail="Selected user(s) do not exist")
 
     notes = str(payload.get("notes") or "").strip()
     now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -5274,7 +5382,8 @@ async def assign_domain_hunt(domain_id: str, request: Request, user: dict = Depe
     hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
     prev_claimed = hunt.get("claimed_by")
 
-    hunt["claimed_by"] = target_user
+    hunt["assigned_users"] = valid_users
+    hunt["claimed_by"] = ", ".join(valid_users)
     hunt["claimed_at"] = now_iso
     if hunt.get("status") in ["unassessed", None]:
         hunt["status"] = "in_progress"
@@ -5283,9 +5392,11 @@ async def assign_domain_hunt(domain_id: str, request: Request, user: dict = Depe
         existing_notes = hunt.get("notes", "").strip()
         hunt["notes"] = f"{existing_notes}\n[{now_iso}] Assignment Note (@{current_operator}): {notes}" if existing_notes else f"[{now_iso}] Assignment Note (@{current_operator}): {notes}"
 
+    assigned_display = ", ".join(f"@{u}" for u in valid_users)
     history_entry = {
         "action": "assigned",
-        "assigned_to": target_user,
+        "assigned_to": valid_users if len(valid_users) > 1 else valid_users[0],
+        "assigned_users": valid_users,
         "assigned_by": current_operator,
         "previous_assignee": prev_claimed,
         "timestamp": now_iso,
@@ -5304,10 +5415,10 @@ async def assign_domain_hunt(domain_id: str, request: Request, user: dict = Depe
         "workspace_id": str(domain_doc.get("workspace_id", "")),
         "username": current_operator,
         "action": "assign_target",
-        "assigned_to": target_user,
-        "details": f"Assigned {domain_doc['domain']} to @{target_user} by @{current_operator}"
+        "assigned_to": valid_users,
+        "details": f"Assigned {domain_doc['domain']} to {assigned_display} by @{current_operator}"
     })
-    await log_audit(current_operator, "HUNT_ASSIGN", f"Assigned {domain_doc['domain']} to {target_user}", request)
+    await log_audit(current_operator, "HUNT_ASSIGN", f"Assigned {domain_doc['domain']} to {assigned_display}", request)
 
     return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
 
@@ -5336,13 +5447,16 @@ async def get_threat_hunting_assignments(
                 "$or": [
                     {"threat_hunt.claimed_by": None},
                     {"threat_hunt.claimed_by": ""},
-                    {"threat_hunt.claimed_by": {"$exists": False}}
+                    {"threat_hunt.claimed_by": {"$exists": False}},
+                    {"threat_hunt.assigned_users": {"$size": 0}}
                 ]
             })
         else:
             criteria.append({
                 "$or": [
+                    {"threat_hunt.assigned_users": at_clean},
                     {"threat_hunt.claimed_by": at_clean},
+                    {"threat_hunt.claimed_by": {"$regex": rf"(^|,\s*){re.escape(at_clean)}(\s*,|$)"}},
                     {"threat_hunt.covered_by": at_clean}
                 ]
             })
@@ -5403,8 +5517,12 @@ async def get_threat_hunting_assignments(
 
     for a in assignments:
         h = a["threat_hunt"]
-        assignee = h.get("claimed_by") or h.get("covered_by")
-        if assignee:
+        assigned_list = h.get("assigned_users") or []
+        if not assigned_list:
+            c = h.get("claimed_by") or h.get("covered_by")
+            if c:
+                assigned_list = [x.strip() for x in c.split(",") if x.strip()]
+        for assignee in assigned_list:
             if assignee not in user_summaries:
                 user_summaries[assignee] = {"total_assigned": 0, "in_progress": 0, "covered": 0, "surface_changed": 0}
             user_summaries[assignee]["total_assigned"] += 1

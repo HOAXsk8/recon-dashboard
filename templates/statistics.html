@@ -9,136 +9,396 @@
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
         <div>
-            <h1 class="text-3xl font-black tracking-tight text-white">INFRASTRUCTURE <span class="text-tech-accent">STATISTICS</span></h1>
-            <p class="text-slate-400 mt-1 font-medium">Global overview of discovered assets, risks, and technologies.</p>
+            <h1 id="stats-page-title" class="text-3xl font-black tracking-tight text-white">INFRASTRUCTURE <span class="text-tech-accent">STATISTICS</span></h1>
+            <p id="stats-page-subtitle" class="text-slate-400 mt-1 font-medium">Global overview of discovered assets, risks, and technologies.</p>
         </div>
         <div class="flex items-center space-x-3">
-            <button onclick="loadStats()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
+            <a href="/assignments" class="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
+                <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                <span>Assignments</span>
+            </a>
+            <button onclick="refreshActiveStats()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                 <span>Refresh Data</span>
             </button>
         </div>
     </div>
 
-    <!-- Summary Stats -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="summary-cards">
-        <!-- Loading skeletons -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
-            <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
-            <div class="h-8 w-16 bg-slate-600 rounded"></div>
+    <!-- Tabs Navigation Bar -->
+    <div class="flex items-center space-x-2 border-b border-slate-800 pb-3">
+        <button id="tab-btn-infrastructure" onclick="switchStatsTab('infrastructure')"
+            class="px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 bg-tech-accent/15 text-tech-accent border border-tech-accent/40 shadow-sm shadow-tech-accent/10">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            <span>Infrastructure Statistics</span>
+        </button>
+        <button id="tab-btn-coverage" onclick="switchStatsTab('coverage')"
+            class="px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+            <span>Coverage Statistics</span>
+        </button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB 1: INFRASTRUCTURE STATISTICS CONTENT   -->
+    <!-- ========================================== -->
+    <div id="tab-content-infrastructure" class="space-y-8">
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="summary-cards">
+            <!-- Loading skeletons -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
+                <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
+                <div class="h-8 w-16 bg-slate-600 rounded"></div>
+            </div>
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
+                <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
+                <div class="h-8 w-16 bg-slate-600 rounded"></div>
+            </div>
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
+                <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
+                <div class="h-8 w-16 bg-slate-600 rounded"></div>
+            </div>
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
+                <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
+                <div class="h-8 w-16 bg-slate-600 rounded"></div>
+            </div>
         </div>
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
-            <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
-            <div class="h-8 w-16 bg-slate-600 rounded"></div>
-        </div>
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
-            <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
-            <div class="h-8 w-16 bg-slate-600 rounded"></div>
-        </div>
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 animate-pulse">
-            <div class="h-4 w-24 bg-slate-700 rounded mb-4"></div>
-            <div class="h-8 w-16 bg-slate-600 rounded"></div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Activity Chart -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                    <span>Discoveries Over Time (14 Days)</span>
+                </h3>
+                <div class="h-64 relative">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Risk Distribution -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-tech-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <span>Risk Level Distribution</span>
+                </h3>
+                <div class="h-64 relative flex items-center justify-center">
+                    <canvas id="riskChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Technologies -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                    <span>Top Web Technologies</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="techChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top HTTP Headers -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span>Top HTTP Headers</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="headersChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Port Distribution -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-tech-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                    <span>Common Open Ports</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="portsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- WAF/CDN Providers -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    <span>WAF & CDN Distribution</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="wafChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Software/Service Distribution -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    <span>Software & Services</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="softwareChart"></canvas>
+                </div>
+            </div>
+
+            <!-- TLD Distribution -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    <span>Top Level Domains (TLDs)</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="tldChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Infrastructure Size -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                    <span>Largest Infrastructures (Subdomain Count)</span>
+                </h3>
+                <div class="h-80 relative">
+                    <canvas id="subdomainCountsChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Charts Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <!-- Activity Chart -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-                <span>Discoveries Over Time (14 Days)</span>
-            </h3>
-            <div class="h-64 relative">
-                <canvas id="activityChart"></canvas>
+    <!-- ========================================== -->
+    <!-- TAB 2: COVERAGE & THREAT HUNTING CONTENT   -->
+    <!-- ========================================== -->
+    <div id="tab-content-coverage" class="space-y-8 hidden">
+        <!-- Coverage KPI Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5" id="cov-summary-cards">
+            <!-- Card 1: Total Attack Surface -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-slate-700 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Total Targets</span>
+                        <span class="p-1.5 rounded-lg bg-slate-800 text-slate-300">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="cov-card-total">-</div>
+                </div>
+            </div>
+
+            <!-- Card 2: Covered & Signed Off -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-tech-success/40 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-tech-success">Covered / Signed Off</span>
+                        <span class="p-1.5 rounded-lg bg-tech-success/15 text-tech-success">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="flex items-baseline space-x-2">
+                        <div class="text-3xl font-black text-white" id="cov-card-covered">-</div>
+                        <div class="text-xs font-bold text-tech-success" id="cov-card-pct">0%</div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="w-full bg-slate-800/80 rounded-full h-1.5 overflow-hidden">
+                        <div id="cov-progress-bar" class="bg-tech-success h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 3: In Progress -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-amber-500/40 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-amber-400">In Progress</span>
+                        <span class="p-1.5 rounded-lg bg-amber-500/15 text-amber-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="cov-card-in-progress">-</div>
+                </div>
+            </div>
+
+            <!-- Card 4: Surface Changed (Drift) -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-rose-500/40 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-rose-400">Surface Changed</span>
+                        <span class="p-1.5 rounded-lg bg-rose-500/15 text-rose-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="cov-card-surface-changed">-</div>
+                </div>
+            </div>
+
+            <!-- Card 5: Project Violet Campaigns -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-indigo-500/40 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-indigo-400">Violet Campaigns</span>
+                        <span class="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="cov-card-campaigns">-</div>
+                </div>
+            </div>
+
+            <!-- Card 6: Unassessed Backlog -->
+            <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 group hover:border-slate-700 transition-all flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Unassessed Backlog</span>
+                        <span class="p-1.5 rounded-lg bg-slate-800 text-slate-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="cov-card-unassessed">-</div>
+                </div>
             </div>
         </div>
 
-        <!-- Risk Distribution -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-tech-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                <span>Risk Level Distribution</span>
-            </h3>
-            <div class="h-64 relative flex items-center justify-center">
-                <canvas id="riskChart"></canvas>
+        <!-- Coverage Charts Row 1 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Coverage Status Breakdown -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+                        <span>Coverage Breakdown</span>
+                    </h3>
+                </div>
+                <div class="h-64 relative flex items-center justify-center">
+                    <canvas id="coverageStatusChart"></canvas>
+                </div>
+                <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                        <span class="text-slate-400">Covered:</span>
+                        <span class="font-bold text-white" id="legend-cov-covered">0</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+                        <span class="text-slate-400">In Progress:</span>
+                        <span class="font-bold text-white" id="legend-cov-progress">0</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                        <span class="text-slate-400">Surface Delta:</span>
+                        <span class="font-bold text-white" id="legend-cov-drift">0</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
+                        <span class="text-slate-400">Unassessed:</span>
+                        <span class="font-bold text-white" id="legend-cov-unassessed">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 14-Day Throughput Trend -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4 lg:col-span-2">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        <span>14-Day Throughput</span>
+                    </h3>
+                </div>
+                <div class="h-64 relative">
+                    <canvas id="coverageTrendChart"></canvas>
+                </div>
+                <p class="text-xs text-slate-400 font-medium pt-1">Tracks completed threat hunting reviews & sign-offs over time.</p>
             </div>
         </div>
 
-        <!-- Top Technologies -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-                <span>Top Web Technologies</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="techChart"></canvas>
-            </div>
-        </div>
+        <!-- Coverage Row 2: Tester Leaderboard & Project Violet Campaigns -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Tester Workload & Leaderboard -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-5">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                            <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            <span>Team Workload & Output</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Assigned targets, active reviews, and completion rates by tester.</p>
+                    </div>
+                </div>
 
-        <!-- Top HTTP Headers -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                <span>Top HTTP Headers</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="headersChart"></canvas>
-            </div>
-        </div>
+                <!-- Tester Horizontal Bar Chart -->
+                <div class="h-48 relative">
+                    <canvas id="coverageTestersChart"></canvas>
+                </div>
 
-        <!-- Port Distribution -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-tech-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
-                <span>Common Open Ports</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="portsChart"></canvas>
+                <!-- Tester Detailed Table -->
+                <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-900/80 text-[11px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="py-3 px-4">Tester</th>
+                                <th class="py-3 px-3 text-center">Covered</th>
+                                <th class="py-3 px-3 text-center">In Progress</th>
+                                <th class="py-3 px-3 text-center">Assigned</th>
+                                <th class="py-3 px-4 text-center">Completion Rate</th>
+                                <th class="py-3 px-3 text-right">View</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cov-testers-table-body" class="divide-y divide-slate-800/60 font-medium">
+                            <tr>
+                                <td colspan="6" class="py-6 text-center text-slate-500 text-xs">Loading team statistics...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </div>
 
-        <!-- WAF/CDN Providers -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-                <span>WAF & CDN Distribution</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="wafChart"></canvas>
-            </div>
-        </div>
+            <!-- Project Violet Campaigns & Recent Activity -->
+            <div class="space-y-8">
+                <!-- Project Violet Campaign URLs -->
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                                <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                                <span>Project Violet Campaigns</span>
+                            </h3>
+                            <p class="text-xs text-slate-400 mt-0.5">Campaign URLs recorded during target sign-off.</p>
+                        </div>
+                        <span id="cov-campaigns-badge" class="px-2.5 py-1 text-xs font-black rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">0 Tracked</span>
+                    </div>
 
-        <!-- Software/Service Distribution -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                <span>Software & Services</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="softwareChart"></canvas>
-            </div>
-        </div>
+                    <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="bg-slate-900/80 text-[11px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                                <tr>
+                                    <th class="py-3 px-4">Domain</th>
+                                    <th class="py-3 px-4">Campaign URL (Project Violet)</th>
+                                    <th class="py-3 px-3">Signed Off By</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cov-campaigns-table-body" class="divide-y divide-slate-800/60 font-medium">
+                                <tr>
+                                    <td colspan="3" class="py-6 text-center text-slate-500 text-xs">Loading campaign records...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
 
-        <!-- TLD Distribution -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                <span>Top Level Domains (TLDs)</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="tldChart"></canvas>
-            </div>
-        </div>
+                <!-- Live Threat Hunting & Coverage Audit Trail -->
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <span>Live Audit Trail</span>
+                        </h3>
+                        <span class="text-xs text-slate-500 font-bold uppercase tracking-wider">Latest Activity</span>
+                    </div>
 
-        <!-- Infrastructure Size -->
-        <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
-                <span>Largest Infrastructures (Subdomain Count)</span>
-            </h3>
-            <div class="h-80 relative">
-                <canvas id="subdomainCountsChart"></canvas>
+                    <div id="cov-audit-stream" class="space-y-3 max-h-72 overflow-y-auto pr-1">
+                        <p class="text-xs text-slate-500 py-4 text-center">Loading audit events...</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -148,8 +408,68 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-    let charts = {};
+    let infraCharts = {};
+    let coverageCharts = {};
+    let currentTab = 'infrastructure';
+    let coverageDataLoaded = false;
 
+    // Switch between Infrastructure and Coverage tabs
+    function switchStatsTab(tab) {
+        currentTab = tab;
+        const infraBtn = document.getElementById('tab-btn-infrastructure');
+        const covBtn = document.getElementById('tab-btn-coverage');
+        const infraContent = document.getElementById('tab-content-infrastructure');
+        const covContent = document.getElementById('tab-content-coverage');
+        const pageTitle = document.getElementById('stats-page-title');
+        const pageSubtitle = document.getElementById('stats-page-subtitle');
+
+        if (tab === 'coverage') {
+            infraContent.classList.add('hidden');
+            covContent.classList.remove('hidden');
+
+            infraBtn.className = "px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent";
+            covBtn.className = "px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 bg-tech-accent/15 text-tech-accent border border-tech-accent/40 shadow-sm shadow-tech-accent/10";
+
+            if (pageTitle) pageTitle.innerHTML = 'COVERAGE <span class="text-tech-accent">STATISTICS</span>';
+            if (pageSubtitle) pageSubtitle.innerText = '';
+
+            try {
+                history.replaceState(null, null, '#coverage');
+            } catch (e) {}
+
+            loadCoverageStats();
+        } else {
+            covContent.classList.add('hidden');
+            infraContent.classList.remove('hidden');
+
+            covBtn.className = "px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 text-slate-400 hover:text-white hover:bg-slate-800/60 border border-transparent";
+            infraBtn.className = "px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center space-x-2.5 bg-tech-accent/15 text-tech-accent border border-tech-accent/40 shadow-sm shadow-tech-accent/10";
+
+            if (pageTitle) pageTitle.innerHTML = 'INFRASTRUCTURE <span class="text-tech-accent">STATISTICS</span>';
+            if (pageSubtitle) pageSubtitle.innerText = 'Global overview of discovered assets, risks, and technologies.';
+
+            try {
+                history.replaceState(null, null, '#infrastructure');
+            } catch (e) {}
+
+            if (Object.keys(infraCharts).length === 0) {
+                loadStats();
+            }
+        }
+    }
+
+    // Refresh whichever tab is active
+    function refreshActiveStats() {
+        if (currentTab === 'coverage') {
+            loadCoverageStats();
+        } else {
+            loadStats();
+        }
+    }
+
+    // ==========================================
+    // INFRASTRUCTURE STATISTICS LOGIC
+    // ==========================================
     async function loadStats() {
         try {
             const resp = await fetch('/api/stats/dashboard');
@@ -159,12 +479,13 @@
             updateSummary(data.inventory);
             renderCharts(data);
         } catch (e) {
-            console.error(e);
+            console.error('Error loading infrastructure stats:', e);
         }
     }
 
     function updateSummary(inv) {
         const container = document.getElementById('summary-cards');
+        if (!container) return;
         container.innerHTML = `
             <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 group hover:border-tech-accent/50 transition-all">
                 <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Total Assets</p>
@@ -206,8 +527,9 @@
     }
 
     function renderCharts(data) {
-        // Destroy existing charts if any
-        Object.values(charts).forEach(c => c.destroy());
+        // Destroy existing infrastructure charts
+        Object.values(infraCharts).forEach(c => { if (c && typeof c.destroy === 'function') c.destroy(); });
+        infraCharts = {};
 
         const ctxOptions = {
             responsive: true,
@@ -225,225 +547,689 @@
         };
 
         // Activity Chart (Line)
-        charts.activity = new Chart(document.getElementById('activityChart'), {
-            type: 'line',
-            data: {
-                labels: data.activity.map(a => a.date.split('-').slice(1).join('/')),
-                datasets: [{
-                    label: 'New Discoveries',
-                    data: data.activity.map(a => a.count),
-                    borderColor: '#38bdf8',
-                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    borderWidth: 3,
-                    pointBackgroundColor: '#38bdf8'
-                }]
-            },
-            options: ctxOptions
-        });
+        const actCanvas = document.getElementById('activityChart');
+        if (actCanvas) {
+            infraCharts.activity = new Chart(actCanvas, {
+                type: 'line',
+                data: {
+                    labels: data.activity.map(a => a.date.split('-').slice(1).join('/')),
+                    datasets: [{
+                        label: 'New Discoveries',
+                        data: data.activity.map(a => a.count),
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointBackgroundColor: '#38bdf8'
+                    }]
+                },
+                options: ctxOptions
+            });
+        }
 
         // Risk Chart (Doughnut)
         const riskColors = { 'critical': '#ef4444', 'high': '#f97316', 'medium': '#eab308', 'low': '#3b82f6', 'info': '#94a3b8' };
-        charts.risk = new Chart(document.getElementById('riskChart'), {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(data.risk),
-                datasets: [{
-                    data: Object.values(data.risk),
-                    backgroundColor: Object.keys(data.risk).map(k => riskColors[k.toLowerCase()] || '#64748b'),
-                    borderWidth: 0,
-                    hoverOffset: 20
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                plugins: { ...ctxOptions.plugins, legend: { position: 'right', labels: { color: '#94a3b8' } } }
-            }
-        });
+        const riskCanvas = document.getElementById('riskChart');
+        if (riskCanvas) {
+            infraCharts.risk = new Chart(riskCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(data.risk),
+                    datasets: [{
+                        data: Object.values(data.risk),
+                        backgroundColor: Object.keys(data.risk).map(k => riskColors[k.toLowerCase()] || '#64748b'),
+                        borderWidth: 0,
+                        hoverOffset: 20
+                    }]
+                },
+                options: {
+                    ...ctxOptions,
+                    plugins: { ...ctxOptions.plugins, legend: { position: 'right', labels: { color: '#94a3b8' } } }
+                }
+            });
+        }
 
         // Tech Chart (Horizontal Bar)
-        charts.tech = new Chart(document.getElementById('techChart'), {
-            type: 'bar',
-            data: {
-                labels: data.tech.map(t => t.name),
-                datasets: [{
-                    label: 'Domains',
-                    data: data.tech.map(t => t.count),
-                    backgroundColor: '#38bdf8',
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                indexAxis: 'y',
-                plugins: { legend: { display: false } },
-                onClick: (e, elements) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        const tech = data.tech[index].name;
-                        window.location.href = `/dashboard?tech=${encodeURIComponent(tech)}`;
-                    }
+        const techCanvas = document.getElementById('techChart');
+        if (techCanvas) {
+            infraCharts.tech = new Chart(techCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.tech.map(t => t.name),
+                    datasets: [{
+                        label: 'Domains',
+                        data: data.tech.map(t => t.count),
+                        backgroundColor: '#38bdf8',
+                        borderRadius: 8
+                    }]
                 },
-                onHover: (e, elements) => {
-                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                options: {
+                    ...ctxOptions,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const tech = data.tech[index].name;
+                            window.location.href = `/dashboard?tech=${encodeURIComponent(tech)}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Headers Chart (Horizontal Bar)
-        charts.headers = new Chart(document.getElementById('headersChart'), {
-            type: 'bar',
-            data: {
-                labels: data.headers.map(h => h.name),
-                datasets: [{
-                    label: 'Frequency',
-                    data: data.headers.map(h => h.count),
-                    backgroundColor: '#eab308',
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                indexAxis: 'y',
-                plugins: { legend: { display: false } }
-            }
-        });
+        const headersCanvas = document.getElementById('headersChart');
+        if (headersCanvas) {
+            infraCharts.headers = new Chart(headersCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.headers.map(h => h.name),
+                    datasets: [{
+                        label: 'Frequency',
+                        data: data.headers.map(h => h.count),
+                        backgroundColor: '#eab308',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    ...ctxOptions,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
 
         // Ports Chart (Bar)
-        charts.ports = new Chart(document.getElementById('portsChart'), {
-            type: 'bar',
-            data: {
-                labels: data.ports.map(p => p.port),
-                datasets: [{
-                    label: 'Frequency',
-                    data: data.ports.map(p => p.count),
-                    backgroundColor: '#22c55e',
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                plugins: { legend: { display: false } },
-                onClick: (e, elements) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        const port = data.ports[index].port;
-                        window.location.href = `/dashboard?port=${port}`;
-                    }
+        const portsCanvas = document.getElementById('portsChart');
+        if (portsCanvas) {
+            infraCharts.ports = new Chart(portsCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.ports.map(p => p.port),
+                    datasets: [{
+                        label: 'Frequency',
+                        data: data.ports.map(p => p.count),
+                        backgroundColor: '#22c55e',
+                        borderRadius: 8
+                    }]
                 },
-                onHover: (e, elements) => {
-                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                options: {
+                    ...ctxOptions,
+                    plugins: { legend: { display: false } },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const port = data.ports[index].port;
+                            window.location.href = `/dashboard?port=${port}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // WAF Chart (Polar Area)
-        charts.waf = new Chart(document.getElementById('wafChart'), {
-            type: 'polarArea',
-            data: {
-                labels: data.waf.map(w => w.name),
-                datasets: [{
-                    data: data.waf.map(w => w.count),
-                    backgroundColor: [
-                        '#818cf8', '#6366f1', '#4f46e5', '#4338ca', '#3730a3',
-                        '#312e81', '#1e1b4b', '#4c1d95', '#5b21b6', '#6d28d9'
-                    ],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                scales: { r: { grid: { color: '#334155' }, ticks: { display: false } } },
-                plugins: { legend: { position: 'right', labels: { color: '#94a3b8' } } },
-                onClick: (e, elements) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        const waf = data.waf[index].name;
-                        window.location.href = `/dashboard?q=${encodeURIComponent(waf)}`;
-                    }
+        const wafCanvas = document.getElementById('wafChart');
+        if (wafCanvas) {
+            infraCharts.waf = new Chart(wafCanvas, {
+                type: 'polarArea',
+                data: {
+                    labels: data.waf.map(w => w.name),
+                    datasets: [{
+                        data: data.waf.map(w => w.count),
+                        backgroundColor: [
+                            '#818cf8', '#6366f1', '#4f46e5', '#4338ca', '#3730a3',
+                            '#312e81', '#1e1b4b', '#4c1d95', '#5b21b6', '#6d28d9'
+                        ],
+                        borderWidth: 0
+                    }]
                 },
-                onHover: (e, elements) => {
-                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                options: {
+                    ...ctxOptions,
+                    scales: { r: { grid: { color: '#334155' }, ticks: { display: false } } },
+                    plugins: { legend: { position: 'right', labels: { color: '#94a3b8' } } },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const waf = data.waf[index].name;
+                            window.location.href = `/dashboard?q=${encodeURIComponent(waf)}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Software Chart (Bar)
-        charts.software = new Chart(document.getElementById('softwareChart'), {
-            type: 'bar',
-            data: {
-                labels: data.software.map(s => s.name.length > 20 ? s.name.substring(0, 20) + '...' : s.name),
-                datasets: [{
-                    label: 'Count',
-                    data: data.software.map(s => s.count),
-                    backgroundColor: '#f97316',
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                plugins: { legend: { display: false } },
-                onClick: (e, elements) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        const software = data.software[index].name;
-                        window.location.href = `/dashboard?q=${encodeURIComponent(software)}`;
-                    }
+        const softwareCanvas = document.getElementById('softwareChart');
+        if (softwareCanvas) {
+            infraCharts.software = new Chart(softwareCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.software.map(s => s.name.length > 20 ? s.name.substring(0, 20) + '...' : s.name),
+                    datasets: [{
+                        label: 'Count',
+                        data: data.software.map(s => s.count),
+                        backgroundColor: '#f97316',
+                        borderRadius: 8
+                    }]
                 },
-                onHover: (e, elements) => {
-                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                options: {
+                    ...ctxOptions,
+                    plugins: { legend: { display: false } },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const software = data.software[index].name;
+                            window.location.href = `/dashboard?q=${encodeURIComponent(software)}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // TLD Chart (Doughnut)
-        charts.tlds = new Chart(document.getElementById('tldChart'), {
-            type: 'doughnut',
-            data: {
-                labels: data.tlds.map(t => t.name),
-                datasets: [{
-                    data: data.tlds.map(t => t.count),
-                    backgroundColor: ['#f472b6', '#db2777', '#be185d', '#9d174d', '#831843'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                plugins: { ...ctxOptions.plugins, legend: { position: 'right' } }
-            }
-        });
+        const tldCanvas = document.getElementById('tldChart');
+        if (tldCanvas) {
+            infraCharts.tlds = new Chart(tldCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: data.tlds.map(t => t.name),
+                    datasets: [{
+                        data: data.tlds.map(t => t.count),
+                        backgroundColor: ['#f472b6', '#db2777', '#be185d', '#9d174d', '#831843'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    ...ctxOptions,
+                    plugins: { ...ctxOptions.plugins, legend: { position: 'right' } }
+                }
+            });
+        }
 
         // Subdomain Counts Chart (Bar)
-        charts.subdomainCounts = new Chart(document.getElementById('subdomainCountsChart'), {
-            type: 'bar',
-            data: {
-                labels: data.subdomain_counts.map(s => s.name),
-                datasets: [{
-                    label: 'Subdomains',
-                    data: data.subdomain_counts.map(s => s.count),
-                    backgroundColor: '#22d3ee',
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                ...ctxOptions,
-                plugins: { legend: { display: false } },
-                onClick: (e, elements) => {
-                    if (elements.length > 0) {
-                        const index = elements[0].index;
-                        const domain = data.subdomain_counts[index].name;
-                        window.location.href = `/dashboard?q=${encodeURIComponent(domain)}`;
-                    }
+        const subCountsCanvas = document.getElementById('subdomainCountsChart');
+        if (subCountsCanvas) {
+            infraCharts.subdomainCounts = new Chart(subCountsCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.subdomain_counts.map(s => s.name),
+                    datasets: [{
+                        label: 'Subdomains',
+                        data: data.subdomain_counts.map(s => s.count),
+                        backgroundColor: '#22d3ee',
+                        borderRadius: 8
+                    }]
                 },
-                onHover: (e, elements) => {
-                    e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                options: {
+                    ...ctxOptions,
+                    plugins: { legend: { display: false } },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const domain = data.subdomain_counts[index].name;
+                            window.location.href = `/dashboard?q=${encodeURIComponent(domain)}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
                 }
-            }
-        });
+            });
+        }
     }
 
-    // Initial load
-    document.addEventListener('DOMContentLoaded', loadStats);
+    // ==========================================
+    // COVERAGE STATISTICS LOGIC
+    // ==========================================
+    async function loadCoverageStats() {
+        try {
+            const resp = await fetch('/api/threat-hunting/stats');
+            if (resp.status === 401) {
+                window.location.href = '/login?next=/statistics#coverage';
+                return;
+            }
+            if (!resp.ok) throw new Error('Failed to fetch coverage statistics');
+            const data = await resp.json();
+
+            coverageDataLoaded = true;
+            renderCoverageKPIs(data);
+            renderCoverageCharts(data);
+            renderTestersTable(data.testers || []);
+            renderCampaignsTable(data.recent_campaigns || []);
+            renderAuditStream(data.recent_activities || []);
+        } catch (e) {
+            console.error('Error loading coverage statistics:', e);
+        }
+    }
+
+    function renderCoverageKPIs(data) {
+        const total = data.total_domains || 0;
+        const counts = data.status_counts || {};
+        const covered = counts.covered || 0;
+        const inProgress = counts.in_progress || 0;
+        const surfaceChanged = counts.surface_changed || 0;
+        const unassessed = counts.unassessed || 0;
+        const pct = data.coverage_percentage || (total > 0 ? Math.round((covered / total) * 1000) / 10 : 0);
+        const assigned = data.assigned_count || 0;
+        const campaignsCount = data.campaigns_count || 0;
+
+        // KPI card updates
+        const elTotal = document.getElementById('cov-card-total');
+        if (elTotal) elTotal.innerText = total.toLocaleString();
+
+        const elCovered = document.getElementById('cov-card-covered');
+        if (elCovered) elCovered.innerText = covered.toLocaleString();
+
+        const elPct = document.getElementById('cov-card-pct');
+        if (elPct) elPct.innerText = `${pct}%`;
+
+        const elProgressBar = document.getElementById('cov-progress-bar');
+        if (elProgressBar) elProgressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+
+        const elInProgress = document.getElementById('cov-card-in-progress');
+        if (elInProgress) elInProgress.innerText = inProgress.toLocaleString();
+
+        const elAssignedCount = document.getElementById('cov-card-assigned-count');
+        if (elAssignedCount) elAssignedCount.innerText = assigned.toLocaleString();
+
+        const elSurfaceChanged = document.getElementById('cov-card-surface-changed');
+        if (elSurfaceChanged) elSurfaceChanged.innerText = surfaceChanged.toLocaleString();
+
+        const elCampaigns = document.getElementById('cov-card-campaigns');
+        if (elCampaigns) elCampaigns.innerText = campaignsCount.toLocaleString();
+
+        const elCampaignsBadge = document.getElementById('cov-campaigns-badge');
+        if (elCampaignsBadge) elCampaignsBadge.innerText = `${campaignsCount} Tracked`;
+
+        const elUnassessed = document.getElementById('cov-card-unassessed');
+        if (elUnassessed) elUnassessed.innerText = unassessed.toLocaleString();
+
+        // Legend values
+        const legCovered = document.getElementById('legend-cov-covered');
+        if (legCovered) legCovered.innerText = covered.toLocaleString();
+
+        const legProg = document.getElementById('legend-cov-progress');
+        if (legProg) legProg.innerText = inProgress.toLocaleString();
+
+        const legDrift = document.getElementById('legend-cov-drift');
+        if (legDrift) legDrift.innerText = surfaceChanged.toLocaleString();
+
+        const legUnassessed = document.getElementById('legend-cov-unassessed');
+        if (legUnassessed) legUnassessed.innerText = unassessed.toLocaleString();
+    }
+
+    function renderCoverageCharts(data) {
+        // Destroy existing coverage charts
+        Object.values(coverageCharts).forEach(c => { if (c && typeof c.destroy === 'function') c.destroy(); });
+        coverageCharts = {};
+
+        const ctxOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#94a3b8', font: { weight: 'bold' } }
+                }
+            },
+            scales: {
+                y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+            }
+        };
+
+        const counts = data.status_counts || {};
+        const covered = counts.covered || 0;
+        const inProgress = counts.in_progress || 0;
+        const surfaceChanged = counts.surface_changed || 0;
+        const unassessed = counts.unassessed || 0;
+
+        // 1. Coverage Status Breakdown (Doughnut)
+        const statusCanvas = document.getElementById('coverageStatusChart');
+        if (statusCanvas) {
+            coverageCharts.status = new Chart(statusCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Covered', 'In Progress', 'Surface Delta', 'Unassessed'],
+                    datasets: [{
+                        data: [covered, inProgress, surfaceChanged, unassessed],
+                        backgroundColor: ['#10b981', '#f59e0b', '#f43f5e', '#475569'],
+                        borderWidth: 0,
+                        hoverOffset: 12
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 12, padding: 14 } }
+                    },
+                    onClick: (e, elements) => {
+                        if (elements.length > 0) {
+                            const idx = elements[0].index;
+                            const statusMap = ['covered', 'in_progress', 'surface_changed', 'unassessed'];
+                            const selectedStatus = statusMap[idx];
+                            window.location.href = `/assignments?status=${selectedStatus}`;
+                        }
+                    },
+                    onHover: (e, elements) => {
+                        e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                    }
+                }
+            });
+        }
+
+        // 2. 14-Day Throughput Trend
+        const trendCanvas = document.getElementById('coverageTrendChart');
+        if (trendCanvas) {
+            const trendData = data.daily_trend || [];
+            const labels = trendData.map(d => {
+                const parts = d.date.split('-');
+                return parts.length >= 3 ? `${parts[1]}/${parts[2]}` : d.date;
+            });
+            const countsData = trendData.map(d => d.count);
+
+            coverageCharts.velocity = new Chart(trendCanvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Targets Signed Off',
+                        data: countsData,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                        fill: true,
+                        tension: 0.35,
+                        borderWidth: 3,
+                        pointBackgroundColor: '#10b981',
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    ...ctxOptions,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#334155' },
+                            ticks: {
+                                color: '#94a3b8',
+                                precision: 0
+                            }
+                        },
+                        x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+        }
+
+        // 3. Tester Workload Horizontal Bar Chart
+        const testerCanvas = document.getElementById('coverageTestersChart');
+        if (testerCanvas) {
+            const testers = (data.testers || []).slice(0, 8);
+            if (testers.length > 0) {
+                coverageCharts.testers = new Chart(testerCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: testers.map(t => t.username),
+                        datasets: [
+                            {
+                                label: 'Covered',
+                                data: testers.map(t => t.covered || 0),
+                                backgroundColor: '#10b981',
+                                borderRadius: 6
+                            },
+                            {
+                                label: 'In Progress / Claimed',
+                                data: testers.map(t => t.claimed || 0),
+                                backgroundColor: '#f59e0b',
+                                borderRadius: 6
+                            }
+                        ]
+                    },
+                    options: {
+                        ...ctxOptions,
+                        indexAxis: 'y',
+                        scales: {
+                            x: {
+                                stacked: true,
+                                grid: { color: '#334155' },
+                                ticks: { color: '#94a3b8', precision: 0 }
+                            },
+                            y: {
+                                stacked: true,
+                                grid: { display: false },
+                                ticks: { color: '#f1f5f9', font: { weight: 'bold' } }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: { color: '#94a3b8', boxWidth: 12 }
+                            }
+                        },
+                        onClick: (e, elements) => {
+                            if (elements.length > 0) {
+                                const idx = elements[0].index;
+                                const user = testers[idx].username;
+                                window.location.href = `/assignments?user=${encodeURIComponent(user)}`;
+                            }
+                        },
+                        onHover: (e, elements) => {
+                            e.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                        }
+                    }
+                });
+            } else {
+                // If no testers assigned yet, show empty notice in canvas container
+                testerCanvas.parentElement.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-center p-4">
+                        <svg class="w-10 h-10 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                        <p class="text-sm font-bold text-slate-400">No tester assignments recorded yet</p>
+                        <a href="/assignments" class="mt-2 text-xs text-tech-accent hover:underline">Go to Threat Hunt Workspace &rarr;</a>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    function renderTestersTable(testers) {
+        const tbody = document.getElementById('cov-testers-table-body');
+        if (!tbody) return;
+
+        if (!testers || testers.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="py-6 text-center text-slate-500 text-xs">
+                        No team member activity recorded yet.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = testers.map(t => {
+            const pct = t.completion_pct || 0;
+            return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="py-3 px-4">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-7 h-7 rounded-full bg-tech-accent/15 border border-tech-accent/30 text-tech-accent font-black text-xs flex items-center justify-center uppercase">
+                                ${t.username.substring(0, 2)}
+                            </div>
+                            <span class="font-bold text-white">${escapeHtml(t.username)}</span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            ${t.covered || 0}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            ${t.claimed || 0}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3 text-center font-bold text-slate-300">
+                        ${t.total_assigned || 0}
+                    </td>
+                    <td class="py-3 px-4 text-center">
+                        <div class="flex items-center justify-center space-x-2">
+                            <div class="w-20 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div class="bg-emerald-500 h-1.5 rounded-full" style="width: ${Math.min(100, Math.max(0, pct))}%"></div>
+                            </div>
+                            <span class="text-xs font-bold text-slate-400">${pct}%</span>
+                        </div>
+                    </td>
+                    <td class="py-3 px-3 text-right">
+                        <a href="/assignments?user=${encodeURIComponent(t.username)}" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white inline-flex items-center transition-all">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                        </a>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderCampaignsTable(campaigns) {
+        const tbody = document.getElementById('cov-campaigns-table-body');
+        if (!tbody) return;
+
+        if (!campaigns || campaigns.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="3" class="py-6 text-center text-slate-500 text-xs">
+                        No campaign URLs recorded yet. Set Campaign URLs when signing off targets.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = campaigns.map(c => {
+            const hasUrl = c.url && c.url.trim().length > 0;
+            const urlDisplay = hasUrl ? (
+                `<a href="${escapeHtml(c.url.trim())}" target="_blank" rel="noopener noreferrer" class="text-tech-accent hover:underline flex items-center space-x-1.5 max-w-xs truncate font-mono text-xs">
+                    <span class="truncate">${escapeHtml(c.url.trim())}</span>
+                    <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                </a>`
+            ) : `<span class="text-slate-500 text-xs italic">Signed off without URL</span>`;
+
+            const dateStr = c.covered_at ? formatTimeAgo(c.covered_at) : 'recently';
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="py-3 px-4">
+                        <a href="/dashboard?q=${encodeURIComponent(c.domain)}" class="font-bold text-white hover:text-tech-accent transition-colors font-mono text-xs">
+                            ${escapeHtml(c.domain)}
+                        </a>
+                    </td>
+                    <td class="py-3 px-4">
+                        ${urlDisplay}
+                    </td>
+                    <td class="py-3 px-3 text-xs text-slate-400">
+                        <span class="font-bold text-slate-300">${escapeHtml(c.covered_by || 'Unknown')}</span>
+                        <span class="text-slate-500 block text-[10px]">${dateStr}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderAuditStream(activities) {
+        const stream = document.getElementById('cov-audit-stream');
+        if (!stream) return;
+
+        if (!activities || activities.length === 0) {
+            stream.innerHTML = `
+                <div class="py-6 text-center text-slate-500 text-xs">
+                    No threat hunting events logged yet.
+                </div>
+            `;
+            return;
+        }
+
+        const actionBadges = {
+            'covered': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+            'claimed': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+            'unassigned': 'bg-slate-700/40 text-slate-400 border-slate-700',
+            'surface_changed': 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+            'assigned': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+        };
+
+        stream.innerHTML = activities.slice(0, 15).map(act => {
+            const badgeClass = actionBadges[act.action] || 'bg-slate-800 text-slate-300 border-slate-700';
+            const timeAgo = act.timestamp ? formatTimeAgo(act.timestamp) : '';
+            return `
+                <div class="flex items-start justify-between p-3 rounded-xl bg-slate-900/50 border border-slate-800/60 hover:border-slate-700 transition-all text-xs">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-0.5 rounded-md font-bold uppercase tracking-wider text-[10px] border ${badgeClass}">
+                                ${escapeHtml(act.action || 'event')}
+                            </span>
+                            <a href="/dashboard?q=${encodeURIComponent(act.domain || '')}" class="font-mono font-bold text-white hover:text-tech-accent transition-colors">
+                                ${escapeHtml(act.domain || 'Target')}
+                            </a>
+                        </div>
+                        ${act.notes ? `<p class="text-slate-400 text-[11px] font-mono truncate max-w-sm">${escapeHtml(act.notes)}</p>` : ''}
+                    </div>
+                    <div class="text-right flex-shrink-0 ml-3">
+                        <span class="font-bold text-slate-300">${escapeHtml(act.user || 'system')}</span>
+                        <span class="text-slate-500 block text-[10px]">${timeAgo}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function formatTimeAgo(isoString) {
+        try {
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            if (diffSec < 60) return 'just now';
+            const diffMin = Math.floor(diffSec / 60);
+            if (diffMin < 60) return `${diffMin}m ago`;
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr < 24) return `${diffHr}h ago`;
+            const diffDay = Math.floor(diffHr / 24);
+            return `${diffDay}d ago`;
+        } catch (e) {
+            return isoString;
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // Initial load handling with hash detection
+    document.addEventListener('DOMContentLoaded', () => {
+        if (window.location.hash === '#coverage') {
+            switchStatsTab('coverage');
+        } else {
+            loadStats();
+        }
+    });
 </script>
 {% endblock %}
