@@ -562,6 +562,13 @@ class BaseAgent:
         except Exception as e:
             logger.error(f"Error checking alert settings for {alert_key}: {e}")
 
+        # Check if this alert is a false-positive sensitive file lead triggered on a 0-byte 3xx redirect
+        if (alert_key or "").startswith("sensitive_files_") and int(response_size or 0) == 0:
+            combined_desc = f"{description or ''} {details or ''}"
+            if re.search(r"HTTP\s+30[12378]|status\s+30[12378]", combined_desc, re.I):
+                logger.info(f"[0B REDIRECT SUPPRESSED] Suppressed 0-byte 3xx redirect sensitive file alert '{title}' on '{target}'")
+                return False
+
         # Create a unique fingerprint based on target, title, and optional extra_key (e.g. source map URL or secret)
         fingerprint_input = f"{target}|{title}|{extra_key}" if extra_key else f"{target}|{title}"
         fingerprint = hashlib.sha256(fingerprint_input.encode()).hexdigest()

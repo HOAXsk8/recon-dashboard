@@ -207,6 +207,7 @@
                     </select>
                     <select id="filter-assigned-user" onchange="resetAndFetch()" class="bg-tech-panel border border-slate-700/60 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:ring-2 focus:ring-tech-accent transition-all">
                         <option value="">👤 Assignee (All)</option>
+                        <option value="__me__">📌 My Assigned Targets</option>
                         <option value="unassigned">⚪ Unassigned Only</option>
                     </select>
                 </div>
@@ -1004,7 +1005,7 @@
                     if (uRes.ok) {
                         const uData = await uRes.json();
                         const curVal = assignedSelect.value;
-                        assignedSelect.innerHTML = '<option value="">👤 Assignee (All)</option><option value="unassigned">⚪ Unassigned Only</option>';
+                        assignedSelect.innerHTML = '<option value="">👤 Assignee (All)</option><option value="__me__">📌 My Assigned Targets</option><option value="unassigned">⚪ Unassigned Only</option>';
                         if (uData.users && uData.users.length > 0) {
                             const group = document.createElement('optgroup');
                             group.label = 'Team Members';
@@ -5368,6 +5369,9 @@
         const waf = urlParams.get('waf');
         const lb = urlParams.get('lb');
 
+        const coverageParam = urlParams.get('coverage');
+        const userParam = urlParams.get('assigned_user') || urlParams.get('user');
+
         loadFilterOptions().then(() => {
             if (tech) {
                 const techSelect = document.getElementById('filter-tech');
@@ -5380,6 +5384,17 @@
             if (lb) {
                 const lbSelect = document.getElementById('filter-lb');
                 if (lbSelect) lbSelect.value = lb;
+            }
+            if (coverageParam) {
+                const covSelect = document.getElementById('filter-coverage');
+                if (covSelect) covSelect.value = coverageParam;
+            }
+            if (userParam) {
+                const userSelect = document.getElementById('filter-assigned-user');
+                if (userSelect) userSelect.value = userParam;
+            }
+            if (coverageParam || userParam) {
+                resetAndFetch();
             }
         });
 

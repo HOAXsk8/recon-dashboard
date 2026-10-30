@@ -163,15 +163,15 @@ graph TD
 ---
 
 ## 5. Verification Checklist
-- [ ] Timeframe buttons (`24h`, `7d`, `30d`, `1y`, `All`, `Custom`) filter coverage and findings statistics dynamically.
-- [ ] Selecting "Custom" reveals date pickers; submitting updates all stats for that date window.
-- [ ] User search input shows live matching suggestions as you type.
-- [ ] Selecting a user updates the Coverage KPI cards, throughput chart, campaigns, audit trail, and findings for that specific user within the selected timeframe.
-- [ ] Findings section displays Total Findings, Critical, High, and Remediated metrics.
-- [ ] Findings Severity Doughnut chart and Top Categories bar chart render cleanly.
-- [ ] Recent findings feed displays confirmed security issues with clickable links.
-- [ ] Clicking the `✕` pill resets back to global estate coverage and findings statistics.
-- [ ] Direct visit to `/assignments` returns 404 (route cleanly removed).
-- [ ] Sidebar has no Assignments link.
-- [ ] Main dashboard features "My Assigned Targets" option in the Assignee dropdown.
-- [ ] Threat Hunt modal on the dashboard continues to assign, sign off, and record Campaign URLs seamlessly.
+- [x] Timeframe buttons (`24h`, `7d`, `30d`, `1y`, `All`, `Custom`) filter coverage and findings statistics dynamically.
+- [x] Selecting "Custom" reveals date pickers; submitting updates all stats for that date window.
+- [x] User search input shows live matching suggestions as you type.
+- [x] Selecting a user updates the Coverage KPI cards, throughput chart, campaigns, audit trail, and findings for that specific user within the selected timeframe.
+- [x] Findings section displays Total Findings, Critical, High, and Remediated metrics.
+- [x] Findings Severity Doughnut chart and Top Categories bar chart render cleanly.
+- [x] Recent findings feed displays confirmed security issues with clickable links.
+- [x] Clicking the `✕` pill resets back to global estate coverage and findings statistics.
+- [x] Direct visit to `/assignments` returns 404 (route cleanly removed).
+- [x] Sidebar has no Assignments link.
+- [x] Main dashboard features "My Assigned Targets" option in the Assignee dropdown.
+- [x] Threat Hunt modal on the dashboard continues to assign, sign off, and record Campaign URLs seamlessly.

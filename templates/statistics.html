@@ -13,9 +13,9 @@
             <p id="stats-page-subtitle" class="text-slate-400 mt-1 font-medium">Global overview of discovered assets, risks, and technologies.</p>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/assignments" class="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
-                <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
-                <span>Assignments</span>
+            <a href="/dashboard" class="px-4 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
+                <svg class="w-4 h-4 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span>Dashboard</span>
             </a>
             <button onclick="refreshActiveStats()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-sm transition-all flex items-center space-x-2 border border-slate-700">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -170,6 +170,62 @@
     <!-- TAB 2: COVERAGE & THREAT HUNTING CONTENT   -->
     <!-- ========================================== -->
     <div id="tab-content-coverage" class="space-y-8 hidden">
+        <!-- Filter Controls: Timeframe & User Search -->
+        <div class="bg-tech-panel p-4 rounded-2xl border border-slate-800 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+            <!-- Left: Timeframe Selector -->
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    Timeframe:
+                </span>
+                <div class="inline-flex p-1 bg-slate-900/90 rounded-xl border border-slate-800" id="timeframe-buttons">
+                    <button type="button" onclick="setTimeframe('24h')" data-tf="24h" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all">24h</button>
+                    <button type="button" onclick="setTimeframe('7d')" data-tf="7d" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all">7 Days</button>
+                    <button type="button" onclick="setTimeframe('30d')" data-tf="30d" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all">30 Days</button>
+                    <button type="button" onclick="setTimeframe('1y')" data-tf="1y" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all">1 Year</button>
+                    <button type="button" onclick="setTimeframe('all')" data-tf="all" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/40 shadow-sm transition-all">All Time</button>
+                    <button type="button" onclick="toggleCustomRange()" data-tf="custom" class="tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all flex items-center gap-1">
+                        <span>Custom</span>
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                </div>
+
+                <!-- Custom Date Inputs (collapsible) -->
+                <div id="custom-range-inputs" class="hidden flex items-center gap-2 bg-slate-900/90 p-1.5 rounded-xl border border-slate-800">
+                    <input type="date" id="cov-start-date" class="bg-slate-800 text-white text-xs px-2.5 py-1 rounded-lg border border-slate-700 focus:outline-none focus:border-tech-accent font-mono" />
+                    <span class="text-slate-500 text-xs">to</span>
+                    <input type="date" id="cov-end-date" class="bg-slate-800 text-white text-xs px-2.5 py-1 rounded-lg border border-slate-700 focus:outline-none focus:border-tech-accent font-mono" />
+                    <button type="button" onclick="applyCustomRange()" class="px-2.5 py-1 bg-tech-accent hover:bg-tech-accent/80 text-slate-950 font-bold text-xs rounded-lg transition-all">Apply</button>
+                </div>
+            </div>
+
+            <!-- Right: User Search Suggestions & Filter -->
+            <div class="flex items-center gap-3">
+                <!-- Active User Filter Pill -->
+                <div id="active-user-pill" class="hidden items-center gap-2 px-3 py-1.5 bg-tech-accent/15 border border-tech-accent/40 text-tech-accent rounded-xl text-xs font-bold">
+                    <span>User: <strong id="active-user-name" class="font-mono text-white"></strong></span>
+                    <button type="button" onclick="clearUserFilter()" title="Clear user filter" class="hover:text-white p-0.5 rounded focus:outline-none">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+
+                <!-- User Autocomplete Input -->
+                <div class="relative w-64">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                    <input type="text" id="cov-user-search-input" placeholder="Filter by tester..." autocomplete="off"
+                        class="w-full bg-slate-900/90 text-white text-xs pl-9 pr-8 py-2 rounded-xl border border-slate-800 placeholder-slate-500 focus:outline-none focus:border-tech-accent transition-all font-medium" />
+                    <button type="button" id="cov-user-clear-btn" onclick="clearUserFilter()" class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-500 hover:text-white hidden">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                    <!-- Suggestions Dropdown -->
+                    <div id="cov-user-suggestions" class="absolute z-50 left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden hidden max-h-60 overflow-y-auto">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Coverage KPI Summary Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5" id="cov-summary-cards">
             <!-- Card 1: Total Attack Surface -->
@@ -311,6 +367,133 @@
             </div>
         </div>
 
+        <!-- ========================================== -->
+        <!-- SECURITY FINDINGS STATISTICS SECTION       -->
+        <!-- ========================================== -->
+        <div class="space-y-6 pt-2">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-xl font-black tracking-tight text-white flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <span>SECURITY <span class="text-rose-400">FINDINGS</span></span>
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Vulnerabilities and security risks discovered during threat hunting assessments.</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span id="findings-timeframe-badge" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700">All Time</span>
+                </div>
+            </div>
+
+            <!-- Findings KPI Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <!-- Total Findings -->
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 flex flex-col justify-between group hover:border-slate-700 transition-all">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-slate-400">Total Findings</span>
+                        <span class="p-1.5 rounded-lg bg-slate-800 text-slate-300">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-white" id="findings-card-total">0</div>
+                </div>
+
+                <!-- Critical Severity -->
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 flex flex-col justify-between group hover:border-red-500/40 transition-all">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-red-400">Critical</span>
+                        <span class="p-1.5 rounded-lg bg-red-500/15 text-red-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-red-400" id="findings-card-critical">0</div>
+                </div>
+
+                <!-- High Severity -->
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 flex flex-col justify-between group hover:border-orange-500/40 transition-all">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-orange-400">High</span>
+                        <span class="p-1.5 rounded-lg bg-orange-500/15 text-orange-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="text-3xl font-black text-orange-400" id="findings-card-high">0</div>
+                </div>
+
+                <!-- Remediated / Confirmed -->
+                <div class="bg-tech-panel p-5 rounded-2xl border border-slate-800 flex flex-col justify-between group hover:border-emerald-500/40 transition-all">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-black uppercase tracking-wider text-emerald-400">Remediated</span>
+                        <span class="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        </span>
+                    </div>
+                    <div class="flex items-baseline space-x-2">
+                        <div class="text-3xl font-black text-emerald-400" id="findings-card-remediated">0</div>
+                        <span class="text-xs text-slate-400" id="findings-card-confirmed-sub">(0 confirmed)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Findings Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Severity Doughnut Chart -->
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                    <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-tech-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path></svg>
+                        <span>Severity Breakdown</span>
+                    </h3>
+                    <div class="h-64 relative flex items-center justify-center">
+                        <canvas id="findingsSeverityChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Top Categories Horizontal Bar Chart -->
+                <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                    <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                        <svg class="w-5 h-5 text-tech-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                        <span>Top Finding Categories</span>
+                    </h3>
+                    <div class="h-64 relative">
+                        <canvas id="findingsCategoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Findings Feed Table -->
+            <div class="bg-tech-panel p-6 rounded-2xl border border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                            <span>Recent Security Findings</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Most recent vulnerabilities identified during threat hunting.</p>
+                    </div>
+                    <span id="findings-recent-count-badge" class="px-2.5 py-1 text-xs font-black rounded-lg bg-slate-800 text-slate-400 border border-slate-700">0 Items</span>
+                </div>
+
+                <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-900/80 text-[11px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="py-3 px-4">Severity</th>
+                                <th class="py-3 px-4">Title</th>
+                                <th class="py-3 px-4">Domain</th>
+                                <th class="py-3 px-3">Category</th>
+                                <th class="py-3 px-3">Status</th>
+                                <th class="py-3 px-4">Reported By</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cov-findings-table-body" class="divide-y divide-slate-800/60 font-medium">
+                            <tr>
+                                <td colspan="6" class="py-6 text-center text-slate-500 text-xs">Loading findings...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Coverage Row 2: Tester Leaderboard & Project Violet Campaigns -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <!-- Tester Workload & Leaderboard -->
@@ -412,6 +595,11 @@
     let coverageCharts = {};
     let currentTab = 'infrastructure';
     let coverageDataLoaded = false;
+    let currentTimeframe = 'all';
+    let currentStartDate = '';
+    let currentEndDate = '';
+    let currentFilterUser = '';
+    let availableUsersList = [];
 
     // Switch between Infrastructure and Coverage tabs
     function switchStatsTab(tab) {
@@ -797,7 +985,20 @@
     // ==========================================
     async function loadCoverageStats() {
         try {
-            const resp = await fetch('/api/threat-hunting/stats');
+            const params = new URLSearchParams();
+            if (currentTimeframe && currentTimeframe !== 'all') {
+                params.set('timeframe', currentTimeframe);
+            }
+            if (currentTimeframe === 'custom') {
+                if (currentStartDate) params.set('start_date', currentStartDate);
+                if (currentEndDate) params.set('end_date', currentEndDate);
+            }
+            if (currentFilterUser) {
+                params.set('user', currentFilterUser);
+            }
+
+            const url = `/api/threat-hunting/stats${params.toString() ? '?' + params.toString() : ''}`;
+            const resp = await fetch(url);
             if (resp.status === 401) {
                 window.location.href = '/login?next=/statistics#coverage';
                 return;
@@ -806,14 +1007,183 @@
             const data = await resp.json();
 
             coverageDataLoaded = true;
+            availableUsersList = data.available_users || [];
+
+            // Update Timeframe badge in Findings section
+            const tfBadge = document.getElementById('findings-timeframe-badge');
+            if (tfBadge) {
+                tfBadge.innerText = data.timeframe_label || currentTimeframe;
+            }
+
             renderCoverageKPIs(data);
             renderCoverageCharts(data);
+            renderFindingsKPIs(data.findings_stats || {});
+            renderFindingsCharts(data.findings_stats || {});
+            renderFindingsTable((data.findings_stats && data.findings_stats.recent) || []);
             renderTestersTable(data.testers || []);
             renderCampaignsTable(data.recent_campaigns || []);
             renderAuditStream(data.recent_activities || []);
         } catch (e) {
             console.error('Error loading coverage statistics:', e);
         }
+    }
+
+    // Timeframe filter helpers
+    function setTimeframe(tf) {
+        currentTimeframe = tf;
+        const customInputs = document.getElementById('custom-range-inputs');
+        if (customInputs && tf !== 'custom') {
+            customInputs.classList.add('hidden');
+            customInputs.classList.remove('flex');
+        }
+
+        // Update button visual states
+        document.querySelectorAll('.tf-btn').forEach(btn => {
+            if (btn.getAttribute('data-tf') === tf) {
+                btn.className = "tf-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-tech-accent/20 text-tech-accent border border-tech-accent/40 shadow-sm transition-all";
+            } else {
+                btn.className = "tf-btn px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white transition-all";
+            }
+        });
+
+        if (tf !== 'custom') {
+            currentStartDate = '';
+            currentEndDate = '';
+            loadCoverageStats();
+        }
+    }
+
+    function toggleCustomRange() {
+        const customInputs = document.getElementById('custom-range-inputs');
+        if (!customInputs) return;
+        if (customInputs.classList.contains('hidden')) {
+            customInputs.classList.remove('hidden');
+            customInputs.classList.add('flex');
+            setTimeframe('custom');
+        } else {
+            customInputs.classList.add('hidden');
+            customInputs.classList.remove('flex');
+            setTimeframe('all');
+        }
+    }
+
+    function applyCustomRange() {
+        const sInput = document.getElementById('cov-start-date');
+        const eInput = document.getElementById('cov-end-date');
+        currentStartDate = sInput ? sInput.value : '';
+        currentEndDate = eInput ? eInput.value : '';
+        if (!currentStartDate) {
+            alert('Please select a start date');
+            return;
+        }
+        currentTimeframe = 'custom';
+        loadCoverageStats();
+    }
+
+    // User Autocomplete & Filtering helpers
+    function filterByUser(username) {
+        if (!username) return;
+        currentFilterUser = username;
+
+        // Update active user pill
+        const pill = document.getElementById('active-user-pill');
+        const nameEl = document.getElementById('active-user-name');
+        if (pill && nameEl) {
+            nameEl.innerText = username;
+            pill.classList.remove('hidden');
+            pill.classList.add('flex');
+        }
+
+        // Update search input
+        const searchInput = document.getElementById('cov-user-search-input');
+        if (searchInput) searchInput.value = '';
+        const clearBtn = document.getElementById('cov-user-clear-btn');
+        if (clearBtn) clearBtn.classList.remove('hidden');
+        hideUserSuggestions();
+
+        loadCoverageStats();
+    }
+
+    function clearUserFilter() {
+        currentFilterUser = '';
+        const pill = document.getElementById('active-user-pill');
+        if (pill) {
+            pill.classList.add('hidden');
+            pill.classList.remove('flex');
+        }
+        const searchInput = document.getElementById('cov-user-search-input');
+        if (searchInput) searchInput.value = '';
+        const clearBtn = document.getElementById('cov-user-clear-btn');
+        if (clearBtn) clearBtn.classList.add('hidden');
+        hideUserSuggestions();
+
+        loadCoverageStats();
+    }
+
+    function hideUserSuggestions() {
+        const box = document.getElementById('cov-user-suggestions');
+        if (box) box.classList.add('hidden');
+    }
+
+    function setupUserAutocomplete() {
+        const searchInput = document.getElementById('cov-user-search-input');
+        const suggestionsBox = document.getElementById('cov-user-suggestions');
+        if (!searchInput || !suggestionsBox) return;
+
+        searchInput.addEventListener('input', (e) => {
+            const query = (e.target.value || '').trim().toLowerCase();
+            const clearBtn = document.getElementById('cov-user-clear-btn');
+            if (clearBtn) {
+                if (query.length > 0) clearBtn.classList.remove('hidden');
+                else if (!currentFilterUser) clearBtn.classList.add('hidden');
+            }
+
+            if (!query) {
+                suggestionsBox.classList.add('hidden');
+                return;
+            }
+
+            const matches = availableUsersList.filter(u => {
+                const un = (u.username || '').toLowerCase();
+                return un.includes(query);
+            });
+
+            if (matches.length === 0) {
+                suggestionsBox.innerHTML = `
+                    <div class="px-3 py-2 text-xs text-slate-500 italic">No matching testers</div>
+                `;
+                suggestionsBox.classList.remove('hidden');
+                return;
+            }
+
+            suggestionsBox.innerHTML = matches.map(u => `
+                <div onclick="filterByUser('${escapeHtml(u.username)}')"
+                     class="px-3 py-2 hover:bg-slate-800 cursor-pointer flex items-center justify-between text-xs border-b border-slate-800/60 last:border-0 transition-colors">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-5 h-5 rounded-full bg-tech-accent/20 text-tech-accent text-[10px] font-black flex items-center justify-center uppercase">
+                            ${escapeHtml(u.username.substring(0, 2))}
+                        </div>
+                        <span class="font-bold text-white">${escapeHtml(u.username)}</span>
+                    </div>
+                    <span class="text-[10px] uppercase font-bold text-slate-500">${escapeHtml(u.role || 'user')}</span>
+                </div>
+            `).join('');
+            suggestionsBox.classList.remove('hidden');
+        });
+
+        // Close dropdown on outside click
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
+                suggestionsBox.classList.add('hidden');
+            }
+        });
+
+        // Handle Escape key
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                suggestionsBox.classList.add('hidden');
+            }
+        });
     }
 
     function renderCoverageKPIs(data) {
@@ -923,7 +1293,7 @@
                             const idx = elements[0].index;
                             const statusMap = ['covered', 'in_progress', 'surface_changed', 'unassessed'];
                             const selectedStatus = statusMap[idx];
-                            window.location.href = `/assignments?status=${selectedStatus}`;
+                            window.location.href = `/dashboard?coverage=${selectedStatus}`;
                         }
                     },
                     onHover: (e, elements) => {
@@ -933,7 +1303,7 @@
             });
         }
 
-        // 2. 14-Day Throughput Trend
+        // 2. Throughput Trend
         const trendCanvas = document.getElementById('coverageTrendChart');
         if (trendCanvas) {
             const trendData = data.daily_trend || [];
@@ -1025,7 +1395,7 @@
                             if (elements.length > 0) {
                                 const idx = elements[0].index;
                                 const user = testers[idx].username;
-                                window.location.href = `/assignments?user=${encodeURIComponent(user)}`;
+                                filterByUser(user);
                             }
                         },
                         onHover: (e, elements) => {
@@ -1039,11 +1409,177 @@
                     <div class="h-full flex flex-col items-center justify-center text-center p-4">
                         <svg class="w-10 h-10 text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                         <p class="text-sm font-bold text-slate-400">No tester assignments recorded yet</p>
-                        <a href="/assignments" class="mt-2 text-xs text-tech-accent hover:underline">Go to Threat Hunt Workspace &rarr;</a>
+                        <a href="/dashboard" class="mt-2 text-xs text-tech-accent hover:underline">Go to Dashboard &rarr;</a>
                     </div>
                 `;
             }
         }
+    }
+
+    // Security Findings Renderers
+    function renderFindingsKPIs(fStats) {
+        const total = fStats.total || 0;
+        const critical = fStats.critical || 0;
+        const high = fStats.high || 0;
+        const remediated = fStats.remediated || 0;
+        const confirmed = fStats.confirmed || 0;
+
+        const elTotal = document.getElementById('findings-card-total');
+        if (elTotal) elTotal.innerText = total.toLocaleString();
+
+        const elCrit = document.getElementById('findings-card-critical');
+        if (elCrit) elCrit.innerText = critical.toLocaleString();
+
+        const elHigh = document.getElementById('findings-card-high');
+        if (elHigh) elHigh.innerText = high.toLocaleString();
+
+        const elRem = document.getElementById('findings-card-remediated');
+        if (elRem) elRem.innerText = remediated.toLocaleString();
+
+        const elConfSub = document.getElementById('findings-card-confirmed-sub');
+        if (elConfSub) elConfSub.innerText = `(${confirmed.toLocaleString()} confirmed)`;
+
+        const elBadge = document.getElementById('findings-recent-count-badge');
+        if (elBadge) {
+            const count = (fStats.recent && fStats.recent.length) || 0;
+            elBadge.innerText = `${count} Recent`;
+        }
+    }
+
+    function renderFindingsCharts(fStats) {
+        if (coverageCharts.findingsSeverity && typeof coverageCharts.findingsSeverity.destroy === 'function') {
+            coverageCharts.findingsSeverity.destroy();
+        }
+        if (coverageCharts.findingsCategories && typeof coverageCharts.findingsCategories.destroy === 'function') {
+            coverageCharts.findingsCategories.destroy();
+        }
+
+        const sevCanvas = document.getElementById('findingsSeverityChart');
+        if (sevCanvas) {
+            const crit = fStats.critical || 0;
+            const high = fStats.high || 0;
+            const med = fStats.medium || 0;
+            const low = fStats.low || 0;
+            const info = fStats.info || 0;
+
+            coverageCharts.findingsSeverity = new Chart(sevCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+                    datasets: [{
+                        data: [crit, high, med, low, info],
+                        backgroundColor: ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#94a3b8'],
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 12, padding: 12 } }
+                    }
+                }
+            });
+        }
+
+        const catCanvas = document.getElementById('findingsCategoryChart');
+        if (catCanvas) {
+            const categories = fStats.categories || [];
+            coverageCharts.findingsCategories = new Chart(catCanvas, {
+                type: 'bar',
+                data: {
+                    labels: categories.map(c => c.name || 'Other'),
+                    datasets: [{
+                        label: 'Findings',
+                        data: categories.map(c => c.count || 0),
+                        backgroundColor: '#818cf8',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', precision: 0 } },
+                        y: { grid: { display: false }, ticks: { color: '#f1f5f9', font: { weight: 'bold' } } }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+    }
+
+    function renderFindingsTable(recent) {
+        const tbody = document.getElementById('cov-findings-table-body');
+        if (!tbody) return;
+
+        if (!recent || recent.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="py-6 text-center text-slate-500 text-xs">
+                        No security findings recorded for this timeframe.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        const sevColors = {
+            'critical': 'bg-red-500/15 text-red-400 border-red-500/30',
+            'high': 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+            'medium': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+            'low': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+            'info': 'bg-slate-700/50 text-slate-300 border-slate-600'
+        };
+
+        const statusBadges = {
+            'confirmed': 'bg-red-500/10 text-red-400 border-red-500/20',
+            'in_progress': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+            'remediated': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+            'draft': 'bg-slate-800 text-slate-400 border-slate-700'
+        };
+
+        tbody.innerHTML = recent.map(f => {
+            const sevClass = sevColors[(f.severity || '').toLowerCase()] || sevColors['info'];
+            const statusClass = statusBadges[(f.status || '').toLowerCase()] || statusBadges['draft'];
+            const timeAgo = f.created_at ? formatTimeAgo(f.created_at) : '';
+
+            return `
+                <tr class="hover:bg-slate-800/40 transition-colors">
+                    <td class="py-3 px-4">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${sevClass}">
+                            ${escapeHtml(f.severity || 'info')}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4">
+                        <span class="font-bold text-white text-xs">${escapeHtml(f.title || 'Untitled')}</span>
+                    </td>
+                    <td class="py-3 px-4">
+                        <a href="/dashboard?q=${encodeURIComponent(f.domain || '')}" class="font-mono text-xs text-tech-accent hover:underline">
+                            ${escapeHtml(f.domain || '-')}
+                        </a>
+                    </td>
+                    <td class="py-3 px-3 text-xs">
+                        <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono text-[11px]">
+                            ${escapeHtml(f.category || 'General')}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusClass}">
+                            ${escapeHtml((f.status || 'draft').replace('_', ' '))}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4 text-xs text-slate-400">
+                        <span class="font-bold text-slate-300">${escapeHtml(f.created_by || 'Unknown')}</span>
+                        <span class="text-slate-500 block text-[10px]">${timeAgo}</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
     }
 
     function renderTestersTable(testers) {
@@ -1095,9 +1631,14 @@
                         </div>
                     </td>
                     <td class="py-3 px-3 text-right">
-                        <a href="/assignments?user=${encodeURIComponent(t.username)}" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white inline-flex items-center transition-all">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
-                        </a>
+                        <div class="flex items-center justify-end space-x-1.5">
+                            <button type="button" onclick="filterByUser('${escapeHtml(t.username)}')" title="Filter stats by ${escapeHtml(t.username)}" class="p-1.5 rounded-lg bg-tech-accent/15 hover:bg-tech-accent/30 text-tech-accent transition-all">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path></svg>
+                            </button>
+                            <a href="/dashboard?assigned_user=${encodeURIComponent(t.username)}" title="View targets in dashboard" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white inline-flex items-center transition-all">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                            </a>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -1225,6 +1766,8 @@
 
     // Initial load handling with hash detection
     document.addEventListener('DOMContentLoaded', () => {
+        setupUserAutocomplete();
+
         if (window.location.hash === '#coverage') {
             switchStatsTab('coverage');
         } else {

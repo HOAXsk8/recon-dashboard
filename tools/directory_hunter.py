@@ -1849,18 +1849,46 @@ class DirectoryHunterAgent(BaseAgent):
                 except Exception:
                     pass
 
+            resp_len = int(item.get("length", 0))
+            clean_path = path.strip("/")
+
+            # Check if this is a genuine directory trailing-slash normalization (/admin -> /admin/)
+            is_trailing_slash = False
             if redirect_loc:
-                # Catch-all redirect indicators (e.g. bouncing everything to /login, /, /auth, /error)
-                common_targets = ["/", "/login", "/signin", "/auth", "/home", "/index", "/dashboard", "/error", "/404"]
-                if redirect_loc in common_targets or any(redirect_loc.endswith(tgt) for tgt in ["/login", "/signin", "/auth"]):
+                parsed_loc = urllib.parse.urlparse(redirect_loc)
+                loc_path = (parsed_loc.path or "").rstrip("/")
+                if loc_path.endswith(f"/{clean_path}") or redirect_loc.rstrip("/").endswith(f"/{clean_path}"):
+                    is_trailing_slash = True
+
+            if is_trailing_slash:
+                return True
+
+            # If response size is 0 bytes and it's not trailing slash normalization, it is a bounce away from the resource
+            if resp_len == 0:
+                logger.info(f"Filtering out 0-byte redirect false positive: {item['path']} (HTTP {status})")
+                return False
+
+            if redirect_loc:
+                parsed_loc = urllib.parse.urlparse(redirect_loc)
+                loc_path = (parsed_loc.path or "").strip().lower()
+
+                # Catch-all redirect indicators (e.g. bouncing to root /, /login, /signin, etc.)
+                common_targets = ["", "/", "/login", "/signin", "/auth", "/home", "/index", "/default.aspx", "/dashboard", "/error", "/404"]
+                if loc_path in common_targets or any(loc_path.endswith(tgt) for tgt in ["/login", "/signin", "/auth", "/default.aspx"]):
                     logger.info(f"Filtering out catch-all redirect: {item['path']} redirects to common target '{redirect_loc}'")
+                    return False
+
+                # If redirect points to the root base_url
+                if redirect_loc.rstrip("/") == base_url.lower().rstrip("/"):
+                    logger.info(f"Filtering out root bounce redirect: {item['path']} redirects to base url '{redirect_loc}'")
                     return False
 
                 # If matches baseline soft-404 redirect destination
                 if spa_profile and spa_profile.get("redirect_destinations"):
                     for baseline_dest in spa_profile["redirect_destinations"]:
                         b_clean = baseline_dest.strip().lower()
-                        if redirect_loc == b_clean or redirect_loc.rstrip("/") == b_clean.rstrip("/"):
+                        b_path = urllib.parse.urlparse(b_clean).path.rstrip("/")
+                        if redirect_loc == b_clean or redirect_loc.rstrip("/") == b_clean.rstrip("/") or (b_path and loc_path == b_path):
                             logger.info(f"Filtering out baseline catch-all redirect: {item['path']} matches soft-404 destination '{redirect_loc}'")
                             return False
 
@@ -2244,6 +2272,11 @@ class DirectoryHunterAgent(BaseAgent):
 
     async def create_alert_for_item(self, root_domain, target, item, url):
         """Create a lead/alert for a newly discovered file/directory using the centralized alerting system."""
+        # Never generate sensitive file leads for 0-byte 3xx redirects (catch-all bounces)
+        if item.get("status") in [301, 302, 303, 307, 308] and int(item.get("length", 0)) == 0:
+            logger.info(f"[ALERT SUPPRESSED] Suppressed 0-byte redirect alert on {target}: {item.get('path')} (HTTP {item.get('status')})")
+            return
+
         full_discovery_url = f"{url}/{item['path']}".replace("//", "/").replace(":/", "://")
         path_lower = item['path'].lower()
         title = f"Sensitive Discovery: {item['path']}"

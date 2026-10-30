@@ -1,5 +1,5 @@
 from bson import ObjectId
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Form, File, UploadFile
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Form, File, UploadFile, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -941,6 +941,8 @@ def get_flattened_pipeline(
 
     if assigned_to:
         as_clean = str(assigned_to).strip()
+        if as_clean == "__me__" and user:
+            as_clean = user.get("username", "")
         if as_clean.lower() in ["unassigned", "none"]:
             if "$and" not in match_stage: match_stage["$and"] = []
             match_stage["$and"].append({
@@ -5091,14 +5093,58 @@ async def add_domain_hunt_note(domain_id: str, request: Request, user: dict = De
     return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
 
 @app.get("/api/threat-hunting/stats")
-async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_current_user)):
-    """Aggregate estate-wide threat hunting coverage metrics and tester activities."""
+async def get_threat_hunting_stats(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    target_user: Optional[str] = Query(None, alias="user"),
+    timeframe: Optional[str] = Query("all"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Aggregate estate-wide threat hunting coverage metrics, tester activities, and findings."""
     if not user:
         raise HTTPException(status_code=401)
 
     active_ws = await get_active_workspace(user, request)
+    ws_str = str(active_ws["_id"])
     ws_clause = workspace_match_clause(active_ws["_id"], active_ws.get("is_default", False))
-    query = ws_clause if ws_clause else {}
+    query = dict(ws_clause) if ws_clause else {}
+
+    # 1. Timeframe Parsing
+    now_dt = datetime.utcnow()
+    tf = (timeframe or "all").lower()
+    start_iso = None
+    end_iso = None
+
+    if tf == "24h":
+        start_iso = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif tf == "7d":
+        start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif tf == "30d":
+        start_iso = (now_dt - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif tf == "1y":
+        start_iso = (now_dt - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    elif tf == "custom" and start_date:
+        start_iso = f"{start_date}T00:00:00Z"
+        end_iso = f"{end_date}T23:59:59Z" if end_date else now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # 2. Scope Domain Query by User if requested
+    clean_user = target_user.strip() if target_user else None
+    if clean_user:
+        u_match = {
+            "$or": [
+                {"threat_hunt.covered_by": clean_user},
+                {"threat_hunt.claimed_by": clean_user},
+                {"threat_hunt.assigned_users": clean_user}
+            ]
+        }
+        if "$and" not in query:
+            query["$and"] = []
+        query["$and"].append(u_match)
 
     # Aggregate counts by threat_hunt.status
     pipeline = [
@@ -5215,39 +5261,98 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
             })
     campaigns_count = await domains_col.count_documents(campaign_filter)
 
-    # Daily sign-off velocity (last 14 days)
-    ws_str = str(active_ws["_id"])
+    # Sign-off velocity (dynamic grouping by timeframe)
     act_query = {"workspace_id": ws_str} if not active_ws.get("is_default") else {}
-    
-    trend_map = {}
-    now_dt = datetime.utcnow()
-    for i in range(13, -1, -1):
-        d_str = (now_dt - timedelta(days=i)).strftime("%Y-%m-%d")
-        trend_map[d_str] = 0
+    if clean_user:
+        act_query["username"] = clean_user
+    if start_iso:
+        act_query["timestamp"] = {"$gte": start_iso}
+        if end_iso:
+            act_query["timestamp"]["$lte"] = end_iso
 
-    daily_pipeline = [
-        {
-            "$match": {
-                **act_query,
-                "action": {"$in": ["mark_covered", "coverage", "covered"]}
+    trend_map = {}
+    if tf == "24h":
+        for i in range(23, -1, -1):
+            h_str = (now_dt - timedelta(hours=i)).strftime("%Y-%m-%d %H:00")
+            trend_map[h_str] = 0
+        daily_pipeline = [
+            {
+                "$match": {
+                    **act_query,
+                    "action": {"$in": ["mark_covered", "coverage", "covered"]}
+                }
+            },
+            {
+                "$project": {
+                    "slot": {"$substr": ["$timestamp", 0, 13]}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$slot",
+                    "count": {"$sum": 1}
+                }
             }
-        },
-        {
-            "$project": {
-                "day": {"$substr": ["$timestamp", 0, 10]}
+        ]
+        async for d_act in hunt_activities_col.aggregate(daily_pipeline):
+            slot = (d_act["_id"] or "") + ":00"
+            if slot in trend_map:
+                trend_map[slot] = d_act["count"]
+    elif tf == "1y":
+        for i in range(11, -1, -1):
+            m_dt = now_dt - timedelta(days=i * 30)
+            trend_map[m_dt.strftime("%Y-%m")] = 0
+        daily_pipeline = [
+            {
+                "$match": {
+                    **act_query,
+                    "action": {"$in": ["mark_covered", "coverage", "covered"]}
+                }
+            },
+            {
+                "$project": {
+                    "slot": {"$substr": ["$timestamp", 0, 7]}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$slot",
+                    "count": {"$sum": 1}
+                }
             }
-        },
-        {
-            "$group": {
-                "_id": "$day",
-                "count": {"$sum": 1}
+        ]
+        async for d_act in hunt_activities_col.aggregate(daily_pipeline):
+            slot = d_act["_id"]
+            if slot in trend_map:
+                trend_map[slot] = d_act["count"]
+    else:
+        days_count = 7 if tf == "7d" else (30 if tf == "30d" else 14)
+        for i in range(days_count - 1, -1, -1):
+            d_str = (now_dt - timedelta(days=i)).strftime("%Y-%m-%d")
+            trend_map[d_str] = 0
+        daily_pipeline = [
+            {
+                "$match": {
+                    **act_query,
+                    "action": {"$in": ["mark_covered", "coverage", "covered"]}
+                }
+            },
+            {
+                "$project": {
+                    "slot": {"$substr": ["$timestamp", 0, 10]}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$slot",
+                    "count": {"$sum": 1}
+                }
             }
-        }
-    ]
-    async for d_act in hunt_activities_col.aggregate(daily_pipeline):
-        day = d_act["_id"]
-        if day in trend_map:
-            trend_map[day] = d_act["count"]
+        ]
+        async for d_act in hunt_activities_col.aggregate(daily_pipeline):
+            day = d_act["_id"]
+            if day in trend_map:
+                trend_map[day] = d_act["count"]
 
     daily_trend = [{"date": k, "count": v} for k, v in trend_map.items()]
 
@@ -5256,8 +5361,72 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
     recent_acts = await recent_cursor.to_list(length=15)
     for act in recent_acts:
         act["_id"] = str(act["_id"])
+        if "user" not in act and "username" in act:
+            act["user"] = act["username"]
 
     coverage_pct = round((status_counts.get("covered", 0) / total * 100), 1) if total > 0 else 0.0
+
+    # 3. Security Findings Statistics Aggregation
+    ws_find_c = workspace_match_clause(ws_str, active_ws.get("is_default", False))
+    find_query = dict(ws_find_c) if ws_find_c else {}
+    if clean_user:
+        find_query["$or"] = [{"created_by": clean_user}, {"assigned_to": clean_user}]
+    if start_iso:
+        find_time = {"$gte": start_iso[:10]}
+        if end_iso:
+            find_time["$lte"] = end_iso[:10] + "T23:59:59"
+        find_query["created_at"] = find_time
+
+    find_total = await findings_col.count_documents(find_query)
+    find_critical = await findings_col.count_documents({**find_query, "severity": "critical"})
+    find_high = await findings_col.count_documents({**find_query, "severity": "high"})
+    find_medium = await findings_col.count_documents({**find_query, "severity": "medium"})
+    find_low = await findings_col.count_documents({**find_query, "severity": "low"})
+    find_info = await findings_col.count_documents({**find_query, "severity": "info"})
+    find_confirmed = await findings_col.count_documents({**find_query, "status": "confirmed"})
+    find_in_progress = await findings_col.count_documents({**find_query, "status": "in_progress"})
+    find_remediated = await findings_col.count_documents({**find_query, "status": "remediated"})
+    find_draft = await findings_col.count_documents({**find_query, "status": "draft"})
+
+    cat_pipeline = [
+        {"$match": find_query},
+        {"$group": {"_id": {"$ifNull": ["$category", "Other"]}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 8}
+    ]
+    find_categories = []
+    async for c_doc in findings_col.aggregate(cat_pipeline):
+        find_categories.append({"name": c_doc["_id"] or "Uncategorized", "count": c_doc["count"]})
+
+    recent_findings_cursor = findings_col.find(find_query).sort("created_at", -1).limit(10)
+    recent_findings = []
+    async for f_doc in recent_findings_cursor:
+        t_domain = f_doc.get("target") or f_doc.get("domain") or f_doc.get("root_domain") or "Target"
+        recent_findings.append({
+            "id": str(f_doc["_id"]),
+            "title": f_doc.get("title") or "Untitled finding",
+            "severity": (f_doc.get("severity") or "info").lower(),
+            "status": f_doc.get("status") or "confirmed",
+            "target": t_domain,
+            "domain": t_domain,
+            "category": f_doc.get("category") or "General",
+            "created_by": f_doc.get("created_by") or "tester",
+            "created_at": str(f_doc.get("created_at") or "")
+        })
+
+    # Available users for client-side search autocomplete
+    u_cursor = users_col.find({}, {"username": 1, "role": 1})
+    avail_users = [{"username": u["username"], "role": u.get("role", "tester")} async for u in u_cursor]
+
+    tf_labels = {
+        "24h": "Last 24 Hours",
+        "7d": "Last 7 Days",
+        "30d": "Last 30 Days",
+        "1y": "Last 1 Year",
+        "all": "All Time",
+        "custom": f"{start_date or ''} to {end_date or ''}".strip(" to ") or "Custom Range",
+    }
+    timeframe_label = tf_labels.get(tf, "All Time")
 
     return {
         "workspace_id": ws_str,
@@ -5271,7 +5440,25 @@ async def get_threat_hunting_stats(request: Request, user: dict = Depends(get_cu
         "recent_campaigns": recent_campaigns,
         "daily_trend": daily_trend,
         "testers": testers_list,
-        "recent_activities": recent_acts
+        "recent_activities": recent_acts,
+        "findings_stats": {
+            "total": find_total,
+            "critical": find_critical,
+            "high": find_high,
+            "medium": find_medium,
+            "low": find_low,
+            "info": find_info,
+            "confirmed": find_confirmed,
+            "in_progress": find_in_progress,
+            "remediated": find_remediated,
+            "draft": find_draft,
+            "categories": find_categories,
+            "recent": recent_findings
+        },
+        "available_users": avail_users,
+        "selected_user": clean_user,
+        "selected_timeframe": tf,
+        "timeframe_label": timeframe_label
     }
 
 @app.get("/api/threat-hunting/my-targets")
@@ -5538,12 +5725,6 @@ async def get_threat_hunting_assignments(
         "users": all_users
     }
 
-@app.get("/assignments")
-async def assignments_page(request: Request, user: dict = Depends(get_current_user)):
-    """Render threat hunting assignments dashboard."""
-    if not user:
-        return RedirectResponse(url="/")
-    return await render_page(request, "assignments.html", {}, user)
 
 
 
