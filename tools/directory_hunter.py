@@ -1756,7 +1756,9 @@ class DirectoryHunterAgent(BaseAgent):
             "redirect_destinations": set(),
             "waf": "",
             "spa_title": "",
-            "spa_detected": False
+            "spa_detected": False,
+            "wildcard_handler": False,
+            "wildcard_title": ""
         }
 
         test_tokens = [
@@ -1802,6 +1804,8 @@ class DirectoryHunterAgent(BaseAgent):
                 except Exception as e:
                     logger.debug(f"Root probe error for {base_url}: {e}")
 
+                tokens_200 = 0
+                probed_titles = []
                 for token in test_tokens:
                     probe_url = f"{base_url.rstrip('/')}/{token}"
                     try:
@@ -1811,14 +1815,23 @@ class DirectoryHunterAgent(BaseAgent):
                             profile["lengths"].add(body_len)
                             logger.info(f"Soft-404 probe on {base_url}: detected baseline length {body_len} (Status {resp.status_code})")
 
-                        # If a .zip probe returns 200 with text/html, target is an SPA catch-all!
-                        if token.endswith(".zip") and resp.status_code == 200:
+                        if resp.status_code == 200:
+                            tokens_200 += 1
+                            tm = re.search(r'<title>(.*?)</title>', resp.text[:2000], re.I)
+                            if tm:
+                                probed_titles.append(tm.group(1).strip())
                             ct = (resp.headers.get("content-type") or "").lower()
-                            if "text/html" in ct:
+                            if "text/html" in ct and (token.endswith(".zip") or token.endswith(".php")):
                                 profile["spa_detected"] = True
                                 logger.info(f"[*] SPA Catch-All 200 OK behavior confirmed on {base_url}")
                     except Exception:
                         pass
+
+                if tokens_200 >= 2:
+                    profile["wildcard_handler"] = True
+                    if probed_titles:
+                        profile["wildcard_title"] = probed_titles[0]
+                    logger.info(f"[*] Wildcard/Handler Catch-All Confirmed on {base_url}: {tokens_200}/{len(test_tokens)} random probes returned HTTP 200 OK (Title: '{profile.get('wildcard_title')}')")
         except Exception as e:
             logger.debug(f"Soft-404 profile probe exception on {base_url}: {e}")
 
@@ -1904,27 +1917,48 @@ class DirectoryHunterAgent(BaseAgent):
             async with httpx.AsyncClient(verify=False, timeout=6.0, follow_redirects=True, headers={"User-Agent": self.user_agent}) as client:
                 resp = await client.get(file_url)
                 ct = (resp.headers.get("content-type") or "").lower()
-                body_start = resp.text[:2000].lower()
+                body_start = resp.text[:2500].lower()
                 is_html = "text/html" in ct or "<!doctype html" in body_start or "<html" in body_start
 
-                # Non-HTML sensitive file extensions
+                # Non-HTML sensitive and configuration file extensions
                 non_html_extensions = (
                     ".zip", ".tar.gz", ".tgz", ".sql", ".sqlite", ".db", ".env", ".key",
                     ".pem", ".crt", ".pfx", ".p12", ".bak", ".old", ".json", ".xml",
                     ".yaml", ".yml", ".ini", ".conf", ".properties", ".log", ".gz",
-                    ".txt", ".toml", ".cfg"
+                    ".txt", ".toml", ".cfg", ".config", ".htaccess", ".htpasswd", ".npmrc",
+                    ".lock"
                 )
-                if any(path.endswith(ext) or f"{ext}." in path for ext in non_html_extensions):
-                    if is_html:
-                        logger.info(f"Filtering out SPA catch-all false positive: {item['path']} returned HTML instead of data/binary file")
-                        return False
+                is_data_or_config = (
+                    any(path.endswith(ext) or f"{ext}." in path for ext in non_html_extensions) or
+                    path.endswith("web.config") or "/.git/" in path or path.endswith("/.git")
+                )
+                if is_data_or_config and is_html:
+                    logger.info(f"Filtering out catch-all false positive: {item['path']} returned HTML instead of data/config file")
+                    return False
 
-                # Code file extensions (.php, .jsp, .aspx, .py, .js)
+                # Reject known diagnostic / error titles returning HTTP 200
                 if is_html:
-                    if spa_profile and spa_profile.get("spa_title"):
-                        if spa_profile["spa_title"].lower() in body_start:
+                    diagnostic_titles = [
+                        "apache status", "server status", "apache server status",
+                        "404 not found", "page not found", "error 404", "not found",
+                        "access denied", "403 forbidden", "default switch page",
+                        "iis7", "welcome to nginx", "welcome to openresty"
+                    ]
+                    title_m = re.search(r'<title>(.*?)</title>', body_start, re.I)
+                    if title_m:
+                        t_clean = title_m.group(1).strip().lower()
+                        if any(dt in t_clean for dt in diagnostic_titles):
+                            logger.info(f"Filtering out diagnostic/error page false positive: {item['path']} has title '{title_m.group(1).strip()}'")
+                            return False
+
+                    if spa_profile:
+                        if spa_profile.get("wildcard_title") and spa_profile["wildcard_title"].lower() in body_start:
+                            logger.info(f"Filtering out wildcard catch-all: {item['path']} matches wildcard title '{spa_profile['wildcard_title']}'")
+                            return False
+                        if spa_profile.get("spa_title") and spa_profile["spa_title"].lower() in body_start:
                             logger.info(f"Filtering out SPA catch-all false positive: {item['path']} matches SPA title '{spa_profile['spa_title']}'")
                             return False
+
                     if any(marker in body_start for marker in ["<div id=\"root\"", "<div id=\"app\"", "<app-root", "ng-version"]):
                         logger.info(f"Filtering out SPA catch-all false positive: {item['path']} contains SPA root container")
                         return False
@@ -1936,7 +1970,10 @@ class DirectoryHunterAgent(BaseAgent):
                         return False
                 if (path.endswith(".xml") or path.endswith("web.config")) and not is_html:
                     stripped = resp.text.strip()
-                    if not ("<" in stripped and ">" in stripped):
+                    if not (stripped.startswith("<") and (">" in stripped)):
+                        return False
+                    if path.endswith("web.config") and "<configuration" not in stripped.lower():
+                        logger.info(f"Filtering out web.config false positive: missing <configuration> XML root in {item['path']}")
                         return False
 
         except Exception as e:
@@ -2047,7 +2084,13 @@ class DirectoryHunterAgent(BaseAgent):
             curr_url = f"{base_url}/{curr_dir}".rstrip("/")
             logger.info(f"Phase 1: Directory hunting on: {curr_url or '/'}")
 
-            dir_baseline = await self.probe_soft_404_lengths(curr_url) if curr_dir else root_baseline
+            dir_profile = await self.probe_soft_404_profile(curr_url) if curr_dir else profile
+            if dir_profile.get("wildcard_handler") or dir_profile.get("spa_detected"):
+                w_title = dir_profile.get("wildcard_title") or dir_profile.get("spa_title") or "Unknown"
+                logger.info(f"[*] Skipping recursive directory hunt on wildcard/handler endpoint '{curr_url}' (Title: '{w_title}')")
+                continue
+
+            dir_baseline = dir_profile.get("lengths", set())
 
             cmd = [
                 "ffuf", "-w", dir_wl, "-u", f"{curr_url}/FUZZ",
@@ -2163,7 +2206,13 @@ class DirectoryHunterAgent(BaseAgent):
             target_url = f"{base_url}/{d_path}".rstrip("/")
             logger.info(f"Phase 2 File Scan: {target_url or '/'} (Active Tech: {active_tech})")
 
-            dir_baseline = await self.probe_soft_404_lengths(target_url) if d_path else root_baseline
+            dir_profile = await self.probe_soft_404_profile(target_url) if d_path else spa_profile
+            if dir_profile.get("wildcard_handler") or dir_profile.get("spa_detected"):
+                w_title = dir_profile.get("wildcard_title") or dir_profile.get("spa_title") or "Unknown"
+                logger.info(f"[*] Skipping Phase 2 File Scan on wildcard/handler directory '{target_url}' (Title: '{w_title}'). Sub-paths are handled dynamically.")
+                continue
+
+            dir_baseline = dir_profile.get("lengths", set())
 
             # Build smart file wordlist using current active_tech + brand/env permutations
             active_wl = self.build_smart_file_wordlist_for_dir(d_path, tech_stack=active_tech, target=target, root_domain=root_domain)
@@ -2208,7 +2257,7 @@ class DirectoryHunterAgent(BaseAgent):
                                         discovered_dirs.add(clean_dp)
 
                                 # Validate against catch-all redirects & SPA false positives
-                                is_genuine = await self.verify_discovered_file(base_url, cand_item, spa_profile=spa_profile)
+                                is_genuine = await self.verify_discovered_file(base_url, cand_item, spa_profile=dir_profile)
                                 if not is_genuine:
                                     continue
 
@@ -2235,16 +2284,43 @@ class DirectoryHunterAgent(BaseAgent):
         filtered_files = self.filter_duplicate_lengths(all_items, baseline_lengths=root_baseline, threshold=3)
 
         # Identify technology ONLY from surviving verified files that returned HTTP 200 OK
+        # and enforce mutually-exclusive primary runtime sanity checks
+        PRIMARY_RUNTIME_CLASSES = {
+            "php": ["PHP", "WordPress", "Laravel", "Drupal", "Joomla"],
+            "asp.net": ["ASP.NET", "IIS"],
+            "java": ["Java", "Spring Boot", "Apache Tomcat"],
+            "node.js": ["Node.js", "Next.js"],
+            "python": ["Python", "Django"],
+            "ruby": ["Ruby on Rails"],
+            "coldfusion": ["ColdFusion"]
+        }
+
+        file_proposed_techs = []
         for f_item in filtered_files:
             if f_item.get("status") == 200:
                 newly_found_techs = self.identify_tech_from_file_path(f_item["path"])
                 if newly_found_techs:
-                    unseen = [t for t in newly_found_techs if t not in active_tech]
-                    if unseen:
-                        for t in unseen:
-                            active_tech.append(t)
-                        logger.info(f"[+] Dynamic Tech Fingerprint: Identified {unseen} on {target} from verified 200 OK file {f_item['path']}")
-                        await self.update_tech_fingerprint(target, root_domain, unseen, f_item["path"], base_url)
+                    for t in newly_found_techs:
+                        file_proposed_techs.append((t, f_item["path"]))
+
+        proposed_classes = set()
+        for t, _ in file_proposed_techs:
+            for rt_class, aliases in PRIMARY_RUNTIME_CLASSES.items():
+                if any(t.lower() == a.lower() for a in aliases):
+                    proposed_classes.add(rt_class)
+                    break
+
+        if len(proposed_classes) > 1:
+            logger.warning(
+                f"[!] Suppressing tech stack discovery on {target}: Detected {len(proposed_classes)} conflicting "
+                f"primary runtimes {proposed_classes} across file findings. Possible unflagged catch-all."
+            )
+        else:
+            for t, src_path in file_proposed_techs:
+                if t not in active_tech:
+                    active_tech.append(t)
+                    logger.info(f"[+] Dynamic Tech Fingerprint: Identified [{t}] on {target} from verified 200 OK file {src_path}")
+                    await self.update_tech_fingerprint(target, root_domain, [t], src_path, base_url)
 
         logger.info(f"Phase 2 Complete: Discovered {len(filtered_files)} files on {base_url} across scanned directories.")
         return filtered_files, active_tech
