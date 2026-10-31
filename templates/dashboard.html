@@ -6001,16 +6001,22 @@
                         </span>
                         <span class="text-slate-400 text-xs sm:text-sm">${hunt.covered_at ? new Date(hunt.covered_at).toLocaleString() : ''}</span>
                     </div>
-                    ${hunt.notes ? `
-                    <div class="pt-2 border-t border-slate-800">
-                        <span class="text-slate-400 uppercase font-bold text-xs">Campaign URL (Project Violet):</span>
-                        <p class="text-slate-200 mt-1 break-all text-xs sm:text-sm font-mono">${hunt.notes.startsWith('http') ? `<a href="${hunt.notes}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline inline-flex items-center gap-1">${hunt.notes} ↗</a>` : hunt.notes}</p>
-                    </div>` : ''}
+                </div>
+
+                <div class="space-y-3 pt-2">
+                    <div>
+                        <label class="text-xs sm:text-sm font-mono text-slate-300 uppercase font-bold block mb-1.5">Campaign URL (Project Violet)</label>
+                        <input type="text" id="th-form-notes" value="${(hunt.notes || '').replace(/"/g, '&quot;')}" placeholder="https://..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-tech-accent" autocomplete="off" />
+                        ${hunt.notes && hunt.notes.startsWith('http') ? `<a href="${hunt.notes.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline text-xs font-mono mt-1.5 inline-block">Open campaign URL ↗</a>` : ''}
+                    </div>
+                    <button onclick="window.submitHuntAction('note', { note: (document.getElementById('th-form-notes')?.value || '').trim(), append: false })" class="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold text-sm font-mono shadow-lg transition-all flex items-center justify-center">
+                        Save URL
+                    </button>
                 </div>
 
                 <div class="flex items-center gap-2 pt-1">
-                    <button onclick="window.promptAddNote()" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5">
-                        <span>📝</span> Add Note
+                    <button onclick="window.submitHuntAction('uncover')" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-200 hover:text-rose-300 font-mono text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5" title="Undo the covered marker">
+                        <span>↩</span> Mark as Incomplete
                     </button>
                 </div>
             </div>`;

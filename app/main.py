@@ -5030,6 +5030,57 @@ async def mark_domain_covered(domain_id: str, request: Request, user: dict = Dep
 
     return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
 
+@app.post("/api/domains/{domain_id}/hunt/uncover")
+async def unmark_domain_covered(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Undo a covered marker (e.g. marked in error) and return target to unassessed."""
+    check_analyst(user)
+    try:
+        obj_id = ObjectId(domain_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid domain ID format")
+
+    domain_doc = await domains_col.find_one({"_id": obj_id})
+    if not domain_doc:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    hunt = domain_doc.get("threat_hunt") or get_default_threat_hunt()
+    username = user["username"]
+    now_iso = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    prev_covered_by = hunt.get("covered_by")
+
+    hunt["status"] = "unassessed"
+    hunt["covered_by"] = None
+    hunt["covered_at"] = None
+    hunt["last_assessed_at"] = None
+    hunt["claimed_by"] = None
+    hunt["claimed_at"] = None
+    hunt["assigned_users"] = []
+    hunt["surface_changed"] = False
+
+    history = hunt.get("history") or []
+    history.append({
+        "action": "unmarked_covered",
+        "username": username,
+        "timestamp": now_iso,
+        "prev_covered_by": prev_covered_by
+    })
+    hunt["history"] = history
+
+    await domains_col.update_one({"_id": obj_id}, {"$set": {"threat_hunt": hunt}})
+
+    await hunt_activities_col.insert_one({
+        "timestamp": now_iso,
+        "domain": domain_doc["domain"],
+        "domain_id": domain_id,
+        "workspace_id": str(domain_doc.get("workspace_id", "")),
+        "username": username,
+        "action": "unmark_covered",
+        "details": "Reverted covered status to incomplete"
+    })
+    await log_audit(username, "HUNT_UNCOVERED", f"Reverted covered status on {domain_doc['domain']}", request)
+
+    return {"status": "success", "domain": domain_doc["domain"], "threat_hunt": hunt}
+
 @app.post("/api/domains/{domain_id}/hunt/note")
 async def add_domain_hunt_note(domain_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Append or update a threat hunting note on a target."""
@@ -5326,20 +5377,60 @@ async def get_threat_hunting_stats(
             if slot in trend_map:
                 trend_map[slot] = d_act["count"]
     else:
-        days_count = 7 if tf == "7d" else (30 if tf == "30d" else 14)
-        for i in range(days_count - 1, -1, -1):
-            d_str = (now_dt - timedelta(days=i)).strftime("%Y-%m-%d")
-            trend_map[d_str] = 0
+        # Determine the span covered by the selected time parameters
+        cover_actions = ["mark_covered", "coverage", "covered"]
+        range_end = now_dt
+        range_start = None
+        if tf == "7d":
+            range_start = now_dt - timedelta(days=6)
+        elif tf == "30d":
+            range_start = now_dt - timedelta(days=29)
+        elif tf == "custom" and start_date:
+            try:
+                range_start = datetime.strptime(start_date[:10], "%Y-%m-%d")
+                if end_date:
+                    range_end = datetime.strptime(end_date[:10], "%Y-%m-%d")
+            except ValueError:
+                range_start = None
+        else:  # "all" (or unknown): start from the earliest sign-off recorded
+            first_act = await hunt_activities_col.find(
+                {**act_query, "action": {"$in": cover_actions}}
+            ).sort("timestamp", 1).limit(1).to_list(length=1)
+            if first_act and first_act[0].get("timestamp"):
+                try:
+                    range_start = datetime.strptime(str(first_act[0]["timestamp"])[:10], "%Y-%m-%d")
+                except ValueError:
+                    range_start = None
+        if range_start is None or range_start > range_end:
+            range_start = now_dt - timedelta(days=13)
+            range_end = now_dt
+
+        span_days = (range_end.date() - range_start.date()).days + 1
+        monthly = span_days > 92
+        slot_len = 7 if monthly else 10
+
+        if monthly:
+            y, m = range_start.year, range_start.month
+            while (y, m) <= (range_end.year, range_end.month):
+                trend_map[f"{y:04d}-{m:02d}"] = 0
+                m += 1
+                if m > 12:
+                    y, m = y + 1, 1
+        else:
+            for i in range(span_days):
+                d_str = (range_start + timedelta(days=i)).strftime("%Y-%m-%d")
+                trend_map[d_str] = 0
+
         daily_pipeline = [
             {
                 "$match": {
                     **act_query,
-                    "action": {"$in": ["mark_covered", "coverage", "covered"]}
+                    "action": {"$in": cover_actions}
                 }
             },
             {
                 "$project": {
-                    "slot": {"$substr": ["$timestamp", 0, 10]}
+                    "slot": {"$substr": ["$timestamp", 0, slot_len]}
                 }
             },
             {
